@@ -24,9 +24,9 @@ except Exception:  # pragma: no cover
     OpenAI = None
 
 
-load_dotenv()
-
 BASE_DIR = Path(__file__).resolve().parents[1]
+# Always read the backend-local .env file, regardless of the process working directory.
+load_dotenv(BASE_DIR / ".env")
 DB_PATH = BASE_DIR / "data.sqlite3"
 
 
