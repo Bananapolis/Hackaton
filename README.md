@@ -12,8 +12,8 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 
 * **Real-Time Communication (Screen Sharing):** WebRTC. Essential for browser-to-browser, low-latency video feeds.
 * **Real-Time Data (State/Engagement):** WebSockets (e.g., Socket.io or standard WebSockets). Required for instant break requests, confusion alerts, and quiz triggers without polling the database.
-* **Frontend:** React, Vue, or Svelte. A reactive framework is mandatory for managing live state changes (timers, popups). Use a utility CSS framework like Tailwind to secure the "User Experience" points quickly.
-* **Backend:** Node.js (Express) or Python (FastAPI). FastAPI is advantageous if you are utilizing Python-based AI libraries.
+* **Frontend:** React with Tailwind
+* **Backend:** Python with FastAPI
 * **AI Integration:** OpenAI API (GPT-3.5/4o-mini) or Anthropic API. Used strictly for parsing the current context/notes and generating the 1-question quiz with 4 options.
 * **Database:** SQLite or PostgreSQL. For a 24h MVP, SQLite is sufficient to store session data, attendance, and basic statistics.
 
@@ -35,29 +35,6 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 * **UC-S3: Break Request:** Click a button to vote for a break. *Constraint:* Must be governed by a rate-limiting cooldown mechanism to prevent spam.
 * **UC-S4: Quiz Participation:** Receive and interact with the pop-up quiz overlay, selecting one of the 4 generated options.
 * **UC-S5: Break Interface:** View the synchronized countdown timer indicating when the session resumes.
-
-## 4. Hackathon Execution & Scoring Strategy
-
-To maximize the 41 available points, your development must align strictly with the rubric.
-
-### Creativity (Max 18 points)
-
-* *Originality & Relevancy:* Screen sharing is not new, but treating the screen share as a base layer for automated AI interactions and anonymous engagement metrics is.
-* *Innovation:* **Focus heavily on the "Zero-Friction" aspect for the teacher.** The AI generating a quiz with one click, and the system automatically aggregating confusion without requiring the teacher to read a chat box, is your core innovative differentiator.
-
-### Quality (Max 10 points)
-
-* *Scope Reduction Warning:* You mentioned "highlighting something on board". **Cut this feature immediately.** Synchronizing canvas drawing over a WebRTC video stream within 24 hours introduces high risk for bugs. A buggy feature will tank your "Code Quality" and "User Experience" scores. Stick to UI overlays (buttons and popups).
-* *Choice of Methods:* Explicitly document your use of WebRTC and WebSockets. Judges reward the correct application of real-time protocols for live data.
-* *User Experience:* The teacher dashboard must be uncluttered. Hide the statistics behind a toggle or post-session view so they are "not bothered by data during class."
-
-### Teamwork & Presentation (Max 13 points)
-
-* Divide the team ruthlessly:
-  * Member 1: WebRTC/WebSocket infrastructure.
-  * Member 2: Frontend UI & Teacher/Student Views.
-  * Member 3: AI Integration & Statistics Data modeling.
-  * Member 4: Server Deployment & Presentation prep.
 
 ## 5. Deployment Protocol
 
