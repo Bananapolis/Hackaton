@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
-  BarChart3,
   Coffee,
   Copy,
   Eye,
@@ -12,10 +11,10 @@ import {
   LockOpen,
   Monitor,
   Moon,
-  RefreshCw,
   Settings,
   Sparkles,
   Sun,
+  Trophy,
   Users,
   X,
 } from 'lucide-react'
@@ -99,13 +98,12 @@ function Icon({ name, className = 'h-5 w-5' }) {
   const icons = {
     settings: Settings,
     notes: FileText,
-    insights: BarChart3,
+    awards: Trophy,
     sun: Sun,
     moon: Moon,
     screen: Monitor,
     quiz: Sparkles,
     break: Coffee,
-    refresh: RefreshCw,
     confusion: HelpCircle,
     users: Users,
     copy: Copy,
@@ -149,7 +147,7 @@ function App() {
   const [selectedQuizOptionId, setSelectedQuizOptionId] = useState('')
   const [showSessionPanel, setShowSessionPanel] = useState(true)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
-  const [showInsightsPanel, setShowInsightsPanel] = useState(false)
+  const [showAwardsPanel, setShowAwardsPanel] = useState(false)
   const [screenExplanation, setScreenExplanation] = useState('')
   const [screenExplanationGeneratedAt, setScreenExplanationGeneratedAt] = useState('')
   const [explainLoading, setExplainLoading] = useState(false)
@@ -696,6 +694,13 @@ function App() {
     send('request_analytics')
   }
 
+  function openAwardsPanel() {
+    if (isTeacher && joined) {
+      requestAnalytics()
+    }
+    setShowAwardsPanel(true)
+  }
+
   function startBreak(durationSeconds = 300) {
     send('start_break', { duration_seconds: durationSeconds })
   }
@@ -742,6 +747,7 @@ function App() {
   )
   const confusionMetricDisplay = `${Math.round(confusionLevelPercent)}%`
   const breakVotesMetricDisplay = `${metrics.break_votes} (${Math.round(breakVotePercent)}%)`
+  const awards = Array.isArray(analytics?.awards) ? analytics.awards : []
   const shortStatus = status.length > 54 ? `${status.slice(0, 54)}…` : status
   const breakIsActive = Boolean(breakEndTime && breakEndTime > Date.now() / 1000)
   const compactMetrics = [
@@ -783,15 +789,17 @@ function App() {
             >
               <Icon name="notes" className="h-5 w-5" />
             </button>
-            <button
-              type="button"
-              onClick={() => setShowInsightsPanel(true)}
-              className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
-              title="Insights"
-              aria-label="Insights"
-            >
-              <Icon name="insights" className="h-5 w-5" />
-            </button>
+            {isTeacher ? (
+              <button
+                type="button"
+                onClick={openAwardsPanel}
+                className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                title="Class awards"
+                aria-label="Class awards"
+              >
+                <Icon name="awards" className="h-5 w-5" />
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
@@ -971,19 +979,6 @@ function App() {
                           </button>
                         </>
                       ) : null}
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={() => {
-                          requestAnalytics()
-                          setShowInsightsPanel(true)
-                        }}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-slate-800 text-lg text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Refresh analytics"
-                        aria-label="Refresh analytics"
-                      >
-                        <Icon name="refresh" className="h-5 w-5" />
-                      </button>
                     </>
                   ) : (
                     <>
@@ -1273,17 +1268,17 @@ function App() {
           </div>
         ) : null}
 
-        {showInsightsPanel ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowInsightsPanel(false)}>
+        {showAwardsPanel ? (
+          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowAwardsPanel(false)}>
             <section
               className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Insights</h2>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Class awards</h2>
                 <button
                   type="button"
-                  onClick={() => setShowInsightsPanel(false)}
+                  onClick={() => setShowAwardsPanel(false)}
                   className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                   title="Close"
                   aria-label="Close"
@@ -1299,11 +1294,34 @@ function App() {
               </div>
 
               {isTeacher ? (
-                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
-                  <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
-                  <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
-                  <div>Accuracy: {accuracyValue}%</div>
-                </div>
+                <>
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
+                    <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
+                    <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
+                    <div>Accuracy: {accuracyValue}%</div>
+                  </div>
+
+                  <div className="mt-3 space-y-2">
+                    {awards.length ? (
+                      awards.map((award) => (
+                        <div
+                          key={award.id}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70"
+                        >
+                          <div className="font-semibold text-slate-900 dark:text-slate-100">{award.title}</div>
+                          <div className="text-slate-600 dark:text-slate-300">{award.description}</div>
+                          <div className="mt-1 text-sky-700 dark:text-sky-300">
+                            {award.winner_name ? `${award.winner_name} · ${award.value} ${award.unit}` : 'No winner yet'}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 dark:border-slate-600 dark:text-slate-300">
+                        No award data yet. Ask students to interact with quiz, confusion, or break actions.
+                      </div>
+                    )}
+                  </div>
+                </>
               ) : null}
             </section>
           </div>

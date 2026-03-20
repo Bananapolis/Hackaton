@@ -12,8 +12,8 @@ This repository now contains a complete MVP implementation with:
 
 - **Backend:** FastAPI + WebSocket signaling + SQLite persistence
 - **Frontend:** React + Tailwind + browser WebRTC integration
-- **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, and analytics snapshot
-- **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, student "explain the screen" AI help, and analytics snapshot
+- **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, and analytics snapshot.
+- **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, student "explain the screen" AI help, and analytics + class awards snapshot.
 - **Teacher awareness:** browser desktop notifications when confusion level is high or break-vote threshold is reached (when notification permission is granted)
 
 ## 2. Technical Architecture & Recommended Stack
@@ -65,7 +65,7 @@ SQLite stores:
 	- write/push notes,
 	- generate quiz (with AI prompt presets like default/funny/challenge and optional custom instruction),
 	- start synchronized break and manage it live (extend/reduce by 1 minute, cancel/end now),
-	- view analytics cards.
+	- open a trophy-based class awards modal with rankings like most active student and most correct answers.
 - Student can:
 	- join via session code,
 	- receive teacher stream,
@@ -95,7 +95,7 @@ The backend sends both to a Gemini multimodal model when configured.
 * **UC-T3: AI Quiz Generation:** Trigger a single-button action to generate a contextual multiple-choice question (4 options). Push the question as a global overlay to all connected students.
 * **UC-T4: Break Management:** Initiate a synchronized break timer manually or accept a break prompt triggered by student thresholds. During break, adjust time (+/- 1 minute), end immediately, and display both countdown and "be back at" time.
 * **UC-T5: Note Distribution:** Create and push shared text notes to the student interface during the live session.
-* **UC-T6: Analytics Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, and exported notes.
+* **UC-T6: Analytics & Awards Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, class awards (e.g. most active student / most correct answers), and exported notes.
 
 ### Actor 2: Student (Client)
 

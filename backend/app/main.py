@@ -122,6 +122,11 @@ class ClientState:
     joined_at: float = field(default_factory=time.time)
     last_break_vote_at: float = 0.0
     last_confusion_vote_at: float | None = None
+    confusion_signals_sent: int = 0
+    break_votes_cast: int = 0
+    quiz_answers_submitted: int = 0
+    quiz_correct_answers: int = 0
+    last_active_at: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -603,6 +608,61 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
 
     accuracy = (correct_answers / total_answers) if total_answers else 0.0
 
+    students = [client for client in session.clients.values() if client.role == "student"]
+
+    def top_student_value(metric: str, *, min_value: int = 1) -> dict[str, Any] | None:
+        if not students:
+            return None
+
+        top_value = max(getattr(student, metric, 0) for student in students)
+        if top_value < min_value:
+            return None
+
+        winners = sorted({student.name for student in students if getattr(student, metric, 0) == top_value})
+        if not winners:
+            return None
+
+        return {
+            "winner_name": ", ".join(winners),
+            "value": top_value,
+            "winner_count": len(winners),
+        }
+
+    most_active = top_student_value("confusion_signals_sent")
+    if not most_active:
+        most_active = top_student_value("quiz_answers_submitted")
+
+    awards = [
+        {
+            "id": "most_active_student",
+            "title": "Most active student",
+            "description": "Most participation signals sent.",
+            "unit": "actions",
+            **(most_active or {}),
+        },
+        {
+            "id": "most_correct_answers",
+            "title": "Most correct answers",
+            "description": "Highest number of correct quiz answers.",
+            "unit": "correct",
+            **(top_student_value("quiz_correct_answers") or {}),
+        },
+        {
+            "id": "quiz_champion",
+            "title": "Quiz champion",
+            "description": "Most quiz answers submitted.",
+            "unit": "answers",
+            **(top_student_value("quiz_answers_submitted") or {}),
+        },
+        {
+            "id": "break_ambassador",
+            "title": "Break ambassador",
+            "description": "Most break votes cast.",
+            "unit": "votes",
+            **(top_student_value("break_votes_cast") or {}),
+        },
+    ]
+
     return {
         "session_code": session.code,
         "teacher_name": session.teacher_name,
@@ -620,6 +680,7 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
             "cover_mode": session.quiz_cover_mode,
             "voting_closed": session.quiz_voting_closed,
         },
+        "awards": awards,
         "notes": session.notes,
     }
 
@@ -768,6 +829,8 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     continue
                 now_epoch = time.time()
                 state.last_confusion_vote_at = now_epoch
+                state.confusion_signals_sent += 1
+                state.last_active_at = now_epoch
                 insert_event(code, "confusion", {"client_id": client_id, "level": 1.0})
                 await broadcast(
                     session,
@@ -795,6 +858,8 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     continue
 
                 state.last_break_vote_at = now
+                state.break_votes_cast += 1
+                state.last_active_at = now
                 session.break_votes.add(client_id)
                 insert_event(code, "break_vote", {"client_id": client_id})
 
@@ -1013,7 +1078,14 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 if option_id not in {"A", "B", "C", "D"}:
                     continue
 
+                if client_id in session.quiz_answers:
+                    continue
+
                 session.quiz_answers[client_id] = option_id
+                state.quiz_answers_submitted += 1
+                if option_id == session.current_quiz.correct_option_id:
+                    state.quiz_correct_answers += 1
+                state.last_active_at = time.time()
                 insert_event(code, "quiz_answer", {"client_id": client_id, "option_id": option_id})
 
                 summary = analytics_for_session(session)["quiz"]

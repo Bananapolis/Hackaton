@@ -96,3 +96,7 @@
   - backend in [backend/app/main.py](backend/app/main.py) now supports teacher `break_control` actions to adjust active break duration (+/- seconds) and cancel/end break,
   - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now provides teacher controls for `-1 min`, `+1 min`, and `End` during an active break,
   - break UI in [frontend/src/components/CountdownBanner.jsx](frontend/src/components/CountdownBanner.jsx) now shows both countdown and explicit return time ("Be back at HH:MM").
+- Simplified analytics access and added classroom awards:
+  - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now exposes a single trophy button (top toolbar) instead of duplicate analytics triggers,
+  - frontend awards modal now presents rankings such as most active student and most correct answers,
+  - backend in [backend/app/main.py](backend/app/main.py) now tracks per-student participation/correctness counters and includes computed `awards` in analytics payloads.
