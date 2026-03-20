@@ -53,3 +53,8 @@
   - introduced backend-synchronized quiz state (`hidden`, `cover_mode`, `voting_closed`),
   - enabled teacher actions to cover/uncover quiz, stop/resume voting, and hide/show quiz,
   - increased quiz question/option typography significantly in cover mode with stronger contrast blur.
+- Applied a professional UI refinement pass focused on cleaner product polish:
+  - adopted `lucide-react` for consistent React-native iconography across controls and overlays,
+  - shifted the interface to a restrained neutral-and-blue palette with more editorial typography,
+  - added subtle shell atmosphere and motion while keeping existing teacher/student workflows intact,
+  - documented the updated visual direction in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).
