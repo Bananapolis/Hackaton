@@ -13,6 +13,7 @@ This repository now contains a complete MVP implementation with:
 - **Backend:** FastAPI + WebSocket signaling + SQLite persistence
 - **Frontend:** React + Tailwind + browser WebRTC integration
 - **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, and analytics snapshot
+- **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, analytics snapshot, and session end with downloadable full engagement report
 
 ## 2. Technical Architecture & Recommended Stack
 
@@ -92,6 +93,7 @@ The backend sends both to a Gemini multimodal model when configured.
 * **UC-T4: Break Management:** Initiate a synchronized break timer manually or accept a break prompt triggered by student thresholds.
 * **UC-T5: Note Distribution:** Create and push shared text notes to the student interface during the live session.
 * **UC-T6: Analytics Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, and exported notes.
+* **UC-T7: Session Closure & Report Export:** End the live session from settings and download a full analytics report (JSON) with engagement score, participation rates, and quiz outcomes.
 
 ### Actor 2: Student (Client)
 

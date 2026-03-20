@@ -85,6 +85,14 @@ def insert_event(session_code: str, event_type: str, payload: dict[str, Any]) ->
     conn.close()
 
 
+def set_session_active(code: str, active: bool) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE sessions SET active = ? WHERE code = ?", (1 if active else 0, code))
+    conn.commit()
+    conn.close()
+
+
 def session_exists(code: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -127,6 +135,7 @@ class ClientState:
 class RuntimeSession:
     code: str
     teacher_name: str
+    created_at_epoch: float = field(default_factory=time.time)
     clients: dict[str, ClientState] = field(default_factory=dict)
     confusion_count: int = 0
     break_votes: set[str] = field(default_factory=set)
@@ -137,6 +146,9 @@ class RuntimeSession:
     quiz_hidden: bool = False
     quiz_cover_mode: bool = True
     quiz_voting_closed: bool = False
+    active: bool = True
+    ended_at_epoch: float | None = None
+    final_report: dict[str, Any] | None = None
 
     @property
     def student_count(self) -> int:
@@ -388,10 +400,27 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
         correct_answers = sum(1 for answer in answers if answer == session.current_quiz.correct_option_id)
 
     accuracy = (correct_answers / total_answers) if total_answers else 0.0
+    active_students = session.student_count
+    break_vote_rate = (len(session.break_votes) / active_students) if active_students else 0.0
+    quiz_participation_rate = (total_answers / active_students) if active_students else 0.0
+    confusion_per_student = (session.confusion_count / active_students) if active_students else 0.0
+
+    # Engagement score is a weighted composite for quick at-a-glance reporting.
+    score_raw = (
+        min(quiz_participation_rate, 1.0) * 0.55
+        + min(break_vote_rate / BREAK_THRESHOLD_PERCENT, 1.0) * 0.25
+        + min(confusion_per_student / 2.0, 1.0) * 0.20
+    )
+    engagement_score = int(round(score_raw * 100))
+
+    end_epoch = session.ended_at_epoch if session.ended_at_epoch is not None else time.time()
+    duration_seconds = max(0, int(end_epoch - session.created_at_epoch))
 
     return {
         "session_code": session.code,
         "teacher_name": session.teacher_name,
+        "session_active": session.active,
+        "duration_seconds": duration_seconds,
         "student_count": session.student_count,
         "confusion_count": session.confusion_count,
         "break_votes": len(session.break_votes),
@@ -404,13 +433,55 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
             "cover_mode": session.quiz_cover_mode,
             "voting_closed": session.quiz_voting_closed,
         },
+        "engagement": {
+            "score": engagement_score,
+            "quiz_participation_rate": round(quiz_participation_rate, 3),
+            "break_vote_rate": round(break_vote_rate, 3),
+            "confusion_per_student": round(confusion_per_student, 3),
+        },
         "notes": session.notes,
+    }
+
+
+def build_full_analytics_report(session: RuntimeSession) -> dict[str, Any]:
+    analytics = analytics_for_session(session)
+    students_connected = []
+    now_epoch = time.time()
+    for client in session.clients.values():
+        if client.role != "student":
+            continue
+        students_connected.append(
+            {
+                "client_id": client.client_id,
+                "name": client.name,
+                "joined_at_epoch": round(client.joined_at, 3),
+                "time_in_session_seconds": max(0, int(now_epoch - client.joined_at)),
+            }
+        )
+
+    return {
+        "report_type": "session_engagement",
+        "generated_at": now_iso(),
+        "analytics": analytics,
+        "students_connected": students_connected,
     }
 
 
 app = FastAPI(title="Edu Engagement MVP API", version="1.0.0")
 
-allowed_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",") if origin.strip()]
+
+def parse_allowed_origins(raw: str) -> list[str]:
+    origins: list[str] = []
+    for origin in raw.split(","):
+        normalized = origin.strip().rstrip("/")
+        if normalized:
+            origins.append(normalized)
+    return origins
+
+
+allowed_origins = parse_allowed_origins(
+    os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -450,6 +521,50 @@ def session_analytics(code: str) -> dict[str, Any]:
     return analytics_for_session(session)
 
 
+@app.post("/api/sessions/{code}/end")
+async def end_session(code: str) -> dict[str, Any]:
+    code = code.upper()
+    session = SESSIONS.get(code)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.final_report is not None:
+        return session.final_report
+
+    session.active = False
+    session.ended_at_epoch = time.time()
+    set_session_active(code, False)
+
+    report = build_full_analytics_report(session)
+    session.final_report = report
+
+    insert_event(
+        code,
+        "session_end",
+        {
+            "generated_at": report["generated_at"],
+            "engagement_score": report["analytics"]["engagement"]["score"],
+        },
+    )
+
+    await broadcast(
+        session,
+        {
+            "type": "session_ended",
+            "payload": report,
+        },
+    )
+
+    for client in list(session.clients.values()):
+        try:
+            await client.websocket.close(code=1000, reason="Session ended by teacher")
+        except Exception:
+            pass
+    session.clients.clear()
+
+    return report
+
+
 @app.websocket("/ws/{code}")
 async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) -> None:
     code = code.upper()
@@ -461,7 +576,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
         return
 
     session = SESSIONS.get(code)
-    if not session:
+    if not session or not session.active:
         await websocket.close(code=1008, reason="Unknown session code")
         return
 
