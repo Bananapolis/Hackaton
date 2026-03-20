@@ -168,7 +168,7 @@ The backend sends notes to Gemini when configured.
 make backend-run
 ```
 
-Backend default URL: `http://localhost:8000`
+Backend default URL: `http://localhost:9000`
 
 ### 5.3 Frontend setup
 
@@ -186,7 +186,7 @@ make frontend-dev
 
 Frontend default URL: `http://localhost:5173`
 
-If backend is not on `http://localhost:8000`, set `VITE_API_BASE` in frontend environment.
+If backend is not on `http://localhost:9000`, set `VITE_API_BASE` in frontend environment.
 
 ### 5.4 Build checks
 
