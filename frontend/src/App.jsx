@@ -264,11 +264,39 @@ function App() {
         setClientId(message.payload.client_id)
         setNotes(message.payload.notes || '')
         setQuiz(message.payload.quiz || null)
+        setMetrics(
+          message.payload.metrics || {
+            confusion_count: 0,
+            break_votes: 0,
+            student_count: 0,
+          },
+        )
         setQuizState(
           message.payload.quiz_state || { hidden: false, cover_mode: true, voting_closed: false },
         )
         if (message.payload.break_active_until) {
           setBreakEndTime(message.payload.break_active_until)
+        } else {
+          setBreakEndTime(null)
+        }
+      }
+
+      if (message.type === 'session_state') {
+        const nextState = message.payload || {}
+        setNotes(nextState.notes || '')
+        setQuiz(nextState.quiz || null)
+        setMetrics(
+          nextState.metrics || {
+            confusion_count: 0,
+            break_votes: 0,
+            student_count: 0,
+          },
+        )
+        setQuizState(nextState.quiz_state || { hidden: false, cover_mode: true, voting_closed: false })
+        if (nextState.break_active_until) {
+          setBreakEndTime(nextState.break_active_until)
+        } else {
+          setBreakEndTime(null)
         }
       }
 

@@ -61,3 +61,10 @@
 - Added session-preference persistence in [frontend/src/App.jsx](frontend/src/App.jsx):
   - role, participant name, and last session code now persist across browser sessions,
   - URL `?code=...` prefill remains higher priority and overrides stored code on load.
+- Improved live-session state synchronization for late-joining students:
+  - centralized backend session snapshot helpers in [backend/app/main.py](backend/app/main.py),
+  - welcome/state messages now include metrics + full current context (notes, break timer, quiz, quiz controls),
+  - frontend hydration in [frontend/src/App.jsx](frontend/src/App.jsx) now applies full session context immediately.
+- Fixed participant count desync on join/leave in [backend/app/main.py](backend/app/main.py):
+  - server now broadcasts fresh `metrics` immediately after participant joins/leaves,
+  - teacher and students now see consistent `student_count` without waiting for another event.

@@ -34,6 +34,7 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 - `GET /health` provides health status.
 - `WS /ws/{code}?role=teacher|student&name=...` handles:
 	- participant joins/leaves,
+	- full session-state sync on connect (notes, break timer, quiz state, metrics),
 	- WebRTC signal relay (`offer`/`answer`/`ICE`),
 	- confusion events,
 	- break votes with cooldown,
