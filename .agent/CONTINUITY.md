@@ -106,3 +106,7 @@
   - added `.hero-subtext`, `.lead`, and `.pastel-surface` rules for stronger typographic contrast and WCAG-friendly card text,
   - updated panel heading classes and hero label usage in [frontend/src/App.jsx](frontend/src/App.jsx),
   - documented this visual direction update in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).
+- Upgraded shared-screen maximize mode to true fullscreen in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - maximize/minimize now uses browser Fullscreen API (`requestFullscreen` / `exitFullscreen`) for full-display behavior,
+  - fullscreen state now syncs via `fullscreenchange` so icon/state follow Esc and browser-exit actions,
+  - while fullscreen is active, stage action buttons are hidden by default and appear on hover/focus (YouTube-style).
