@@ -4,51 +4,113 @@
     {
       "label": "Backend: Install deps",
       "type": "shell",
-      "command": "cd backend && /usr/bin/python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt",
+      "command": "if [ ! -d .venv ]; then (command -v python3 >/dev/null 2>&1 && python3 -m venv .venv) || python -m venv .venv; fi; ./.venv/bin/python -m pip install -r requirements.txt",
+      "windows": {
+        "command": "Set-Location backend; if (-not (Test-Path .venv)) { if (Get-Command py -ErrorAction SilentlyContinue) { py -3 -m venv .venv } else { python -m venv .venv } }; .\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
       "problemMatcher": []
     },
     {
       "label": "Backend: Run API",
       "type": "shell",
-      "command": "cd backend && (fuser -k 8000/tcp >/dev/null 2>&1 || true) && .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+      "command": "if command -v fuser >/dev/null 2>&1; then fuser -k 8000/tcp >/dev/null 2>&1 || true; fi; ./.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+      "windows": {
+        "command": "Set-Location backend; $portUsers = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($portUsers) { Stop-Process -Id $portUsers -Force }; .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+      },
       "isBackground": true,
-      "problemMatcher": []
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "^(.*)$",
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Uvicorn running on|Application startup complete"
+        }
+      }
     },
     {
       "label": "Backend: Stop API (free :8000)",
       "type": "shell",
       "command": "fuser -k 8000/tcp >/dev/null 2>&1 || true",
+      "windows": {
+        "command": "$portUsers = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($portUsers) { Stop-Process -Id $portUsers -Force }"
+      },
       "problemMatcher": []
     },
     {
       "label": "Backend: Check",
       "type": "shell",
-      "command": "cd backend && .venv/bin/python -m compileall app",
+      "command": "./.venv/bin/python -m compileall app",
+      "windows": {
+        "command": "Set-Location backend; .\\.venv\\Scripts\\python.exe -m compileall app"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
       "problemMatcher": []
     },
     {
       "label": "Frontend: Install deps",
       "type": "shell",
-      "command": "cd frontend && npm install",
+      "command": "npm install",
+      "windows": {
+        "command": "Set-Location frontend; npm install"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
       "problemMatcher": []
     },
     {
       "label": "Frontend: Run dev server",
       "type": "shell",
-      "command": "cd frontend && npm run dev -- --host 0.0.0.0 --port 5173",
+      "command": "npm run dev -- --host 0.0.0.0 --port 5173",
+      "windows": {
+        "command": "Set-Location frontend; npm run dev -- --host 0.0.0.0 --port 5173"
+      },
       "isBackground": true,
-      "problemMatcher": []
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
+      "problemMatcher": {
+        "owner": "custom",
+        "pattern": {
+          "regexp": "^(.*)$",
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "ready in|Local:"
+        }
+      }
     },
     {
       "label": "Frontend: Build",
       "type": "shell",
-      "command": "cd frontend && npm run build",
+      "command": "npm run build",
+      "windows": {
+        "command": "Set-Location frontend; npm run build"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/frontend"
+      },
       "problemMatcher": []
     },
     {
       "label": "Run Full Stack (dev)",
-      "dependsOrder": "parallel",
+      "dependsOrder": "sequence",
       "dependsOn": [
+        "Install All",
         "Backend: Run API",
         "Frontend: Run dev server"
       ],
