@@ -106,3 +106,10 @@
   - added `.hero-subtext`, `.lead`, and `.pastel-surface` rules for stronger typographic contrast and WCAG-friendly card text,
   - updated panel heading classes and hero label usage in [frontend/src/App.jsx](frontend/src/App.jsx),
   - documented this visual direction update in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).
+- Added production deployment foundation for Ubuntu servers:
+  - containerized backend via [backend/Dockerfile](backend/Dockerfile),
+  - containerized frontend + API/WebSocket reverse proxy via [frontend/Dockerfile](frontend/Dockerfile) and [frontend/nginx.conf](frontend/nginx.conf),
+  - orchestration via [docker-compose.yml](docker-compose.yml),
+  - deployment runbook and secret-handling guidance in [DEPLOYMENT.md](DEPLOYMENT.md),
+  - starter GitHub Actions CI/CD workflow in [.github/workflows/deploy.yml](.github/workflows/deploy.yml),
+  - linked deployment assets from [README.md](README.md).
