@@ -26,7 +26,7 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 * **Real-Time Data (State/Engagement):** WebSockets (e.g., Socket.io or standard WebSockets). Required for instant break requests, confusion alerts, and quiz triggers without polling the database.
 * **Frontend:** React with Tailwind
 * **Backend:** Python with FastAPI
-* **AI Integration:** Gemini API (primary) with OpenAI-compatible fallback support. Used to generate a 1-question quiz with 4 options from the current shared screen screenshot and notes.
+* **AI Integration:** Gemini API (primary) with OpenAI-compatible fallback support. Used to generate a 1-question quiz with 4 options from current notes.
 * **Database:** SQLite or PostgreSQL. For a 24h MVP, SQLite is sufficient to store session data, attendance, and basic statistics.
 
 ## 2.1 Implemented Architecture (Actual)
@@ -35,6 +35,11 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 
 - `POST /api/sessions` creates a teacher session and join code.
 - `GET /api/sessions/{code}/analytics` returns current analytics for active sessions.
+- `POST /api/auth/register` and `POST /api/auth/login` create/sign in accounts and return auth tokens.
+- `GET /api/auth/me` returns the authenticated profile.
+- `GET /api/library/sessions` returns historical sessions for the authenticated teacher name.
+- `POST /api/presentations`, `GET /api/presentations`, and `GET /api/presentations/{id}/download` manage uploaded presentation files per account.
+- `POST /api/quizzes/save` and `GET /api/quizzes` manage a per-account quiz library.
 - `GET /health` provides health status.
 - `WS /ws/{code}?role=teacher|student&name=...` handles:
 	- participant joins/leaves,
@@ -44,13 +49,16 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 	- break votes with cooldown,
 	- teacher-triggered break timer,
 	- note updates,
-	- screenshot-aware quiz generation and answer tracking,
+	- AI quiz generation and answer tracking,
 	- teacher analytics updates.
 
 SQLite stores:
 
 - `sessions` table (session lifecycle metadata)
 - `events` table (append-only event log)
+- `users` + `auth_tokens` tables (account and token-based auth)
+- `presentations` table (uploaded files metadata)
+- `saved_quizzes` table (stored quiz library entries)
 
 ### Frontend (React + Tailwind)
 
@@ -59,6 +67,7 @@ SQLite stores:
 - Icon-first controls for high-frequency actions with hover tooltips.
 - Theme toggle (dark/light) with persisted user preference (default: light).
 - Session settings persistence for role, name, and last session code across browser restarts.
+- Account authentication (register/login) before entering the live classroom workspace.
 - Session join URL supports `?code=ABC123` prefill for student devices.
 - Teacher stage includes a large on-screen QR code that encodes the student join URL.
 - Teacher can:
@@ -68,6 +77,9 @@ SQLite stores:
 	- generate quiz (with AI prompt presets like default/funny/challenge and optional custom instruction),
 	- start synchronized break and manage it live (extend/reduce by 1 minute, cancel/end now),
 	- open a trophy-based class awards modal with rankings like most active student and most correct answers.
+	- open a sessions/files/quizzes library panel,
+	- upload and download presentation files,
+	- save live generated quizzes into a persistent account-level quiz library.
 - Student can:
 	- join via session code,
 	- receive teacher stream,
@@ -81,12 +93,11 @@ UX design rationale for this iteration is documented in [frontend/UX-OVERHAUL.md
 
 For this MVP, quiz generation input is:
 
-1. **A screenshot of the current shared screen** (captured in the teacher browser), and
-2. **Teacher notes text**.
+1. **Teacher notes text**.
 
 Quiz prompts include guardrails so answer correctness should not be obvious from option length, formatting, or wording style alone.
 
-The backend sends both to a Gemini multimodal model when configured.
+The backend sends notes to Gemini when configured.
 
 ## 3. Actor Analysis & Use Cases
 

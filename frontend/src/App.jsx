@@ -6,9 +6,11 @@ import {
   Eye,
   EyeOff,
   FileText,
+  FolderOpen,
   HelpCircle,
   Lock,
   LockOpen,
+  LogOut,
   Maximize2,
   Minimize2,
   Monitor,
@@ -28,6 +30,8 @@ import { StatCard } from './components/StatCard'
 
 const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
 const sessionPreferencesStorageKey = 'session-preferences-v1'
+const authTokenStorageKey = 'auth-token-v1'
+const authUserStorageKey = 'auth-user-v1'
 const CONFUSION_NOTIFICATION_THRESHOLD_PERCENT = 65
 const CONFUSION_NOTIFICATION_RESET_PERCENT = 45
 const BREAK_NOTIFICATION_COOLDOWN_MS = 45_000
@@ -35,7 +39,7 @@ const quizPromptPresets = [
   {
     id: 'default',
     label: 'Default',
-    description: 'Balanced concept-check based on current screen and notes.',
+    description: 'Balanced concept-check based on current notes.',
   },
   {
     id: 'funny',
@@ -96,6 +100,36 @@ async function postJson(path, body) {
   return response.json()
 }
 
+async function apiRequest(path, { method = 'GET', body, token, isFormData = false } = {}) {
+  const headers = {}
+  if (!isFormData) {
+    headers['Content-Type'] = 'application/json'
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${config.apiBase}${path}`, {
+    method,
+    headers,
+    body: body
+      ? isFormData
+        ? body
+        : JSON.stringify(body)
+      : undefined,
+  })
+
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(detail || `Request failed with status ${response.status}`)
+  }
+
+  if (response.status === 204) {
+    return null
+  }
+  return response.json()
+}
+
 function Icon({ name, className = 'h-5 w-5' }) {
   const icons = {
     settings: Settings,
@@ -107,6 +141,8 @@ function Icon({ name, className = 'h-5 w-5' }) {
     maximize: Maximize2,
     minimize: Minimize2,
     quiz: Sparkles,
+    library: FolderOpen,
+    logout: LogOut,
     break: Coffee,
     confusion: HelpCircle,
     users: Users,
@@ -135,6 +171,28 @@ function App() {
   const [clientId, setClientId] = useState('')
   const [status, setStatus] = useState('Ready')
   const [error, setError] = useState('')
+  const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(authTokenStorageKey) || '')
+  const [authUser, setAuthUser] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(authUserStorageKey)
+      return raw ? JSON.parse(raw) : null
+    } catch {
+      return null
+    }
+  })
+  const [authMode, setAuthMode] = useState('login')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authDisplayName, setAuthDisplayName] = useState('')
+  const [authRole, setAuthRole] = useState('teacher')
+  const [authPending, setAuthPending] = useState(false)
+  const [showLibraryPanel, setShowLibraryPanel] = useState(false)
+  const [libraryTab, setLibraryTab] = useState('sessions')
+  const [librarySessions, setLibrarySessions] = useState([])
+  const [libraryFiles, setLibraryFiles] = useState([])
+  const [libraryQuizzes, setLibraryQuizzes] = useState([])
+  const [libraryLoading, setLibraryLoading] = useState(false)
+  const [uploadPending, setUploadPending] = useState(false)
 
   const [metrics, setMetrics] = useState({
     confusion_count: 0,
@@ -283,6 +341,22 @@ function App() {
   }, [theme])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    if (authToken) {
+      window.localStorage.setItem(authTokenStorageKey, authToken)
+    } else {
+      window.localStorage.removeItem(authTokenStorageKey)
+    }
+
+    if (authUser) {
+      window.localStorage.setItem(authUserStorageKey, JSON.stringify(authUser))
+    } else {
+      window.localStorage.removeItem(authUserStorageKey)
+    }
+  }, [authToken, authUser])
+
+  useEffect(() => {
     if (!isTeacher || !joined) return
 
     const confusionPercent = Math.max(
@@ -334,6 +408,133 @@ function App() {
       })
     } catch {
       // Ignore notification failures in unsupported browser states.
+    }
+  }
+
+  async function submitAuth() {
+    setError('')
+    setAuthPending(true)
+    try {
+      const path = authMode === 'register' ? '/api/auth/register' : '/api/auth/login'
+      const payload =
+        authMode === 'register'
+          ? {
+              email: authEmail,
+              display_name: authDisplayName,
+              password: authPassword,
+              role: authRole,
+            }
+          : {
+              email: authEmail,
+              password: authPassword,
+            }
+
+      const data = await apiRequest(path, {
+        method: 'POST',
+        body: payload,
+      })
+      setAuthToken(data.token)
+      setAuthUser(data.user)
+      setName(data.user.display_name || '')
+      setRole(data.user.role === 'student' ? 'student' : 'teacher')
+      setStatus(`Signed in as ${data.user.display_name}`)
+      setAuthPassword('')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setAuthPending(false)
+    }
+  }
+
+  function signOut() {
+    disconnect()
+    setAuthToken('')
+    setAuthUser(null)
+    setLibrarySessions([])
+    setLibraryFiles([])
+    setLibraryQuizzes([])
+    setStatus('Signed out')
+  }
+
+  async function refreshLibraryData() {
+    if (!authToken) return
+    setLibraryLoading(true)
+    try {
+      const canRequestStudentFiles = authUser?.role !== 'student' || Boolean(normalizedCode)
+      const filesPath = normalizedCode
+        ? `/api/presentations?session_code=${encodeURIComponent(normalizedCode)}`
+        : '/api/presentations'
+      const [sessionsData, filesData, quizzesData] = await Promise.all([
+        apiRequest('/api/library/sessions', { token: authToken }),
+        canRequestStudentFiles ? apiRequest(filesPath, { token: authToken }) : Promise.resolve({ presentations: [] }),
+        apiRequest('/api/quizzes', { token: authToken }),
+      ])
+      setLibrarySessions(Array.isArray(sessionsData?.sessions) ? sessionsData.sessions : [])
+      setLibraryFiles(Array.isArray(filesData?.presentations) ? filesData.presentations : [])
+      setLibraryQuizzes(Array.isArray(quizzesData?.quizzes) ? quizzesData.quizzes : [])
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLibraryLoading(false)
+    }
+  }
+
+  async function openLibraryPanel() {
+    setShowLibraryPanel(true)
+    await refreshLibraryData()
+  }
+
+  async function onUploadPresentation(event) {
+    const file = event.target.files?.[0]
+    if (!file || !authToken) return
+    if (authUser?.role !== 'teacher') return
+    if (!normalizedCode) {
+      setError('Set or join a session code before uploading files.')
+      event.target.value = ''
+      return
+    }
+
+    setUploadPending(true)
+    setError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('session_code', normalizedCode)
+      await apiRequest('/api/presentations', {
+        method: 'POST',
+        body: formData,
+        token: authToken,
+        isFormData: true,
+      })
+      setStatus(`Uploaded ${file.name}`)
+      await refreshLibraryData()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setUploadPending(false)
+      event.target.value = ''
+    }
+  }
+
+  async function saveCurrentQuizToLibrary() {
+    if (!authToken || !quiz) return
+    try {
+      await apiRequest('/api/quizzes/save', {
+        method: 'POST',
+        token: authToken,
+        body: {
+          session_code: normalizedCode || null,
+          question: quiz.question,
+          options: quiz.options,
+          correct_option_id: quiz.correct_option_id,
+        },
+      })
+      setStatus('Quiz saved to your library')
+      if (showLibraryPanel) {
+        await refreshLibraryData()
+      }
+    } catch (err) {
+      setError(err.message)
     }
   }
 
@@ -536,33 +737,6 @@ function App() {
     }
   }
 
-  function captureVideoFrame(video) {
-    if (!video) return null
-
-    const width = video.videoWidth
-    const height = video.videoHeight
-    if (!width || !height) return null
-
-    const maxWidth = 1280
-    const scale = width > maxWidth ? maxWidth / width : 1
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(width * scale))
-    canvas.height = Math.max(1, Math.round(height * scale))
-
-    const context = canvas.getContext('2d')
-    if (!context) return null
-    context.drawImage(video, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/jpeg', 0.8)
-  }
-
-  function captureSharedScreenScreenshot() {
-    return captureVideoFrame(localVideoRef.current)
-  }
-
-  function captureCurrentViewScreenshot() {
-    return captureVideoFrame(isTeacher ? localVideoRef.current : remoteVideoRef.current)
-  }
-
   function submitQuizAnswer(optionId) {
     if (!joined || isTeacher || selectedQuizOptionId || quizState.voting_closed) return
     setSelectedQuizOptionId(optionId)
@@ -572,19 +746,12 @@ function App() {
 
   function generateQuizFromCurrentScreen() {
     if (!joined || !isTeacher) return
-    const screenshotDataUrl = captureSharedScreenScreenshot()
-    if (!screenshotDataUrl) {
-      setError('Start screen share first so a screenshot can be captured for quiz generation.')
-      return
-    }
-
     const customPrompt = quizCustomPrompt.trim()
     setQuizGenerationPending(true)
     setShowQuizPromptPanel(false)
-    setStatus('Generating quiz from current screen…')
+    setStatus('Generating quiz from notes…')
     send('generate_quiz', {
       notes,
-      screenshot_data_url: screenshotDataUrl,
       quiz_preset: selectedQuizPreset,
       quiz_custom_prompt: customPrompt,
     })
@@ -593,18 +760,11 @@ function App() {
   function explainCurrentScreen() {
     if (!joined || isTeacher || explainLoading) return
 
-    const screenshotDataUrl = captureCurrentViewScreenshot()
-    if (!screenshotDataUrl) {
-      setError('No shared screen frame available yet. Wait for the teacher screen to load and try again.')
-      return
-    }
-
     setError('')
     setExplainLoading(true)
     setStatus('Generating AI explanation...')
     send('explain_screen', {
       notes,
-      screenshot_data_url: screenshotDataUrl,
     })
   }
 
@@ -754,9 +914,10 @@ function App() {
     URL.revokeObjectURL(blobUrl)
   }
 
-  async function toggleStageFullscreen() {
-    const container = stageContainerRef.current
-    if (!container) return
+  async function endSessionAndDownloadReport() {
+    if (!isTeacher || !joined || !normalizedCode || endingSession) return
+    setError('')
+    setEndingSession(true)
 
     try {
       const report = await postJson(`/api/sessions/${encodeURIComponent(normalizedCode)}/end`, {})
@@ -768,6 +929,14 @@ function App() {
       setError(err.message)
     } finally {
       setEndingSession(false)
+    }
+  }
+
+  async function toggleStageFullscreen() {
+    const container = stageContainerRef.current
+    if (!container) return
+
+    try {
       if (document.fullscreenElement === container) {
         await document.exitFullscreen()
       } else if (!document.fullscreenElement) {
@@ -798,6 +967,38 @@ function App() {
     }
   }
 
+  async function downloadPresentation(item) {
+    if (!authToken) return
+    try {
+      const downloadSuffix =
+        authUser?.role === 'student' && normalizedCode
+          ? `${item.download_url}?session_code=${encodeURIComponent(normalizedCode)}`
+          : item.download_url
+      const response = await fetch(`${config.apiBase}${downloadSuffix}`, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || `Download failed (${response.status})`)
+      }
+
+      const blob = await response.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = item.original_name || 'presentation'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(objectUrl)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const accuracyValue = Math.round(100 * (quizProgress?.accuracy ?? analytics?.quiz?.accuracy ?? 0))
   const confusionLevelPercent = Math.max(
     0,
@@ -823,6 +1024,80 @@ function App() {
   const roleLabel = isTeacher ? 'Teacher desk' : 'Student view'
   const quizVisible = Boolean(quiz) && !quizState.hidden
   const quizReadonly = isTeacher || quizState.voting_closed
+
+  if (!authToken || !authUser) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-sky-50 to-emerald-50 p-4 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900 dark:text-slate-100">
+        <div className="mx-auto mt-10 w-full max-w-lg rounded-3xl border border-slate-200/90 bg-white/90 p-6 shadow-2xl backdrop-blur dark:border-slate-700/80 dark:bg-slate-900/88">
+          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Classroom platform</div>
+          <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-slate-100">Register or sign in</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Use your account to access sessions, uploaded files, and saved quizzes.</p>
+
+          <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => setAuthMode('login')}
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition ${authMode === 'login' ? 'bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'}`}
+            >
+              Login
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode('register')}
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition ${authMode === 'register' ? 'bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'}`}
+            >
+              Register
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {authMode === 'register' ? (
+              <>
+                <input
+                  value={authDisplayName}
+                  onChange={(event) => setAuthDisplayName(event.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:ring-sky-500/40"
+                  placeholder="Display name"
+                />
+                <select
+                  value={authRole}
+                  onChange={(event) => setAuthRole(event.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:ring-sky-500/40"
+                >
+                  <option value="teacher">Teacher</option>
+                  <option value="student">Student</option>
+                </select>
+              </>
+            ) : null}
+            <input
+              value={authEmail}
+              onChange={(event) => setAuthEmail(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:ring-sky-500/40"
+              placeholder="Email"
+              type="email"
+            />
+            <input
+              value={authPassword}
+              onChange={(event) => setAuthPassword(event.target.value)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:ring-sky-500/40"
+              placeholder="Password"
+              type="password"
+            />
+            <button
+              type="button"
+              onClick={submitAuth}
+              disabled={authPending}
+              className="w-full rounded-lg bg-sky-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {authPending ? 'Please wait...' : authMode === 'register' ? 'Create account' : 'Login'}
+            </button>
+          </div>
+
+          {error ? <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">{error}</div> : null}
+        </div>
+      </div>
+    )
+  }
   const stageControlsVisibilityClass = isScreenMaximized
     ? 'opacity-0 pointer-events-none transition-opacity duration-200 group-hover/stage:opacity-100 group-hover/stage:pointer-events-auto group-focus-within/stage:opacity-100 group-focus-within/stage:pointer-events-auto'
     : ''
@@ -870,12 +1145,30 @@ function App() {
             ) : null}
             <button
               type="button"
+              onClick={openLibraryPanel}
+              className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+              title="Sessions / files / quizzes"
+              aria-label="Sessions / files / quizzes"
+            >
+              <Icon name="library" className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
               onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
               className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
               aria-label={themeToggleLabel}
               title={themeToggleLabel}
             >
               {theme === 'dark' ? <Icon name="sun" className="h-5 w-5" /> : <Icon name="moon" className="h-5 w-5" />}
+            </button>
+            <button
+              type="button"
+              onClick={signOut}
+              className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <Icon name="logout" className="h-5 w-5" />
             </button>
           </div>
         </header>
@@ -968,6 +1261,16 @@ function App() {
                       aria-label={quizState.voting_closed ? 'Resume voting' : 'Close voting'}
                     >
                       <Icon name={quizState.voting_closed ? 'lockOpen' : 'lock'} className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={saveCurrentQuizToLibrary}
+                      className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Save quiz"
+                      aria-label="Save quiz"
+                    >
+                      <Icon name="copy" className="h-5 w-5" />
                     </button>
                     <button
                       type="button"
@@ -1448,6 +1751,139 @@ function App() {
           </div>
         ) : null}
 
+        {showLibraryPanel ? (
+          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowLibraryPanel(false)}>
+            <section
+              className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Sessions / files / quizzes</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowLibraryPanel(false)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+                  {['sessions', 'files', 'quizzes'].map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setLibraryTab(tab)}
+                      className={`rounded-lg px-3 py-2 text-sm font-medium capitalize transition ${libraryTab === tab ? 'bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'}`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshLibraryData}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  Refresh
+                </button>
+              </div>
+
+              {libraryLoading ? (
+                <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">Loading library data...</div>
+              ) : null}
+
+              {!libraryLoading && libraryTab === 'sessions' ? (
+                <div className="space-y-2">
+                  {librarySessions.length ? (
+                    librarySessions.map((item) => (
+                      <div key={`${item.code}-${item.created_at}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70">
+                        <div className="font-semibold text-slate-900 dark:text-slate-100">{item.code}</div>
+                        <div className="text-slate-600 dark:text-slate-300">Teacher: {item.teacher_name}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">{new Date(item.created_at).toLocaleString()}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No sessions found for this account yet.</div>
+                  )}
+                </div>
+              ) : null}
+
+              {!libraryLoading && libraryTab === 'files' ? (
+                <div className="space-y-3">
+                  {authUser?.role === 'teacher' ? (
+                    <div className="flex items-center gap-3">
+                      <label className="inline-flex cursor-pointer items-center rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-600">
+                        {uploadPending ? 'Uploading...' : 'Upload presentation'}
+                        <input type="file" className="hidden" onChange={onUploadPresentation} disabled={uploadPending} />
+                      </label>
+                      {!normalizedCode ? (
+                        <span className="text-xs text-slate-500 dark:text-slate-400">Pick or create a session first.</span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 dark:text-slate-400">Student mode: files are read-only. Join a session code to see teacher uploads.</div>
+                  )}
+                  {libraryFiles.length ? (
+                    libraryFiles.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70">
+                        <div>
+                          <div className="font-semibold text-slate-900 dark:text-slate-100">{item.original_name}</div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400">{Math.round(item.size_bytes / 1024)} KB · {new Date(item.created_at).toLocaleString()}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => downloadPresentation(item)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                        >
+                          Download
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No uploaded presentations yet.</div>
+                  )}
+                </div>
+              ) : null}
+
+              {!libraryLoading && libraryTab === 'quizzes' ? (
+                <div className="space-y-2">
+                  {quiz ? (
+                    <button
+                      type="button"
+                      onClick={saveCurrentQuizToLibrary}
+                      className="mb-1 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                    >
+                      Save current live quiz
+                    </button>
+                  ) : null}
+
+                  {libraryQuizzes.length ? (
+                    libraryQuizzes.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70">
+                        <div className="font-semibold text-slate-900 dark:text-slate-100">{item.question}</div>
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Session: {item.session_code || '-'} · {new Date(item.created_at).toLocaleString()}</div>
+                        <div className="mt-2 grid gap-1 text-xs text-slate-600 dark:text-slate-300">
+                          {(item.options || []).map((option) => (
+                            <div key={option.id} className={option.id === item.correct_option_id ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}>
+                              {option.id}. {option.text}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No saved quizzes yet.</div>
+                  )}
+                </div>
+              ) : null}
+            </section>
+          </div>
+        ) : null}
+
         {showQuizPromptPanel && isTeacher ? (
           <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowQuizPromptPanel(false)}>
             <section
@@ -1467,7 +1903,7 @@ function App() {
                 </button>
               </div>
 
-              <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">Choose a preset style or keep default, then generate from the current shared screen.</p>
+              <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">Choose a preset style or keep default, then generate from the current notes.</p>
 
               <div className="space-y-2">
                 {quizPromptPresets.map((preset) => (

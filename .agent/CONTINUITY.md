@@ -17,7 +17,7 @@
   - [backend/requirements.txt](backend/requirements.txt)
   - [frontend/package.json](frontend/package.json)
   - [Makefile](Makefile)
-- Updated quiz generation input to **shared-screen screenshot + teacher notes**.
+- Updated quiz generation input to **teacher notes**.
 - Added support for OpenAI-compatible providers via optional `OPENAI_BASE_URL`.
 - Added student-side quiz answer confirmation state to make quiz voting feedback explicit.
 - Switched AI integration priority to **Gemini API first** (`GEMINI_API_KEY`/`GEMINI_MODEL`), with OpenAI-compatible fallback retained.
@@ -69,9 +69,19 @@
   - server now broadcasts fresh `metrics` immediately after participant joins/leaves,
   - teacher and students now see consistent `student_count` without waiting for another event.
 - Added a student-facing AI "Explain the screen" feature:
-  - backend now handles `explain_screen` websocket requests and returns per-student explanations generated from notes + shared-screen screenshot,
+  - backend now handles `explain_screen` websocket requests and returns per-student explanations generated from notes,
   - frontend now exposes an explain action button for students and renders generated explanations with loading and timestamp states,
   - documented the new capability in [README.md](README.md).
+- Removed all screenshot-related quiz/explanation plumbing:
+  - backend no longer accepts screenshot payloads for `generate_quiz` or `explain_screen`,
+  - frontend no longer captures video frames for AI actions,
+  - documentation now describes notes-only AI input.
+- Implemented account and content library foundation:
+  - backend in [backend/app/main.py](backend/app/main.py) now includes token-based auth endpoints (`/api/auth/register`, `/api/auth/login`, `/api/auth/me`),
+  - backend now supports per-account presentation upload/list/download APIs,
+  - backend now supports saving/listing quizzes via `/api/quizzes/save` and `/api/quizzes`,
+  - backend now exposes `/api/library/sessions` for account-scoped session history,
+  - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now includes register/login flow and a sessions/files/quizzes library panel with upload/download and save-quiz actions.
 - Reworked confusion tracking to prevent unlimited per-student alerts:
   - each student now has a capped personal confusion level in [backend/app/main.py](backend/app/main.py),
   - levels decay automatically over time and teacher metrics expose a live confusion percentage,
@@ -125,3 +135,7 @@
   - updated [frontend/src/config.js](frontend/src/config.js) to use same-origin API/WS in dev (proxy-first) and backend fallback port 9000,
   - added dev proxy routing in [frontend/vite.config.js](frontend/vite.config.js) for `/api`, `/ws`, and `/health` toward backend target,
   - validated end-to-end by creating a session via `http://127.0.0.1:5173/api/sessions` successfully.
+- Fixed session-end 500 crash in [backend/app/main.py](backend/app/main.py):
+  - replaced stale `session.confusion_count` access in `analytics_for_session` with confusion snapshot-derived values,
+  - restored a consistent `engagement` analytics block (`score`, participation, break-vote rate, confusion-per-student) used by end-session reporting,
+  - added safe duration/session fields to the analytics payload so report generation is stable after merges.

@@ -6,7 +6,7 @@
       "type": "shell",
       "command": "if [ ! -d .venv ]; then (command -v python3 >/dev/null 2>&1 && python3 -m venv .venv) || python -m venv .venv; fi; ./.venv/bin/python -m pip install -r requirements.txt",
       "windows": {
-        "command": "Set-Location backend; if (-not (Test-Path .venv)) { if (Get-Command py -ErrorAction SilentlyContinue) { py -3 -m venv .venv } else { python -m venv .venv } }; .\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt"
+        "command": "if (-not (Test-Path .venv)) { if (Get-Command py -ErrorAction SilentlyContinue) { py -3 -m venv .venv } else { python -m venv .venv } }; .\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt"
       },
       "options": {
         "cwd": "${workspaceFolder}/backend"
@@ -18,7 +18,7 @@
       "type": "shell",
       "command": "if command -v fuser >/dev/null 2>&1; then fuser -k 8000/tcp >/dev/null 2>&1 || true; fi; ./.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
       "windows": {
-        "command": "Set-Location backend; $portUsers = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($portUsers) { Stop-Process -Id $portUsers -Force }; .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+        "command": "$portUsers = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($portUsers) { Stop-Process -Id $portUsers -Force }; .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
       },
       "isBackground": true,
       "options": {
@@ -51,7 +51,7 @@
       "type": "shell",
       "command": "./.venv/bin/python -m compileall app",
       "windows": {
-        "command": "Set-Location backend; .\\.venv\\Scripts\\python.exe -m compileall app"
+        "command": ".\\.venv\\Scripts\\python.exe -m compileall app"
       },
       "options": {
         "cwd": "${workspaceFolder}/backend"
@@ -63,7 +63,7 @@
       "type": "shell",
       "command": "npm install",
       "windows": {
-        "command": "Set-Location frontend; npm install"
+        "command": "npm install"
       },
       "options": {
         "cwd": "${workspaceFolder}/frontend"
@@ -75,7 +75,7 @@
       "type": "shell",
       "command": "npm run dev -- --host 0.0.0.0 --port 5173",
       "windows": {
-        "command": "Set-Location frontend; npm run dev -- --host 0.0.0.0 --port 5173"
+        "command": "npm run dev -- --host 0.0.0.0 --port 5173"
       },
       "isBackground": true,
       "options": {
@@ -99,7 +99,7 @@
       "type": "shell",
       "command": "npm run build",
       "windows": {
-        "command": "Set-Location frontend; npm run build"
+        "command": "npm run build"
       },
       "options": {
         "cwd": "${workspaceFolder}/frontend"

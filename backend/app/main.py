@@ -1,11 +1,12 @@
 import json
 import os
 import random
+import secrets
 import sqlite3
 import string
 import time
 import uuid
-from base64 import b64decode
+from hashlib import pbkdf2_hmac
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,8 +15,9 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 try:
@@ -28,6 +30,27 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 # Always read the backend-local .env file, regardless of the process working directory.
 load_dotenv(BASE_DIR / ".env")
 DB_PATH = BASE_DIR / "data.sqlite3"
+UPLOADS_DIR = BASE_DIR / "uploads"
+
+
+def parse_bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    parts = authorization.strip().split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    token = parts[1].strip()
+    return token or None
+
+
+def hash_password(password: str, salt_hex: str | None = None) -> tuple[str, str]:
+    salt = bytes.fromhex(salt_hex) if salt_hex else secrets.token_bytes(16)
+    password_hash = pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120_000)
+    return salt.hex(), password_hash.hex()
+
+
+def create_auth_token() -> str:
+    return secrets.token_urlsafe(32)
 
 
 def now_iso() -> str:
@@ -35,6 +58,7 @@ def now_iso() -> str:
 
 
 def init_db() -> None:
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -56,6 +80,62 @@ def init_db() -> None:
             payload TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY(session_code) REFERENCES sessions(code)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            password_salt TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS auth_tokens (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS presentations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            session_code TEXT,
+            original_name TEXT NOT NULL,
+            stored_name TEXT NOT NULL,
+            mime_type TEXT,
+            size_bytes INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """
+    )
+    cursor.execute("PRAGMA table_info(presentations)")
+    presentation_columns = {row[1] for row in cursor.fetchall()}
+    if "session_code" not in presentation_columns:
+        cursor.execute("ALTER TABLE presentations ADD COLUMN session_code TEXT")
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS saved_quizzes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            session_code TEXT,
+            question TEXT NOT NULL,
+            options_json TEXT NOT NULL,
+            correct_option_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
         )
         """
     )
@@ -85,6 +165,34 @@ def insert_event(session_code: str, event_type: str, payload: dict[str, Any]) ->
     conn.close()
 
 
+def get_user_by_token(token: str | None) -> dict[str, Any] | None:
+    if not token:
+        return None
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT u.id, u.email, u.display_name, u.role
+        FROM auth_tokens t
+        JOIN users u ON u.id = t.user_id
+        WHERE t.token = ?
+        """,
+        (token,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def require_user(authorization: str | None) -> dict[str, Any]:
+    token = parse_bearer_token(authorization)
+    user = get_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return user
+
+
 def set_session_active(code: str, active: bool) -> None:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -110,6 +218,40 @@ class SessionCreateResponse(BaseModel):
     code: str
 
 
+class AuthRegisterRequest(BaseModel):
+    email: str
+    display_name: str
+    password: str
+    role: str
+
+
+class AuthLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UserPublic(BaseModel):
+    id: int
+    email: str
+    display_name: str
+    role: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserPublic
+
+
+class PresentationItem(BaseModel):
+    id: int
+    session_code: str | None
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    created_at: str
+    download_url: str
+
+
 class QuizOption(BaseModel):
     id: str
     text: str
@@ -119,6 +261,22 @@ class QuizPayload(BaseModel):
     question: str
     options: list[QuizOption]
     correct_option_id: str
+
+
+class SavedQuizCreateRequest(BaseModel):
+    session_code: str | None = None
+    question: str
+    options: list[QuizOption]
+    correct_option_id: str
+
+
+class SavedQuizItem(BaseModel):
+    id: int
+    session_code: str | None
+    question: str
+    options: list[QuizOption]
+    correct_option_id: str
+    created_at: str
 
 
 @dataclass
@@ -300,7 +458,7 @@ def compose_quiz_generation_prompt(style_preset: str, custom_prompt: str) -> str
     custom_instruction = custom_prompt.strip()
 
     prompt = (
-        "Generate exactly one multiple choice question with 4 options (A, B, C, D) based on lecture notes and screenshot context. "
+        "Generate exactly one multiple choice question with 4 options (A, B, C, D) based on lecture notes. "
         "Use the selected style instruction below. "
         "Keep all options similarly sized and similarly specific, so the correct answer is NOT obvious from option length, detail level, wording style, or formatting cues. "
         "Distractors must be plausible and non-joke unless style explicitly allows a playful tone. "
@@ -320,7 +478,6 @@ def compose_quiz_generation_prompt(style_preset: str, custom_prompt: str) -> str
 
 def build_quiz_with_ai(
     notes: str,
-    screenshot_data_url: str | None = None,
     style_preset: str = "default",
     custom_prompt: str = "",
 ) -> QuizPayload:
@@ -336,23 +493,6 @@ def build_quiz_with_ai(
                 "text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
             }
         ]
-
-        if screenshot_data_url and screenshot_data_url.startswith("data:"):
-            try:
-                header, b64_payload = screenshot_data_url.split(",", 1)
-                mime_type = header.split(";")[0].replace("data:", "") or "image/jpeg"
-                # Validate base64 payload before sending.
-                b64decode(b64_payload, validate=True)
-                parts.append(
-                    {
-                        "inlineData": {
-                            "mimeType": mime_type,
-                            "data": b64_payload,
-                        }
-                    }
-                )
-            except Exception:
-                pass
 
         models_to_try = [gemini_model]
         if gemini_model != "gemini-2.5-flash":
@@ -421,15 +561,6 @@ def build_quiz_with_ai(
                 "text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
             }
         ]
-        if screenshot_data_url:
-            user_content.append(
-                {
-                    "type": "input_image",
-                    "image_url": screenshot_data_url,
-                    "detail": "low",
-                }
-            )
-
         try:
             response = client.responses.create(
                 model=model,
@@ -471,7 +602,7 @@ def build_quiz_with_ai(
     raise RuntimeError("Quiz generation failed with unknown AI error")
 
 
-def build_screen_explanation_with_ai(notes: str, screenshot_data_url: str | None = None) -> str:
+def build_screen_explanation_with_ai(notes: str) -> str:
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     errors: list[str] = []
@@ -488,22 +619,6 @@ def build_screen_explanation_with_ai(notes: str, screenshot_data_url: str | None
                 "text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
             }
         ]
-
-        if screenshot_data_url and screenshot_data_url.startswith("data:"):
-            try:
-                header, b64_payload = screenshot_data_url.split(",", 1)
-                mime_type = header.split(";")[0].replace("data:", "") or "image/jpeg"
-                b64decode(b64_payload, validate=True)
-                parts.append(
-                    {
-                        "inlineData": {
-                            "mimeType": mime_type,
-                            "data": b64_payload,
-                        }
-                    }
-                )
-            except Exception:
-                pass
 
         models_to_try = [gemini_model]
         if gemini_model != "gemini-2.5-flash":
@@ -567,15 +682,6 @@ def build_screen_explanation_with_ai(notes: str, screenshot_data_url: str | None
                 ),
             }
         ]
-        if screenshot_data_url:
-            user_content.append(
-                {
-                    "type": "input_image",
-                    "image_url": screenshot_data_url,
-                    "detail": "low",
-                }
-            )
-
         try:
             response = client.responses.create(
                 model=model,
@@ -619,12 +725,30 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
         correct_answers = sum(1 for answer in answers if answer == session.current_quiz.correct_option_id)
 
     accuracy = (correct_answers / total_answers) if total_answers else 0.0
+    active_students = confusion["student_count"]
+    break_vote_rate = (len(session.break_votes) / active_students) if active_students else 0.0
+    quiz_participation_rate = (total_answers / active_students) if active_students else 0.0
+    confusion_per_student = confusion["average_level"] if active_students else 0.0
+
+    score_raw = (
+        min(quiz_participation_rate, 1.0) * 0.55
+        + min(break_vote_rate / BREAK_THRESHOLD_PERCENT, 1.0) * 0.25
+        + min(confusion_per_student, 1.0) * 0.20
+    )
+    engagement_score = int(round(score_raw * 100))
+
+    end_epoch = session.ended_at_epoch if session.ended_at_epoch is not None else time.time()
+    duration_seconds = max(0, int(end_epoch - session.created_at_epoch))
 
     return {
         "session_code": session.code,
         "teacher_name": session.teacher_name,
-        "student_count": session.student_count,
-        "confusion_count": session.confusion_count,
+        "session_active": session.active,
+        "duration_seconds": duration_seconds,
+        "student_count": active_students,
+        "confusion_count": confusion["level_percent"],
+        "confusion_level_percent": confusion["level_percent"],
+        "confusion_active_students": confusion["active_students"],
         "break_votes": len(session.break_votes),
         "break_active": bool(session.break_active_until and session.break_active_until > time.time()),
         "quiz": {
@@ -634,6 +758,12 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
             "hidden": session.quiz_hidden,
             "cover_mode": session.quiz_cover_mode,
             "voting_closed": session.quiz_voting_closed,
+        },
+        "engagement": {
+            "score": engagement_score,
+            "quiz_participation_rate": round(quiz_participation_rate, 3),
+            "break_vote_rate": round(break_vote_rate, 3),
+            "confusion_per_student": round(confusion_per_student, 3),
         },
         "notes": session.notes,
     }
@@ -695,6 +825,402 @@ def startup() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "time": now_iso()}
+
+
+@app.post("/api/auth/register", response_model=AuthResponse)
+def register(payload: AuthRegisterRequest) -> AuthResponse:
+    email = payload.email.strip().lower()
+    display_name = payload.display_name.strip()
+    password = payload.password
+    role = payload.role.strip().lower()
+
+    if role not in {"teacher", "student"}:
+        raise HTTPException(status_code=400, detail="role must be teacher or student")
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if not display_name:
+        raise HTTPException(status_code=400, detail="display_name is required")
+
+    salt_hex, password_hash_hex = hash_password(password)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO users(email, display_name, role, password_salt, password_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (email, display_name, role, salt_hex, password_hash_hex, now_iso()),
+        )
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(status_code=409, detail="Email is already registered")
+
+    user_id = cursor.lastrowid
+    token = create_auth_token()
+    cursor.execute(
+        "INSERT INTO auth_tokens(token, user_id, created_at) VALUES (?, ?, ?)",
+        (token, user_id, now_iso()),
+    )
+    conn.commit()
+
+    cursor.execute("SELECT id, email, display_name, role FROM users WHERE id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=500, detail="User creation failed")
+    user = UserPublic(**dict(row))
+    return AuthResponse(token=token, user=user)
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login(payload: AuthLoginRequest) -> AuthResponse:
+    email = payload.email.strip().lower()
+    password = payload.password
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, email, display_name, role, password_salt, password_hash FROM users WHERE email = ?",
+        (email,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    salt_hex, expected_hash_hex = row["password_salt"], row["password_hash"]
+    _, actual_hash_hex = hash_password(password, salt_hex)
+    if actual_hash_hex != expected_hash_hex:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    token = create_auth_token()
+    cursor.execute(
+        "INSERT INTO auth_tokens(token, user_id, created_at) VALUES (?, ?, ?)",
+        (token, row["id"], now_iso()),
+    )
+    conn.commit()
+    conn.close()
+
+    user = UserPublic(
+        id=row["id"],
+        email=row["email"],
+        display_name=row["display_name"],
+        role=row["role"],
+    )
+    return AuthResponse(token=token, user=user)
+
+
+@app.get("/api/auth/me", response_model=UserPublic)
+def auth_me(authorization: str | None = Header(default=None)) -> UserPublic:
+    user = require_user(authorization)
+    return UserPublic(**user)
+
+
+@app.get("/api/library/sessions")
+def list_library_sessions(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    user = require_user(authorization)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT code, created_at, teacher_name, active
+        FROM sessions
+        WHERE teacher_name = ?
+        ORDER BY datetime(created_at) DESC
+        LIMIT 100
+        """,
+        (user["display_name"],),
+    )
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return {"sessions": rows}
+
+
+@app.post("/api/presentations", response_model=PresentationItem)
+async def upload_presentation(
+    file: UploadFile = File(...),
+    session_code: str = Form(""),
+    authorization: str | None = Header(default=None),
+) -> PresentationItem:
+    user = require_user(authorization)
+    if user["role"] != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can upload files")
+
+    normalized_session_code = session_code.strip().upper()
+    if not normalized_session_code:
+        raise HTTPException(status_code=400, detail="session_code is required")
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT code, teacher_name FROM sessions WHERE code = ?",
+        (normalized_session_code,),
+    )
+    session_row = cursor.fetchone()
+    conn.close()
+    if not session_row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session_row["teacher_name"] != user["display_name"]:
+        raise HTTPException(status_code=403, detail="You can only upload files for your own sessions")
+
+    original_name = (file.filename or "presentation").strip() or "presentation"
+    extension = Path(original_name).suffix
+    safe_extension = extension[:10] if extension else ""
+    stored_name = f"{uuid.uuid4().hex}{safe_extension}"
+    file_path = UPLOADS_DIR / stored_name
+
+    raw = await file.read()
+    size_bytes = len(raw)
+    if size_bytes <= 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if size_bytes > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File exceeds 50MB limit")
+
+    file_path.write_bytes(raw)
+    created_at = now_iso()
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO presentations(user_id, session_code, original_name, stored_name, mime_type, size_bytes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user["id"],
+            normalized_session_code,
+            original_name,
+            stored_name,
+            file.content_type or "application/octet-stream",
+            size_bytes,
+            created_at,
+        ),
+    )
+    presentation_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return PresentationItem(
+        id=presentation_id,
+        session_code=normalized_session_code,
+        original_name=original_name,
+        mime_type=file.content_type or "application/octet-stream",
+        size_bytes=size_bytes,
+        created_at=created_at,
+        download_url=f"/api/presentations/{presentation_id}/download",
+    )
+
+
+@app.get("/api/presentations")
+def list_presentations(
+    session_code: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user = require_user(authorization)
+    normalized_session_code = (session_code or "").strip().upper() or None
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if user["role"] == "teacher":
+        if normalized_session_code:
+            cursor.execute(
+                """
+                SELECT p.id, p.session_code, p.original_name, p.mime_type, p.size_bytes, p.created_at
+                FROM presentations p
+                JOIN sessions s ON s.code = p.session_code
+                WHERE p.user_id = ?
+                  AND p.session_code = ?
+                  AND s.teacher_name = ?
+                ORDER BY datetime(p.created_at) DESC
+                """,
+                (user["id"], normalized_session_code, user["display_name"]),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id, session_code, original_name, mime_type, size_bytes, created_at
+                FROM presentations
+                WHERE user_id = ?
+                ORDER BY datetime(created_at) DESC
+                """,
+                (user["id"],),
+            )
+    else:
+        if not normalized_session_code:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Students must provide session_code")
+        cursor.execute(
+            """
+            SELECT p.id, p.session_code, p.original_name, p.mime_type, p.size_bytes, p.created_at
+            FROM presentations p
+            JOIN sessions s ON s.code = p.session_code
+            JOIN users u ON u.id = p.user_id
+            WHERE p.session_code = ?
+              AND u.role = 'teacher'
+              AND s.teacher_name = u.display_name
+            ORDER BY datetime(p.created_at) DESC
+            """,
+            (normalized_session_code,),
+        )
+
+    items = [
+        PresentationItem(
+            id=row["id"],
+            session_code=row["session_code"],
+            original_name=row["original_name"],
+            mime_type=row["mime_type"] or "application/octet-stream",
+            size_bytes=row["size_bytes"],
+            created_at=row["created_at"],
+            download_url=f"/api/presentations/{row['id']}/download",
+        ).model_dump()
+        for row in cursor.fetchall()
+    ]
+    conn.close()
+    return {"presentations": items}
+
+
+@app.get("/api/presentations/{presentation_id}/download")
+def download_presentation(
+    presentation_id: int,
+    session_code: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+) -> FileResponse:
+    user = require_user(authorization)
+    normalized_session_code = (session_code or "").strip().upper() or None
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if user["role"] == "teacher":
+        cursor.execute(
+            """
+            SELECT id, session_code, original_name, stored_name, mime_type
+            FROM presentations
+            WHERE id = ? AND user_id = ?
+            """,
+            (presentation_id, user["id"]),
+        )
+    else:
+        if not normalized_session_code:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Students must provide session_code")
+        cursor.execute(
+            """
+            SELECT p.id, p.session_code, p.original_name, p.stored_name, p.mime_type
+            FROM presentations p
+            JOIN sessions s ON s.code = p.session_code
+            JOIN users u ON u.id = p.user_id
+            WHERE p.id = ?
+              AND p.session_code = ?
+              AND u.role = 'teacher'
+              AND s.teacher_name = u.display_name
+            """,
+            (presentation_id, normalized_session_code),
+        )
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+
+    file_path = UPLOADS_DIR / row["stored_name"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Stored file is missing")
+
+    return FileResponse(
+        path=file_path,
+        filename=row["original_name"],
+        media_type=row["mime_type"] or "application/octet-stream",
+    )
+
+
+@app.post("/api/quizzes/save", response_model=SavedQuizItem)
+def save_quiz(payload: SavedQuizCreateRequest, authorization: str | None = Header(default=None)) -> SavedQuizItem:
+    user = require_user(authorization)
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+
+    correct_option_id = payload.correct_option_id.strip().upper()
+    options = payload.options
+    valid_option_ids = {option.id.upper() for option in options}
+    if correct_option_id not in valid_option_ids:
+        raise HTTPException(status_code=400, detail="correct_option_id must match an option id")
+
+    serialized_options = json.dumps([option.model_dump() for option in options])
+    normalized_session_code = (payload.session_code or "").strip().upper() or None
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    created_at = now_iso()
+    cursor.execute(
+        """
+        INSERT INTO saved_quizzes(user_id, session_code, question, options_json, correct_option_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (user["id"], normalized_session_code, question, serialized_options, correct_option_id, created_at),
+    )
+    quiz_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return SavedQuizItem(
+        id=quiz_id,
+        session_code=normalized_session_code,
+        question=question,
+        options=options,
+        correct_option_id=correct_option_id,
+        created_at=created_at,
+    )
+
+
+@app.get("/api/quizzes")
+def list_saved_quizzes(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    user = require_user(authorization)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, session_code, question, options_json, correct_option_id, created_at
+        FROM saved_quizzes
+        WHERE user_id = ?
+        ORDER BY datetime(created_at) DESC
+        """,
+        (user["id"],),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    quizzes: list[dict[str, Any]] = []
+    for row in rows:
+        options_raw = json.loads(row["options_json"])
+        options = [QuizOption(**item).model_dump() for item in options_raw]
+        quizzes.append(
+            {
+                "id": row["id"],
+                "session_code": row["session_code"],
+                "question": row["question"],
+                "options": options,
+                "correct_option_id": row["correct_option_id"],
+                "created_at": row["created_at"],
+            }
+        )
+
+    return {"quizzes": quizzes}
 
 
 @app.post("/api/sessions", response_model=SessionCreateResponse)
@@ -1019,13 +1545,11 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     continue
                 notes_override = str(payload.get("notes", "")).strip()
                 notes_input = notes_override if notes_override else session.notes
-                screenshot_data_url = str(payload.get("screenshot_data_url", "")).strip() or None
                 style_preset = str(payload.get("quiz_preset", "default")).strip().lower() or "default"
                 custom_prompt = str(payload.get("quiz_custom_prompt", "")).strip()
                 try:
                     quiz = build_quiz_with_ai(
                         notes_input,
-                        screenshot_data_url=screenshot_data_url,
                         style_preset=style_preset,
                         custom_prompt=custom_prompt,
                     )
@@ -1158,13 +1682,9 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
 
                 notes_override = str(payload.get("notes", "")).strip()
                 notes_input = notes_override if notes_override else session.notes
-                screenshot_data_url = str(payload.get("screenshot_data_url", "")).strip() or None
 
                 try:
-                    explanation = build_screen_explanation_with_ai(
-                        notes_input,
-                        screenshot_data_url=screenshot_data_url,
-                    )
+                    explanation = build_screen_explanation_with_ai(notes_input)
                 except Exception as exc:
                     reason = str(exc)[:500]
                     insert_event(code, "screen_explanation_failed", {"client_id": client_id, "reason": reason})
