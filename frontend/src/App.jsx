@@ -27,6 +27,9 @@ import { StatCard } from './components/StatCard'
 
 const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
 const sessionPreferencesStorageKey = 'session-preferences-v1'
+const CONFUSION_NOTIFICATION_THRESHOLD_PERCENT = 65
+const CONFUSION_NOTIFICATION_RESET_PERCENT = 45
+const BREAK_NOTIFICATION_COOLDOWN_MS = 45_000
 const quizPromptPresets = [
   {
     id: 'default',
@@ -160,6 +163,9 @@ function App() {
   const peerConnectionsRef = useRef(new Map())
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
+  const notificationPermissionRequestedRef = useRef(false)
+  const confusionNotificationArmedRef = useRef(true)
+  const lastBreakNotificationAtRef = useRef(0)
 
   const isTeacher = role === 'teacher'
   const normalizedCode = sessionCode.trim().toUpperCase()
@@ -183,6 +189,15 @@ function App() {
       localStreamRef.current?.getTracks().forEach((track) => track.stop())
     }
   }, [])
+
+  useEffect(() => {
+    if (isTeacher && joined) {
+      return
+    }
+
+    confusionNotificationArmedRef.current = true
+    lastBreakNotificationAtRef.current = 0
+  }, [isTeacher, joined])
 
   useEffect(() => {
     const persistedTheme = window.localStorage.getItem('ui-theme')
@@ -246,8 +261,64 @@ function App() {
     window.localStorage.setItem('ui-theme', theme)
   }, [theme])
 
+  useEffect(() => {
+    if (!isTeacher || !joined) return
+
+    const confusionPercent = Math.max(
+      0,
+      Math.min(100, Number(metrics.confusion_level_percent ?? metrics.confusion_count ?? 0)),
+    )
+
+    if (
+      confusionNotificationArmedRef.current &&
+      confusionPercent >= CONFUSION_NOTIFICATION_THRESHOLD_PERCENT
+    ) {
+      notifyTeacher(
+        'High confusion level detected',
+        `Class confusion is at ${Math.round(confusionPercent)}%. Consider pausing to clarify.`,
+        'teacher-confusion-high',
+      )
+      confusionNotificationArmedRef.current = false
+    }
+
+    if (confusionPercent <= CONFUSION_NOTIFICATION_RESET_PERCENT) {
+      confusionNotificationArmedRef.current = true
+    }
+  }, [isTeacher, joined, metrics.confusion_count, metrics.confusion_level_percent])
+
+  async function ensureTeacherNotificationPermission(nextRole) {
+    if (typeof window === 'undefined') return
+    if (nextRole !== 'teacher') return
+    if (!(window.Notification && typeof window.Notification.requestPermission === 'function')) return
+    if (Notification.permission !== 'default') return
+    if (notificationPermissionRequestedRef.current) return
+
+    notificationPermissionRequestedRef.current = true
+    try {
+      await Notification.requestPermission()
+    } catch {
+      // Ignore permission request failures; app remains fully functional without notifications.
+    }
+  }
+
+  function notifyTeacher(title, body, tag) {
+    if (typeof window === 'undefined') return
+    if (!(window.Notification && Notification.permission === 'granted')) return
+
+    try {
+      new Notification(title, {
+        body,
+        tag,
+        renotify: true,
+      })
+    } catch {
+      // Ignore notification failures in unsupported browser states.
+    }
+  }
+
   async function createSession() {
     setError('')
+    void ensureTeacherNotificationPermission('teacher')
     const teacherName = name.trim()
     if (!teacherName) {
       setError('Teacher name is required')
@@ -269,6 +340,7 @@ function App() {
 
   function connectWebSocket({ nextRole = role, nextName = name, nextSessionCode = sessionCode } = {}) {
     setError('')
+    void ensureTeacherNotificationPermission(nextRole)
 
     const trimmedName = nextName.trim()
     const normalizedSessionCode = nextSessionCode.trim().toUpperCase()
@@ -398,7 +470,17 @@ function App() {
       }
 
       if (message.type === 'break_threshold_reached') {
-        setStatus(`Break threshold reached (${Math.round(message.payload.ratio * 100)}%)`)
+        const ratioPercent = Math.round((message.payload?.ratio || 0) * 100)
+        setStatus(`Break threshold reached (${ratioPercent}%)`)
+        const now = Date.now()
+        if (now - lastBreakNotificationAtRef.current > BREAK_NOTIFICATION_COOLDOWN_MS) {
+          notifyTeacher(
+            'Students requested a break',
+            `${ratioPercent}% voted for a break. Consider starting one now.`,
+            'teacher-break-threshold',
+          )
+          lastBreakNotificationAtRef.current = now
+        }
       }
 
       if (message.type === 'student_joined' && isTeacher) {
@@ -633,12 +715,20 @@ function App() {
     0,
     Math.min(100, Number(metrics.confusion_level_percent ?? metrics.confusion_count ?? 0)),
   )
+  const breakVotePercent = Math.max(
+    0,
+    Math.min(
+      100,
+      metrics.student_count > 0 ? (Number(metrics.break_votes ?? 0) / Number(metrics.student_count)) * 100 : 0,
+    ),
+  )
   const confusionMetricDisplay = `${Math.round(confusionLevelPercent)}%`
+  const breakVotesMetricDisplay = `${metrics.break_votes} (${Math.round(breakVotePercent)}%)`
   const shortStatus = status.length > 54 ? `${status.slice(0, 54)}…` : status
   const compactMetrics = [
     { label: 'Students', value: metrics.student_count, icon: 'users' },
     { label: 'Confusion level', value: confusionMetricDisplay, icon: 'alert' },
-    { label: 'Break votes', value: metrics.break_votes, icon: 'break' },
+    { label: 'Break votes', value: breakVotesMetricDisplay, icon: 'break' },
   ]
   const roleLabel = isTeacher ? 'Teacher desk' : 'Student view'
   const quizVisible = Boolean(quiz) && !quizState.hidden
@@ -1152,7 +1242,7 @@ function App() {
               <div className="grid gap-3 sm:grid-cols-3">
                 <StatCard label="Students" value={metrics.student_count} />
                 <StatCard label="Confusion level" value={confusionMetricDisplay} />
-                <StatCard label="Break votes" value={metrics.break_votes} help="Threshold: 40%" />
+                <StatCard label="Break votes" value={breakVotesMetricDisplay} help="Threshold: 40%" />
               </div>
 
               {isTeacher ? (

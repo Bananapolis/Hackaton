@@ -83,3 +83,12 @@
 - Fixed stale confusion display updates in [frontend/src/App.jsx](frontend/src/App.jsx):
   - while connected, client now requests fresh session state every 2 seconds,
   - this ensures decaying confusion percentages continue updating even when no new websocket events occur.
+- Added teacher desktop notifications in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - app now requests browser notification permission when joining/creating as teacher,
+  - teacher receives a computer notification when classroom confusion crosses a high threshold,
+  - teacher receives a computer notification when student break votes hit threshold,
+  - notification triggers are deduplicated to avoid rapid repeated alerts.
+- Follow-up fix in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - break votes now display both absolute count and percentage (e.g., `1 (100%)`),
+  - improved break notification reliability for teacher-created sessions by requesting permission earlier,
+  - removed overly strict role/join guard in notification sender to avoid stale-state misses.

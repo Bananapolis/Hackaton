@@ -14,6 +14,7 @@ This repository now contains a complete MVP implementation with:
 - **Frontend:** React + Tailwind + browser WebRTC integration
 - **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, and analytics snapshot
 - **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, student "explain the screen" AI help, and analytics snapshot
+- **Teacher awareness:** browser desktop notifications when confusion level is high or break-vote threshold is reached (when notification permission is granted)
 
 ## 2. Technical Architecture & Recommended Stack
 
@@ -90,7 +91,7 @@ The backend sends both to a Gemini multimodal model when configured.
 ### Actor 1: Teacher (Host)
 
 * **UC-T1: Screen Management:** Initialize session, generate join code, share screen, freeze screen, pause sharing, and modify session settings.
-* **UC-T2: Engagement Monitoring:** Receive non-intrusive UI alerts when students report confusion or request a break. View real-time aggregated engagement metrics.
+* **UC-T2: Engagement Monitoring:** Receive non-intrusive UI alerts and browser desktop notifications when confusion gets high or students request a break. View real-time aggregated engagement metrics.
 * **UC-T3: AI Quiz Generation:** Trigger a single-button action to generate a contextual multiple-choice question (4 options). Push the question as a global overlay to all connected students.
 * **UC-T4: Break Management:** Initiate a synchronized break timer manually or accept a break prompt triggered by student thresholds.
 * **UC-T5: Note Distribution:** Create and push shared text notes to the student interface during the live session.
