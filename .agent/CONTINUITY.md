@@ -43,3 +43,13 @@
   - session code is now URL-addressable via `?code=...` and auto-prefills on load,
   - teacher settings now expose and copy a full student join URL,
   - teacher stage now renders a large scan-friendly QR code encoding the join URL.
+- Applied a high-fidelity visual redesign inspired by VIA + Apple interface principles:
+  - rebuilt app shell with cleaner light-first gradients, softer glass-like surfaces, and improved spacing,
+  - introduced a dedicated side intelligence rail for live metrics/session metadata,
+  - upgraded countdown/quiz/stat cards for premium readability and projected-screen clarity,
+  - refreshed overlays/panels to use larger radii and modern shadow hierarchy.
+- Added live quiz moderation and projection controls:
+  - removed top title/description for minimal chrome,
+  - introduced backend-synchronized quiz state (`hidden`, `cover_mode`, `voting_closed`),
+  - enabled teacher actions to cover/uncover quiz, stop/resume voting, and hide/show quiz,
+  - increased quiz question/option typography significantly in cover mode with stronger contrast blur.

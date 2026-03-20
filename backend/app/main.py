@@ -134,6 +134,9 @@ class RuntimeSession:
     notes: str = ""
     current_quiz: QuizPayload | None = None
     quiz_answers: dict[str, str] = field(default_factory=dict)
+    quiz_hidden: bool = False
+    quiz_cover_mode: bool = True
+    quiz_voting_closed: bool = False
 
     @property
     def student_count(self) -> int:
@@ -372,6 +375,9 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
             "total_answers": total_answers,
             "correct_answers": correct_answers,
             "accuracy": round(accuracy, 3),
+            "hidden": session.quiz_hidden,
+            "cover_mode": session.quiz_cover_mode,
+            "voting_closed": session.quiz_voting_closed,
         },
         "notes": session.notes,
     }
@@ -456,6 +462,11 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 "notes": session.notes,
                 "break_active_until": session.break_active_until,
                 "quiz": session.current_quiz.model_dump() if session.current_quiz else None,
+                "quiz_state": {
+                    "hidden": session.quiz_hidden,
+                    "cover_mode": session.quiz_cover_mode,
+                    "voting_closed": session.quiz_voting_closed,
+                },
             },
         },
     )
@@ -615,11 +626,60 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     continue
                 session.current_quiz = quiz
                 session.quiz_answers.clear()
+                session.quiz_hidden = False
+                session.quiz_cover_mode = True
+                session.quiz_voting_closed = False
                 insert_event(code, "quiz_generated", quiz.model_dump())
                 await broadcast(session, {"type": "quiz", "payload": quiz.model_dump()})
+                await broadcast(
+                    session,
+                    {
+                        "type": "quiz_state",
+                        "payload": {
+                            "hidden": session.quiz_hidden,
+                            "cover_mode": session.quiz_cover_mode,
+                            "voting_closed": session.quiz_voting_closed,
+                        },
+                    },
+                )
+
+            elif msg_type == "quiz_control":
+                if role != "teacher":
+                    continue
+                if not session.current_quiz:
+                    continue
+
+                if "hidden" in payload:
+                    session.quiz_hidden = bool(payload.get("hidden"))
+                if "cover_mode" in payload:
+                    session.quiz_cover_mode = bool(payload.get("cover_mode"))
+                if "voting_closed" in payload:
+                    session.quiz_voting_closed = bool(payload.get("voting_closed"))
+
+                insert_event(
+                    code,
+                    "quiz_control",
+                    {
+                        "hidden": session.quiz_hidden,
+                        "cover_mode": session.quiz_cover_mode,
+                        "voting_closed": session.quiz_voting_closed,
+                    },
+                )
+
+                await broadcast(
+                    session,
+                    {
+                        "type": "quiz_state",
+                        "payload": {
+                            "hidden": session.quiz_hidden,
+                            "cover_mode": session.quiz_cover_mode,
+                            "voting_closed": session.quiz_voting_closed,
+                        },
+                    },
+                )
 
             elif msg_type == "quiz_answer":
-                if role != "student" or not session.current_quiz:
+                if role != "student" or not session.current_quiz or session.quiz_voting_closed:
                     continue
 
                 option_id = str(payload.get("option_id", "")).upper()

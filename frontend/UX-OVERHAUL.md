@@ -71,3 +71,27 @@ This avoids constant sidebars and reduces the need for vertical scrolling.
 2. Keyboard shortcuts for teacher actions (`S` share, `Q` quiz, `B` break).
 3. Mini participant timeline showing confusion/break trend over time.
 4. Focus mode that auto-hides setup panel after join.
+
+## 2026-03-20 — Visual Identity Pass (VIA + Apple-inspired)
+
+This pass focused on **presentation quality** and a more polished institutional visual language.
+
+### Additions
+
+- Reworked shell into a clean light-first aesthetic with subtle sky tones inspired by VIA brand surfaces.
+- Introduced softer elevation model (large-radius cards, blurred translucent layers, restrained shadows).
+- Upgraded stage container and overlays to feel like a modern “control room” rather than a utility dashboard.
+- Added compact right-side intelligence rail to keep key session metadata visible without cluttering the stream.
+- Refined quiz, break banner, and metrics cards with improved hierarchy and readability from projected screens.
+- Removed non-essential top title/description to maximize visual focus on stream content.
+- Added teacher quiz controls for live moderation:
+	- full-screen cover toggle,
+	- global voting stop/resume,
+	- show/hide quiz toggle.
+- Increased quiz typography substantially in cover mode for long-distance readability.
+
+### Why this matters
+
+- Better first impression in demos and faculty presentations.
+- Reduced visual noise while preserving all existing teacher/student workflows.
+- Improved readability and spacing rhythm for both laptop and projector usage.

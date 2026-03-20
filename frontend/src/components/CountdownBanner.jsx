@@ -25,8 +25,9 @@ export function CountdownBanner({ endTimeEpoch }) {
   const seconds = String(secondsLeft % 60).padStart(2, '0')
 
   return (
-    <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-amber-800 shadow-sm dark:border-amber-500/70 dark:bg-amber-900/30 dark:text-amber-200">
-      Break active. Resuming in {minutes}:{seconds}
+    <div className="mb-4 flex items-center justify-between rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 px-4 py-2.5 text-amber-900 shadow-[0_12px_30px_-24px_rgba(217,119,6,0.9)] dark:border-amber-500/70 dark:from-amber-900/30 dark:via-amber-900/20 dark:to-amber-900/30 dark:text-amber-200">
+      <span className="text-sm font-semibold">Break active</span>
+      <span className="rounded-full bg-amber-900/10 px-3 py-1 text-sm font-semibold tracking-wide dark:bg-amber-100/10">Resuming in {minutes}:{seconds}</span>
     </div>
   )
 }

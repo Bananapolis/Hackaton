@@ -151,6 +151,7 @@ function App() {
   const [notes, setNotes] = useState('')
   const [breakEndTime, setBreakEndTime] = useState(null)
   const [quiz, setQuiz] = useState(null)
+  const [quizState, setQuizState] = useState({ hidden: false, cover_mode: true, voting_closed: false })
   const [quizProgress, setQuizProgress] = useState(null)
   const [analytics, setAnalytics] = useState(null)
   const [selectedQuizOptionId, setSelectedQuizOptionId] = useState('')
@@ -295,6 +296,9 @@ function App() {
         setClientId(message.payload.client_id)
         setNotes(message.payload.notes || '')
         setQuiz(message.payload.quiz || null)
+        setQuizState(
+          message.payload.quiz_state || { hidden: false, cover_mode: true, voting_closed: false },
+        )
         if (message.payload.break_active_until) {
           setBreakEndTime(message.payload.break_active_until)
         }
@@ -314,7 +318,12 @@ function App() {
 
       if (message.type === 'quiz') {
         setQuiz(message.payload)
+        setQuizState({ hidden: false, cover_mode: true, voting_closed: false })
         setSelectedQuizOptionId('')
+      }
+
+      if (message.type === 'quiz_state') {
+        setQuizState((current) => ({ ...current, ...(message.payload || {}) }))
       }
 
       if (message.type === 'quiz_progress') {
@@ -374,7 +383,7 @@ function App() {
   }
 
   function submitQuizAnswer(optionId) {
-    if (!joined || isTeacher || selectedQuizOptionId) return
+    if (!joined || isTeacher || selectedQuizOptionId || quizState.voting_closed) return
     setSelectedQuizOptionId(optionId)
     send('quiz_answer', { option_id: optionId })
     setStatus(`Quiz answer submitted: ${optionId}`)
@@ -527,22 +536,19 @@ function App() {
     { label: 'Confusion alerts', value: metrics.confusion_count, icon: 'alert' },
     { label: 'Break votes', value: metrics.break_votes, icon: 'break' },
   ]
+  const roleLabel = isTeacher ? 'Teacher desk' : 'Student view'
+  const quizVisible = Boolean(quiz) && !quizState.hidden
+  const quizReadonly = isTeacher || quizState.voting_closed
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
-      <div className="mx-auto flex h-full max-w-[1900px] flex-col p-3 lg:p-4">
-        <header className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/90 px-4 py-2.5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
-          <div>
-            <h1 className="text-lg font-semibold lg:text-xl">Live Class Studio</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Minimal interface. Stream-first. Context on demand.
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5">
+    <div className="min-h-screen bg-gradient-to-b from-sky-50 via-slate-50 to-slate-100 text-slate-900 transition-colors dark:from-slate-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1900px] flex-col px-3 py-3 lg:px-6 lg:py-5">
+        <header className="mb-3 flex justify-end">
+          <div className="flex items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-white/90 p-1.5 shadow-sm backdrop-blur-xl dark:border-slate-700 dark:bg-slate-800/75">
             <button
               type="button"
               onClick={() => setShowSessionPanel(true)}
-              className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-lg text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-sky-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-700"
               title="Session settings"
               aria-label="Session settings"
             >
@@ -551,7 +557,7 @@ function App() {
             <button
               type="button"
               onClick={() => setShowNotesPanel(true)}
-              className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-lg text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-sky-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-700"
               title="Shared notes"
               aria-label="Shared notes"
             >
@@ -560,7 +566,7 @@ function App() {
             <button
               type="button"
               onClick={() => setShowInsightsPanel(true)}
-              className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-lg text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-sky-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-700"
               title="Insights"
               aria-label="Insights"
             >
@@ -569,7 +575,7 @@ function App() {
             <button
               type="button"
               onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
-              className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-lg text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-sky-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-700"
               aria-label={themeToggleLabel}
               title={themeToggleLabel}
             >
@@ -580,142 +586,239 @@ function App() {
 
         <CountdownBanner endTimeEpoch={breakEndTime} />
 
-        <main className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="absolute left-3 top-3 z-20 flex items-center gap-2">
-            <div
-              className="rounded-lg bg-slate-900/75 px-2.5 py-1 text-xs text-white backdrop-blur"
-              title={status}
-              aria-label={status}
-            >
-              {shortStatus}
-            </div>
-            <div className="rounded-lg bg-slate-900/75 px-2 py-1 text-xs text-white backdrop-blur" title="Session code">
-              {normalizedCode || 'No code'}
-            </div>
-          </div>
-
-          <div className="absolute right-3 top-3 z-20 flex gap-1.5">
-            {compactMetrics.map((item) => (
-              <div
-                key={item.label}
-                className="rounded-lg bg-slate-900/75 px-2 py-1 text-xs text-white backdrop-blur"
-                title={`${item.label}: ${item.value}`}
-              >
-                <span className="mr-1 inline-flex align-middle">
-                  <Icon name={item.icon} className="h-3.5 w-3.5" />
-                </span>
-                {item.value}
+        <main className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <section className="relative min-h-[60vh] overflow-hidden rounded-[26px] border border-slate-200/70 bg-slate-900 shadow-[0_24px_60px_-34px_rgba(15,23,42,0.55)] dark:border-slate-800">
+            <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-2">
+              <div className="rounded-full border border-white/25 bg-black/55 px-3 py-1 text-xs font-medium text-white backdrop-blur" title={status}>
+                {shortStatus}
               </div>
-            ))}
-          </div>
+              <div className="rounded-full border border-sky-200/30 bg-sky-500/30 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white" title="Session code">
+                {normalizedCode || 'No code'}
+              </div>
+              <div className="rounded-full border border-white/20 bg-white/15 px-3 py-1 text-xs text-white">{roleLabel}</div>
+            </div>
 
-          <div className="relative h-full w-full bg-black">
-            {isTeacher ? (
-              <video ref={localVideoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
-            ) : (
-              <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-contain" />
-            )}
+            <div className="absolute right-4 top-4 z-20 flex gap-1.5">
+              {compactMetrics.map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-xs text-white backdrop-blur"
+                  title={`${item.label}: ${item.value}`}
+                >
+                  <span className="mr-1 inline-flex align-middle">
+                    <Icon name={item.icon} className="h-3.5 w-3.5" />
+                  </span>
+                  {item.value}
+                </div>
+              ))}
+            </div>
 
-            {!joined ? (
-              <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/35">
-                <div className="rounded-xl bg-slate-950/75 px-4 py-2 text-sm text-white backdrop-blur">
-                  Open settings to create or join a session.
+            <div className="relative h-full w-full bg-gradient-to-br from-slate-900 via-slate-950 to-black">
+              {isTeacher ? (
+                <video ref={localVideoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
+              ) : (
+                <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-contain" />
+              )}
+
+              {!joined ? (
+                <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/40">
+                  <div className="rounded-2xl border border-white/20 bg-black/65 px-5 py-3 text-sm text-white backdrop-blur">
+                    Open Session settings to create or join a class.
+                  </div>
+                </div>
+              ) : null}
+
+              {quizVisible ? (
+                <div
+                  className={`absolute z-20 ${quizState.cover_mode ? 'inset-0 flex items-center justify-center bg-black/50 backdrop-blur-md' : 'inset-x-4 bottom-24'}`}
+                >
+                  <QuizOverlay
+                    quiz={quiz}
+                    readonly={quizReadonly}
+                    selectedOptionId={selectedQuizOptionId}
+                    onAnswer={submitQuizAnswer}
+                    large={quizState.cover_mode}
+                    votingClosed={quizState.voting_closed}
+                  />
+                </div>
+              ) : null}
+
+              <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
+                <div className="flex items-center gap-2 rounded-2xl border border-white/20 bg-white/85 p-2 shadow-xl backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/85">
+                  {isTeacher ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!joined}
+                        onClick={startShare}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-indigo-600 text-lg text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Start screen share"
+                        aria-label="Start screen share"
+                      >
+                        <Icon name="screen" className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!joined}
+                        onClick={generateQuizFromCurrentScreen}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-violet-600 text-lg text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Generate quiz"
+                        aria-label="Generate quiz"
+                      >
+                        <Icon name="quiz" className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!joined}
+                        onClick={() => send('start_break', { duration_seconds: 300 })}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-amber-600 text-lg text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Start 5-minute break"
+                        aria-label="Start 5-minute break"
+                      >
+                        <Icon name="break" className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!joined}
+                        onClick={() => {
+                          requestAnalytics()
+                          setShowInsightsPanel(true)
+                        }}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-cyan-600 text-lg text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Refresh analytics"
+                        aria-label="Refresh analytics"
+                      >
+                        <Icon name="refresh" className="h-5 w-5" />
+                      </button>
+                      {quiz ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={!joined}
+                            onClick={() => send('quiz_control', { cover_mode: !quizState.cover_mode })}
+                            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                            title="Toggle full-screen question cover"
+                            aria-label="Toggle full-screen question cover"
+                          >
+                            {quizState.cover_mode ? 'Uncover' : 'Cover'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!joined}
+                            onClick={() => send('quiz_control', { voting_closed: !quizState.voting_closed })}
+                            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                            title="Toggle voting"
+                            aria-label="Toggle voting"
+                          >
+                            {quizState.voting_closed ? 'Resume voting' : 'Stop voting'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!joined}
+                            onClick={() => send('quiz_control', { hidden: !quizState.hidden })}
+                            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                            title="Show or hide quiz"
+                            aria-label="Show or hide quiz"
+                          >
+                            {quizState.hidden ? 'Show quiz' : 'Hide quiz'}
+                          </button>
+                        </>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!joined}
+                        onClick={() => send('confusion')}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-rose-600 text-lg text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Send confusion alert"
+                        aria-label="Send confusion alert"
+                      >
+                        <Icon name="confusion" className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!joined}
+                        onClick={() => send('break_vote')}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-orange-600 text-lg text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Request break"
+                        aria-label="Request break"
+                      >
+                        <Icon name="break" className="h-5 w-5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <aside className="flex flex-col gap-3 rounded-[26px] border border-slate-200/90 bg-white/90 p-4 shadow-[0_20px_48px_-34px_rgba(15,23,42,0.55)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/85">
+            <div className="rounded-2xl border border-sky-100 bg-gradient-to-b from-sky-50 to-slate-50 p-3 dark:border-slate-700 dark:from-slate-800 dark:to-slate-900">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Session</div>
+              <div className="mt-2 text-3xl font-black tracking-widest text-slate-900 dark:text-white">{normalizedCode || '------'}</div>
+              <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">{joined ? 'Live and connected' : 'Not connected yet'}</div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={copySessionCode}
+                  disabled={!normalizedCode}
+                  className="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <Icon name="copy" className="h-4 w-4" /> Code
+                </button>
+                <button
+                  type="button"
+                  onClick={copyJoinLink}
+                  disabled={!joinUrl}
+                  className="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <Icon name="copy" className="h-4 w-4" /> Link
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              {compactMetrics.map((item) => (
+                <div key={item.label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/70">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <Icon name={item.icon} className="h-4 w-4" /> {item.label}
+                    </div>
+                    <div className="text-xl font-semibold text-slate-900 dark:text-white">{item.value}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {isTeacher && joinUrl ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
+                <div className="mb-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Scan to join</div>
+                <div className="flex justify-center">
+                  <SessionQRCode value={joinUrl} size={320} className="h-40 w-40 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
                 </div>
               </div>
             ) : null}
 
-            {quiz ? (
-              <div className="absolute inset-x-4 bottom-20 z-20">
-                <QuizOverlay
-                  quiz={quiz}
-                  readonly={isTeacher}
-                  selectedOptionId={selectedQuizOptionId}
-                  onAnswer={submitQuizAnswer}
-                />
+            <div className="mt-auto rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+              <div className="font-semibold text-slate-700 dark:text-slate-100">Status</div>
+              <div className="mt-1">{status}</div>
+              <div className="mt-1">Client: {clientId || '-'}</div>
+            </div>
+
+            {error ? (
+              <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">
+                {error}
               </div>
             ) : null}
-
-            <div className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2">
-              <div className="flex items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/90 px-2 py-2 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/90">
-                {isTeacher ? (
-                  <>
-                    <button
-                      type="button"
-                      disabled={!joined}
-                      onClick={startShare}
-                      className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-600 text-lg text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Start screen share"
-                      aria-label="Start screen share"
-                    >
-                      <Icon name="screen" className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!joined}
-                      onClick={generateQuizFromCurrentScreen}
-                      className="grid h-10 w-10 place-items-center rounded-xl bg-violet-600 text-lg text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Generate quiz"
-                      aria-label="Generate quiz"
-                    >
-                      <Icon name="quiz" className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!joined}
-                      onClick={() => send('start_break', { duration_seconds: 300 })}
-                      className="grid h-10 w-10 place-items-center rounded-xl bg-amber-600 text-lg text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Start 5-minute break"
-                      aria-label="Start 5-minute break"
-                    >
-                      <Icon name="break" className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!joined}
-                      onClick={() => {
-                        requestAnalytics()
-                        setShowInsightsPanel(true)
-                      }}
-                      className="grid h-10 w-10 place-items-center rounded-xl bg-cyan-600 text-lg text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Refresh analytics"
-                      aria-label="Refresh analytics"
-                    >
-                      <Icon name="refresh" className="h-5 w-5" />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      disabled={!joined}
-                      onClick={() => send('confusion')}
-                      className="grid h-10 w-10 place-items-center rounded-xl bg-rose-600 text-lg text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Send confusion alert"
-                      aria-label="Send confusion alert"
-                    >
-                      <Icon name="confusion" className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!joined}
-                      onClick={() => send('break_vote')}
-                      className="grid h-10 w-10 place-items-center rounded-xl bg-orange-600 text-lg text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Request break"
-                      aria-label="Request break"
-                    >
-                      <Icon name="break" className="h-5 w-5" />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
+          </aside>
         </main>
 
         {showSessionPanel ? (
-          <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/35 p-3 backdrop-blur-sm" onClick={() => setShowSessionPanel(false)}>
+          <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/45 p-3 backdrop-blur-sm" onClick={() => setShowSessionPanel(false)}>
             <aside
-              className="h-full w-full max-w-sm overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+              className="h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
@@ -793,10 +896,10 @@ function App() {
               </div>
 
               {isTeacher && joinUrl ? (
-                <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
+                <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
                   <div className="mb-2 text-center text-sm font-semibold text-slate-700 dark:text-slate-100">Students: scan to join</div>
                   <div className="flex justify-center">
-                    <SessionQRCode value={joinUrl} size={420} className="h-[320px] w-[320px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
+                    <SessionQRCode value={joinUrl} size={420} className="h-[300px] w-[300px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
                   </div>
                   <div className="mt-3 text-center text-4xl font-black tracking-widest text-slate-900 dark:text-slate-100">{normalizedCode}</div>
                 </div>
@@ -847,9 +950,9 @@ function App() {
         ) : null}
 
         {showNotesPanel ? (
-          <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/35 p-3 backdrop-blur-sm" onClick={() => setShowNotesPanel(false)}>
+          <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/45 p-3 backdrop-blur-sm" onClick={() => setShowNotesPanel(false)}>
             <aside
-              className="h-full w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+              className="h-full w-full max-w-md rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
@@ -879,9 +982,9 @@ function App() {
         ) : null}
 
         {showInsightsPanel ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4 backdrop-blur-sm" onClick={() => setShowInsightsPanel(false)}>
+          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/45 p-4 backdrop-blur-sm" onClick={() => setShowInsightsPanel(false)}>
             <section
-              className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+              className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
