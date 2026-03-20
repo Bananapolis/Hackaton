@@ -718,6 +718,8 @@ function App() {
 
   function cancelBreak() {
     send('break_control', { action: 'cancel' })
+  }
+
   function downloadJsonReport(report, sessionCodeForFile) {
     const reportBlob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
     const blobUrl = URL.createObjectURL(reportBlob)
@@ -739,7 +741,7 @@ function App() {
       const report = await postJson(`/api/sessions/${encodeURIComponent(normalizedCode)}/end`, {})
       setAnalytics(report.analytics || null)
       setStatus('Session ended. Full analytics report downloaded.')
-      setShowInsightsPanel(true)
+      setShowAwardsPanel(true)
       downloadJsonReport(report, normalizedCode)
     } catch (err) {
       setError(err.message)
@@ -1368,7 +1370,7 @@ function App() {
                       </div>
                     )}
                   </div>
-                </>
+
                 <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
                   <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
                   <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
@@ -1378,6 +1380,7 @@ function App() {
                   <div>Break vote rate: {Math.round(100 * (analytics?.engagement?.break_vote_rate ?? 0))}%</div>
                   <div>Confusion per student: {(analytics?.engagement?.confusion_per_student ?? 0).toFixed(2)}</div>
                 </div>
+                </>
               ) : null}
             </section>
           </div>
