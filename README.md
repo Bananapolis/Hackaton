@@ -15,6 +15,8 @@ This repository now contains a complete MVP implementation with:
 - **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, and analytics snapshot.
 - **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, student "explain the screen" AI help, and analytics + class awards snapshot.
 - **Teacher awareness:** browser desktop notifications when confusion level is high or break-vote threshold is reached (when notification permission is granted)
+- **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, and analytics snapshot
+- **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, analytics snapshot, and session end with downloadable full engagement report
 
 ## 2. Technical Architecture & Recommended Stack
 
@@ -95,7 +97,8 @@ The backend sends both to a Gemini multimodal model when configured.
 * **UC-T3: AI Quiz Generation:** Trigger a single-button action to generate a contextual multiple-choice question (4 options). Push the question as a global overlay to all connected students.
 * **UC-T4: Break Management:** Initiate a synchronized break timer manually or accept a break prompt triggered by student thresholds. During break, adjust time (+/- 1 minute), end immediately, and display both countdown and "be back at" time.
 * **UC-T5: Note Distribution:** Create and push shared text notes to the student interface during the live session.
-* **UC-T6: Analytics & Awards Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, class awards (e.g. most active student / most correct answers), and exported notes.
+* **UC-T6: Analytics Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, and exported notes.
+* **UC-T7: Session Closure & Report Export:** End the live session from settings and download a full analytics report (JSON) with engagement score, participation rates, and quiz outcomes.
 
 ### Actor 2: Student (Client)
 

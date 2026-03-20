@@ -148,6 +148,7 @@ function App() {
   const [quizState, setQuizState] = useState({ hidden: false, cover_mode: true, voting_closed: false })
   const [quizProgress, setQuizProgress] = useState(null)
   const [analytics, setAnalytics] = useState(null)
+  const [endingSession, setEndingSession] = useState(false)
   const [selectedQuizOptionId, setSelectedQuizOptionId] = useState('')
   const [showSessionPanel, setShowSessionPanel] = useState(true)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
@@ -480,6 +481,12 @@ function App() {
 
       if (message.type === 'analytics') {
         setAnalytics(message.payload)
+      }
+
+      if (message.type === 'session_ended') {
+        setAnalytics(message.payload?.analytics || null)
+        setStatus('Session ended by teacher')
+        ws.close()
       }
 
       if (message.type === 'error') {
@@ -1283,13 +1290,25 @@ function App() {
                   )}
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={disconnect}
-                  className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
-                >
-                  Leave session
-                </button>
+                <div className="space-y-2">
+                  {isTeacher ? (
+                    <button
+                      type="button"
+                      onClick={endSessionAndDownloadReport}
+                      disabled={endingSession}
+                      className="w-full rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {endingSession ? 'Ending session...' : 'End session + download report'}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={disconnect}
+                    className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
+                  >
+                    Leave session
+                  </button>
+                </div>
               )}
 
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">

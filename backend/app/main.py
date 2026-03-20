@@ -85,6 +85,14 @@ def insert_event(session_code: str, event_type: str, payload: dict[str, Any]) ->
     conn.close()
 
 
+def set_session_active(code: str, active: bool) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE sessions SET active = ? WHERE code = ?", (1 if active else 0, code))
+    conn.commit()
+    conn.close()
+
+
 def session_exists(code: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -133,6 +141,7 @@ class ClientState:
 class RuntimeSession:
     code: str
     teacher_name: str
+    created_at_epoch: float = field(default_factory=time.time)
     clients: dict[str, ClientState] = field(default_factory=dict)
     break_votes: set[str] = field(default_factory=set)
     break_active_until: float | None = None
@@ -142,6 +151,9 @@ class RuntimeSession:
     quiz_hidden: bool = False
     quiz_cover_mode: bool = True
     quiz_voting_closed: bool = False
+    active: bool = True
+    ended_at_epoch: float | None = None
+    final_report: dict[str, Any] | None = None
 
     @property
     def student_count(self) -> int:
@@ -608,68 +620,11 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
 
     accuracy = (correct_answers / total_answers) if total_answers else 0.0
 
-    students = [client for client in session.clients.values() if client.role == "student"]
-
-    def top_student_value(metric: str, *, min_value: int = 1) -> dict[str, Any] | None:
-        if not students:
-            return None
-
-        top_value = max(getattr(student, metric, 0) for student in students)
-        if top_value < min_value:
-            return None
-
-        winners = sorted({student.name for student in students if getattr(student, metric, 0) == top_value})
-        if not winners:
-            return None
-
-        return {
-            "winner_name": ", ".join(winners),
-            "value": top_value,
-            "winner_count": len(winners),
-        }
-
-    most_active = top_student_value("confusion_signals_sent")
-    if not most_active:
-        most_active = top_student_value("quiz_answers_submitted")
-
-    awards = [
-        {
-            "id": "most_active_student",
-            "title": "Most active student",
-            "description": "Most participation signals sent.",
-            "unit": "actions",
-            **(most_active or {}),
-        },
-        {
-            "id": "most_correct_answers",
-            "title": "Most correct answers",
-            "description": "Highest number of correct quiz answers.",
-            "unit": "correct",
-            **(top_student_value("quiz_correct_answers") or {}),
-        },
-        {
-            "id": "quiz_champion",
-            "title": "Quiz champion",
-            "description": "Most quiz answers submitted.",
-            "unit": "answers",
-            **(top_student_value("quiz_answers_submitted") or {}),
-        },
-        {
-            "id": "break_ambassador",
-            "title": "Break ambassador",
-            "description": "Most break votes cast.",
-            "unit": "votes",
-            **(top_student_value("break_votes_cast") or {}),
-        },
-    ]
-
     return {
         "session_code": session.code,
         "teacher_name": session.teacher_name,
-        "student_count": confusion["student_count"],
-        "confusion_count": confusion["level_percent"],
-        "confusion_level_percent": confusion["level_percent"],
-        "confusion_active_students": confusion["active_students"],
+        "student_count": session.student_count,
+        "confusion_count": session.confusion_count,
         "break_votes": len(session.break_votes),
         "break_active": bool(session.break_active_until and session.break_active_until > time.time()),
         "quiz": {
@@ -680,14 +635,49 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
             "cover_mode": session.quiz_cover_mode,
             "voting_closed": session.quiz_voting_closed,
         },
-        "awards": awards,
         "notes": session.notes,
+    }
+
+
+def build_full_analytics_report(session: RuntimeSession) -> dict[str, Any]:
+    analytics = analytics_for_session(session)
+    students_connected = []
+    now_epoch = time.time()
+    for client in session.clients.values():
+        if client.role != "student":
+            continue
+        students_connected.append(
+            {
+                "client_id": client.client_id,
+                "name": client.name,
+                "joined_at_epoch": round(client.joined_at, 3),
+                "time_in_session_seconds": max(0, int(now_epoch - client.joined_at)),
+            }
+        )
+
+    return {
+        "report_type": "session_engagement",
+        "generated_at": now_iso(),
+        "analytics": analytics,
+        "students_connected": students_connected,
     }
 
 
 app = FastAPI(title="Edu Engagement MVP API", version="1.0.0")
 
-allowed_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",") if origin.strip()]
+
+def parse_allowed_origins(raw: str) -> list[str]:
+    origins: list[str] = []
+    for origin in raw.split(","):
+        normalized = origin.strip().rstrip("/")
+        if normalized:
+            origins.append(normalized)
+    return origins
+
+
+allowed_origins = parse_allowed_origins(
+    os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -727,6 +717,50 @@ def session_analytics(code: str) -> dict[str, Any]:
     return analytics_for_session(session)
 
 
+@app.post("/api/sessions/{code}/end")
+async def end_session(code: str) -> dict[str, Any]:
+    code = code.upper()
+    session = SESSIONS.get(code)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.final_report is not None:
+        return session.final_report
+
+    session.active = False
+    session.ended_at_epoch = time.time()
+    set_session_active(code, False)
+
+    report = build_full_analytics_report(session)
+    session.final_report = report
+
+    insert_event(
+        code,
+        "session_end",
+        {
+            "generated_at": report["generated_at"],
+            "engagement_score": report["analytics"]["engagement"]["score"],
+        },
+    )
+
+    await broadcast(
+        session,
+        {
+            "type": "session_ended",
+            "payload": report,
+        },
+    )
+
+    for client in list(session.clients.values()):
+        try:
+            await client.websocket.close(code=1000, reason="Session ended by teacher")
+        except Exception:
+            pass
+    session.clients.clear()
+
+    return report
+
+
 @app.websocket("/ws/{code}")
 async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) -> None:
     code = code.upper()
@@ -738,7 +772,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
         return
 
     session = SESSIONS.get(code)
-    if not session:
+    if not session or not session.active:
         await websocket.close(code=1008, reason="Unknown session code")
         return
 
