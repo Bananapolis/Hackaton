@@ -144,6 +144,7 @@ function App() {
   const [quizState, setQuizState] = useState({ hidden: false, cover_mode: true, voting_closed: false })
   const [quizProgress, setQuizProgress] = useState(null)
   const [analytics, setAnalytics] = useState(null)
+  const [endingSession, setEndingSession] = useState(false)
   const [selectedQuizOptionId, setSelectedQuizOptionId] = useState('')
   const [showSessionPanel, setShowSessionPanel] = useState(true)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
@@ -460,6 +461,12 @@ function App() {
         setAnalytics(message.payload)
       }
 
+      if (message.type === 'session_ended') {
+        setAnalytics(message.payload?.analytics || null)
+        setStatus('Session ended by teacher')
+        ws.close()
+      }
+
       if (message.type === 'error') {
         setExplainLoading(false)
         setQuizGenerationPending(false)
@@ -711,6 +718,34 @@ function App() {
 
   function cancelBreak() {
     send('break_control', { action: 'cancel' })
+  function downloadJsonReport(report, sessionCodeForFile) {
+    const reportBlob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
+    const blobUrl = URL.createObjectURL(reportBlob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = `session-${sessionCodeForFile}-analytics-report.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(blobUrl)
+  }
+
+  async function endSessionAndDownloadReport() {
+    if (!isTeacher || !joined || !normalizedCode || endingSession) return
+    setError('')
+    setEndingSession(true)
+
+    try {
+      const report = await postJson(`/api/sessions/${encodeURIComponent(normalizedCode)}/end`, {})
+      setAnalytics(report.analytics || null)
+      setStatus('Session ended. Full analytics report downloaded.')
+      setShowInsightsPanel(true)
+      downloadJsonReport(report, normalizedCode)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setEndingSession(false)
+    }
   }
 
   async function copySessionCode() {
@@ -1212,13 +1247,25 @@ function App() {
                   )}
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={disconnect}
-                  className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
-                >
-                  Leave session
-                </button>
+                <div className="space-y-2">
+                  {isTeacher ? (
+                    <button
+                      type="button"
+                      onClick={endSessionAndDownloadReport}
+                      disabled={endingSession}
+                      className="w-full rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {endingSession ? 'Ending session...' : 'End session + download report'}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={disconnect}
+                    className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
+                  >
+                    Leave session
+                  </button>
+                </div>
               )}
 
               <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
@@ -1322,6 +1369,15 @@ function App() {
                     )}
                   </div>
                 </>
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
+                  <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
+                  <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
+                  <div>Accuracy: {accuracyValue}%</div>
+                  <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700">Engagement score: {analytics?.engagement?.score ?? 0}/100</div>
+                  <div>Quiz participation: {Math.round(100 * (analytics?.engagement?.quiz_participation_rate ?? 0))}%</div>
+                  <div>Break vote rate: {Math.round(100 * (analytics?.engagement?.break_vote_rate ?? 0))}%</div>
+                  <div>Confusion per student: {(analytics?.engagement?.confusion_per_student ?? 0).toFixed(2)}</div>
+                </div>
               ) : null}
             </section>
           </div>

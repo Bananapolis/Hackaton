@@ -106,3 +106,11 @@
   - added `.hero-subtext`, `.lead`, and `.pastel-surface` rules for stronger typographic contrast and WCAG-friendly card text,
   - updated panel heading classes and hero label usage in [frontend/src/App.jsx](frontend/src/App.jsx),
   - documented this visual direction update in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).
+- Added teacher-driven session termination with full engagement report export:
+  - new backend endpoint `POST /api/sessions/{code}/end` in [backend/app/main.py](backend/app/main.py) closes the session, marks it inactive, and returns a JSON report,
+  - report includes duration, quiz outcomes, and derived engagement indicators (score, participation rate, break-vote rate, confusion-per-student),
+  - settings panel in [frontend/src/App.jsx](frontend/src/App.jsx) now includes an `End session + download report` action for teachers.
+- Fixed recurring frontend `Failed to fetch` on session creation:
+  - updated [frontend/src/config.js](frontend/src/config.js) to use same-origin API/WS in dev (proxy-first) and backend fallback port 9000,
+  - added dev proxy routing in [frontend/vite.config.js](frontend/vite.config.js) for `/api`, `/ws`, and `/health` toward backend target,
+  - validated end-to-end by creating a session via `http://127.0.0.1:5173/api/sessions` successfully.
