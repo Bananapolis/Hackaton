@@ -9,6 +9,8 @@ import {
   HelpCircle,
   Lock,
   LockOpen,
+  Maximize2,
+  Minimize2,
   Monitor,
   Moon,
   Settings,
@@ -102,6 +104,8 @@ function Icon({ name, className = 'h-5 w-5' }) {
     sun: Sun,
     moon: Moon,
     screen: Monitor,
+    maximize: Maximize2,
+    minimize: Minimize2,
     quiz: Sparkles,
     break: Coffee,
     confusion: HelpCircle,
@@ -156,12 +160,14 @@ function App() {
   const [selectedQuizPreset, setSelectedQuizPreset] = useState('default')
   const [quizCustomPrompt, setQuizCustomPrompt] = useState('')
   const [quizGenerationPending, setQuizGenerationPending] = useState(false)
+  const [isScreenMaximized, setIsScreenMaximized] = useState(false)
 
   const wsRef = useRef(null)
   const localStreamRef = useRef(null)
   const peerConnectionsRef = useRef(new Map())
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
+  const stageContainerRef = useRef(null)
   const notificationPermissionRequestedRef = useRef(false)
   const confusionNotificationArmedRef = useRef(true)
   const lastBreakNotificationAtRef = useRef(0)
@@ -208,8 +214,24 @@ function App() {
   useEffect(() => {
     if (!joined) {
       setShowSessionPanel(true)
+
+      if (document.fullscreenElement === stageContainerRef.current) {
+        document.exitFullscreen().catch(() => {})
+      }
+
+      setIsScreenMaximized(false)
     }
   }, [joined])
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      const fullscreenElement = document.fullscreenElement
+      setIsScreenMaximized(fullscreenElement === stageContainerRef.current)
+    }
+
+    document.addEventListener('fullscreenchange', syncFullscreenState)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState)
+  }, [])
 
   useEffect(() => {
     if (!joined) return undefined
@@ -732,10 +754,9 @@ function App() {
     URL.revokeObjectURL(blobUrl)
   }
 
-  async function endSessionAndDownloadReport() {
-    if (!isTeacher || !joined || !normalizedCode || endingSession) return
-    setError('')
-    setEndingSession(true)
+  async function toggleStageFullscreen() {
+    const container = stageContainerRef.current
+    if (!container) return
 
     try {
       const report = await postJson(`/api/sessions/${encodeURIComponent(normalizedCode)}/end`, {})
@@ -747,6 +768,13 @@ function App() {
       setError(err.message)
     } finally {
       setEndingSession(false)
+      if (document.fullscreenElement === container) {
+        await document.exitFullscreen()
+      } else if (!document.fullscreenElement) {
+        await container.requestFullscreen()
+      }
+    } catch {
+      setError('Fullscreen is unavailable on this browser/device.')
     }
   }
 
@@ -795,6 +823,9 @@ function App() {
   const roleLabel = isTeacher ? 'Teacher desk' : 'Student view'
   const quizVisible = Boolean(quiz) && !quizState.hidden
   const quizReadonly = isTeacher || quizState.voting_closed
+  const stageControlsVisibilityClass = isScreenMaximized
+    ? 'opacity-0 pointer-events-none transition-opacity duration-200 group-hover/stage:opacity-100 group-hover/stage:pointer-events-auto group-focus-within/stage:opacity-100 group-focus-within/stage:pointer-events-auto'
+    : ''
 
   return (
     <div className="min-h-screen text-slate-900 transition-colors dark:text-slate-100">
@@ -852,7 +883,14 @@ function App() {
         <CountdownBanner endTimeEpoch={breakEndTime} />
 
         <main className="grid min-h-0 flex-1 gap-4 ui-fade-up lg:grid-cols-[minmax(0,1fr)_340px]">
-          <section className="relative min-h-[60vh] overflow-hidden rounded-[28px] border border-slate-300/65 bg-slate-950 shadow-[0_32px_70px_-40px_rgba(2,6,23,0.95)] ui-fade-up dark:border-slate-700/60">
+          <section
+            ref={stageContainerRef}
+            className={`group/stage relative overflow-hidden border border-slate-300/65 bg-slate-950 shadow-[0_32px_70px_-40px_rgba(2,6,23,0.95)] ui-fade-up dark:border-slate-700/60 ${
+              isScreenMaximized
+                ? 'min-h-screen rounded-none border-0'
+                : 'min-h-[60vh] rounded-[28px]'
+            }`}
+          >
             <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-2">
               <div className="rounded-full border border-white/20 bg-slate-950/75 px-3 py-1 text-xs font-medium text-slate-100 backdrop-blur" title={status}>
                 {shortStatus}
@@ -909,7 +947,7 @@ function App() {
               ) : null}
 
               {isTeacher && quizVisible ? (
-                <div className="absolute right-4 bottom-24 z-20">
+                <div className={`absolute right-4 bottom-24 z-20 ${stageControlsVisibilityClass}`}>
                   <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/15 bg-white/90 p-2 shadow-2xl backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/88">
                     <button
                       type="button"
@@ -945,7 +983,7 @@ function App() {
                 </div>
               ) : null}
 
-              <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
+              <div className={`absolute bottom-4 left-1/2 z-20 -translate-x-1/2 ${stageControlsVisibilityClass}`}>
                 <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/90 p-2 shadow-2xl backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/88">
                   {isTeacher ? (
                     <>
@@ -971,6 +1009,16 @@ function App() {
                         aria-label={quizGenerationPending ? 'Generating quiz' : 'Generate quiz'}
                       >
                         <Icon name="quiz" className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!joined}
+                        onClick={toggleStageFullscreen}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-slate-700 text-lg text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        title={isScreenMaximized ? 'Minimize shared screen' : 'Maximize shared screen'}
+                        aria-label={isScreenMaximized ? 'Minimize shared screen' : 'Maximize shared screen'}
+                      >
+                        <Icon name={isScreenMaximized ? 'minimize' : 'maximize'} className="h-5 w-5" />
                       </button>
                       <button
                         type="button"
@@ -1052,6 +1100,16 @@ function App() {
                       >
                         <Icon name="quiz" className="h-5 w-5" />
                       </button>
+                      <button
+                        type="button"
+                        disabled={!joined}
+                        onClick={toggleStageFullscreen}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-slate-700 text-lg text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        title={isScreenMaximized ? 'Minimize shared screen' : 'Maximize shared screen'}
+                        aria-label={isScreenMaximized ? 'Minimize shared screen' : 'Maximize shared screen'}
+                      >
+                        <Icon name={isScreenMaximized ? 'minimize' : 'maximize'} className="h-5 w-5" />
+                      </button>
                     </>
                   )}
                 </div>
@@ -1059,7 +1117,11 @@ function App() {
             </div>
           </section>
 
-          <aside className="flex flex-col gap-3 rounded-[28px] border border-slate-200/90 bg-white/88 p-4 shadow-[0_24px_52px_-34px_rgba(15,23,42,0.75)] ui-fade-up ui-fade-up-delay backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/82">
+          <aside
+            className={`flex flex-col gap-3 rounded-[28px] border border-slate-200/90 bg-white/88 p-4 shadow-[0_24px_52px_-34px_rgba(15,23,42,0.75)] ui-fade-up ui-fade-up-delay backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/82 ${
+              isScreenMaximized ? 'hidden' : ''
+            }`}
+          >
             <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-3 dark:border-slate-700 dark:from-slate-800 dark:to-slate-900">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Session</div>
               <div className="mt-2 text-3xl font-black tracking-widest text-slate-900 dark:text-white">{normalizedCode || '------'}</div>

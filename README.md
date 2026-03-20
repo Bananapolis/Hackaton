@@ -193,11 +193,15 @@ make frontend-build
 
 ## 6. Deployment Protocol
 
-You have an Ubuntu server and domains. Execute the following for a stable MVP deployment:
+Containerized deployment is now included for Ubuntu servers.
 
-1. **Reverse Proxy:** Install Nginx. Point your domain to the server IP and configure Nginx to route traffic to your application port.
-2. **SSL Configuration:** Run Certbot (Let's Encrypt) for the domain. **Critical:** WebRTC *requires* HTTPS to function in modern browsers. It will fail locally or over HTTP.
-3. **Process Manager:** Use PM2 (if Node.js) or Gunicorn/Systemd (if Python) to keep the backend alive during the presentation.
+- Compose setup: [docker-compose.yml](docker-compose.yml)
+- Backend image: [backend/Dockerfile](backend/Dockerfile)
+- Frontend + reverse proxy image: [frontend/Dockerfile](frontend/Dockerfile) and [frontend/nginx.conf](frontend/nginx.conf)
+- Full step-by-step runbook: [DEPLOYMENT.md](DEPLOYMENT.md)
+- Starter CI/CD pipeline: [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
+
+For production demos, HTTPS remains mandatory for reliable WebRTC behavior.
 
 ### AI Provider Setup
 
