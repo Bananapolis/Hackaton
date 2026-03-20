@@ -5,10 +5,13 @@ import sqlite3
 import string
 import time
 import uuid
+from base64 import b64decode
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -193,48 +196,160 @@ def build_quiz_fallback(notes: str) -> QuizPayload:
     )
 
 
-def build_quiz_with_ai(notes: str) -> QuizPayload:
+def build_quiz_with_ai(notes: str, screenshot_data_url: str | None = None) -> QuizPayload:
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    errors: list[str] = []
+
+    if gemini_api_key:
+        prompt = (
+            "Generate exactly one multiple choice question with 4 options based on lecture notes and screenshot context. "
+            "Return JSON only with keys: question, options, correct_option_id. "
+            "options must be an array of objects with keys id (A/B/C/D) and text."
+        )
+
+        parts: list[dict[str, Any]] = [
+            {
+                "text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
+            }
+        ]
+
+        if screenshot_data_url and screenshot_data_url.startswith("data:"):
+            try:
+                header, b64_payload = screenshot_data_url.split(",", 1)
+                mime_type = header.split(";")[0].replace("data:", "") or "image/jpeg"
+                # Validate base64 payload before sending.
+                b64decode(b64_payload, validate=True)
+                parts.append(
+                    {
+                        "inlineData": {
+                            "mimeType": mime_type,
+                            "data": b64_payload,
+                        }
+                    }
+                )
+            except Exception:
+                pass
+
+        models_to_try = [gemini_model]
+        if gemini_model != "gemini-2.5-flash":
+            models_to_try.append("gemini-2.5-flash")
+
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_api_key}"
+            body = {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "responseMimeType": "application/json",
+                },
+            }
+
+            try:
+                req = Request(
+                    url,
+                    data=json.dumps(body).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(req, timeout=20) as resp:
+                    response_text = resp.read().decode("utf-8")
+                response_json = json.loads(response_text)
+                text_output = (
+                    response_json.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "")
+                    .strip()
+                )
+                if not text_output:
+                    raise ValueError("Gemini returned an empty response")
+
+                if text_output.startswith("```"):
+                    text_output = text_output.strip("`")
+                    if text_output.lower().startswith("json"):
+                        text_output = text_output[4:].strip()
+
+                parsed = json.loads(text_output)
+                return QuizPayload(**parsed)
+            except HTTPError as exc:
+                details = ""
+                try:
+                    details = exc.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    details = ""
+                details = (details or exc.reason or "request failed")
+                errors.append(f"Gemini model {model_name} HTTP {exc.code}: {details[:300]}")
+            except (URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                errors.append(f"Gemini model {model_name} error: {str(exc)[:300]}")
+
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
 
-    if not api_key or OpenAI is None:
-        return build_quiz_fallback(notes)
+    if api_key and OpenAI is not None:
+        client = OpenAI(api_key=api_key, base_url=base_url)
 
-    client = OpenAI(api_key=api_key)
+        prompt = (
+            "Generate exactly one multiple choice question with 4 options based on lecture notes. "
+            "Return JSON only with keys: question, options, correct_option_id. "
+            "options must be an array of objects with keys id (A/B/C/D) and text."
+        )
 
-    prompt = (
-        "Generate exactly one multiple choice question with 4 options based on lecture notes. "
-        "Return JSON only with keys: question, options, correct_option_id. "
-        "options must be an array of objects with keys id (A/B/C/D) and text."
-    )
-
-    response = client.responses.create(
-        model=model,
-        input=[
+        user_content: list[dict[str, Any]] = [
             {
-                "role": "system",
-                "content": "You produce concise, educational quizzes in strict JSON.",
-            },
-            {
-                "role": "user",
-                "content": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
-            },
-        ],
-        temperature=0.2,
-    )
+                "type": "input_text",
+                "text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
+            }
+        ]
+        if screenshot_data_url:
+            user_content.append(
+                {
+                    "type": "input_image",
+                    "image_url": screenshot_data_url,
+                    "detail": "low",
+                }
+            )
 
-    text_output = response.output_text.strip()
+        try:
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": "You produce concise, educational quizzes in strict JSON.",
+                    },
+                    {
+                        "role": "user",
+                        "content": user_content,
+                    },
+                ],
+                temperature=0.2,
+            )
 
-    if text_output.startswith("```"):
-        text_output = text_output.strip("`")
-        if text_output.lower().startswith("json"):
-            text_output = text_output[4:].strip()
+            text_output = response.output_text.strip()
+            if not text_output:
+                raise ValueError("OpenAI-compatible provider returned an empty response")
 
-    try:
-        parsed = json.loads(text_output)
-        return QuizPayload(**parsed)
-    except Exception:
-        return build_quiz_fallback(notes)
+            if text_output.startswith("```"):
+                text_output = text_output.strip("`")
+                if text_output.lower().startswith("json"):
+                    text_output = text_output[4:].strip()
+
+            parsed = json.loads(text_output)
+            return QuizPayload(**parsed)
+        except Exception as exc:
+            errors.append(f"OpenAI-compatible error: {str(exc)[:300]}")
+    elif api_key and OpenAI is None:
+        errors.append("OpenAI-compatible API key is set but OpenAI SDK is unavailable")
+
+    if not gemini_api_key and not api_key:
+        raise RuntimeError("No AI provider configured. Set GEMINI_API_KEY (recommended).")
+
+    if errors:
+        raise RuntimeError("; ".join(errors))
+
+    raise RuntimeError("Quiz generation failed with unknown AI error")
 
 
 def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
@@ -480,7 +595,24 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
             elif msg_type == "generate_quiz":
                 if role != "teacher":
                     continue
-                quiz = build_quiz_with_ai(session.notes)
+                notes_override = str(payload.get("notes", "")).strip()
+                notes_input = notes_override if notes_override else session.notes
+                screenshot_data_url = str(payload.get("screenshot_data_url", "")).strip() or None
+                try:
+                    quiz = build_quiz_with_ai(notes_input, screenshot_data_url=screenshot_data_url)
+                except Exception as exc:
+                    reason = str(exc)[:500]
+                    insert_event(code, "quiz_generation_failed", {"reason": reason})
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "error",
+                            "payload": {
+                                "message": f"Quiz generation failed: {reason}",
+                            },
+                        },
+                    )
+                    continue
                 session.current_quiz = quiz
                 session.quiz_answers.clear()
                 insert_event(code, "quiz_generated", quiz.model_dump())

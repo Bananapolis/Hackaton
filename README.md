@@ -22,7 +22,7 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 * **Real-Time Data (State/Engagement):** WebSockets (e.g., Socket.io or standard WebSockets). Required for instant break requests, confusion alerts, and quiz triggers without polling the database.
 * **Frontend:** React with Tailwind
 * **Backend:** Python with FastAPI
-* **AI Integration:** OpenAI API (GPT-3.5/4o-mini) or Anthropic API. Used strictly for parsing the current context/notes and generating the 1-question quiz with 4 options.
+* **AI Integration:** Gemini API (primary) with OpenAI-compatible fallback support. Used to generate a 1-question quiz with 4 options from the current shared screen screenshot and notes.
 * **Database:** SQLite or PostgreSQL. For a 24h MVP, SQLite is sufficient to store session data, attendance, and basic statistics.
 
 ## 2.1 Implemented Architecture (Actual)
@@ -39,7 +39,7 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 	- break votes with cooldown,
 	- teacher-triggered break timer,
 	- note updates,
-	- quiz generation and answer tracking,
+	- screenshot-aware quiz generation and answer tracking,
 	- teacher analytics updates.
 
 SQLite stores:
@@ -66,9 +66,12 @@ SQLite stores:
 
 ### AI Implementation Choice
 
-For this MVP, quiz generation input is **teacher-provided notes text**.
+For this MVP, quiz generation input is:
 
-Reason: This is reliable for a 24-hour build and avoids added latency and complexity from audio transcription or computer-vision analysis.
+1. **A screenshot of the current shared screen** (captured in the teacher browser), and
+2. **Teacher notes text**.
+
+The backend sends both to a Gemini multimodal model when configured.
 
 ## 3. Actor Analysis & Use Cases
 
@@ -178,11 +181,41 @@ You have an Ubuntu server and domains. Execute the following for a stable MVP de
 2. **SSL Configuration:** Run Certbot (Let's Encrypt) for the domain. **Critical:** WebRTC *requires* HTTPS to function in modern browsers. It will fail locally or over HTTP.
 3. **Process Manager:** Use PM2 (if Node.js) or Gunicorn/Systemd (if Python) to keep the backend alive during the presentation.
 
-To finalize the technical scope for the 24-hour window, I need clarification on the AI implementation: What specific input data will the AI use to generate the quiz question? Will it transcribe the teacher's audio, analyze the shared screen visually, or rely on the teacher's manually typed notes?
+### AI Provider Setup
 
-### AI Clarification (Resolved)
+Create `backend/.env` from `backend/.env.example` and set:
 
-The MVP uses **teacher manually typed notes** as the AI quiz input.
+- `GEMINI_API_KEY` = your Gemini API key
+- `GEMINI_MODEL` = e.g. `gemini-2.5-flash`
+
+Optional fallback:
+
+- `OPENAI_API_KEY` = your provider key
+- `OPENAI_MODEL` = a model that supports text+image input
+- `OPENAI_BASE_URL` = optional OpenAI-compatible base URL
+
+Examples:
+
+- Gemini (recommended): set `GEMINI_API_KEY`, keep `GEMINI_MODEL=gemini-2.5-flash`
+
+- OpenAI (paid): leave `OPENAI_BASE_URL` empty
+- OpenRouter/Groq-compatible endpoint: set `OPENAI_BASE_URL` to their OpenAI-compatible URL and use a supported model string
+
+Priority order is: Gemini first, then OpenAI-compatible. If generation fails, the teacher gets an explicit error and no new quiz is broadcast.
+
+### Public Repo Secret Safety (Required)
+
+- Never commit real API keys.
+- Keep secrets only in local `backend/.env` (already ignored by git).
+- Keep `backend/.env.example` with empty placeholders only.
+
+If a secret was accidentally staged/tracked, remove it immediately:
+
+```bash
+git rm --cached backend/.env
+```
+
+Then rotate the exposed key in the provider dashboard.
 
 # 7. Implementation notes
 

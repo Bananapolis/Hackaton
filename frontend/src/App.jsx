@@ -36,6 +36,7 @@ function App() {
   const [quiz, setQuiz] = useState(null)
   const [quizProgress, setQuizProgress] = useState(null)
   const [analytics, setAnalytics] = useState(null)
+  const [selectedQuizOptionId, setSelectedQuizOptionId] = useState('')
 
   const wsRef = useRef(null)
   const localStreamRef = useRef(null)
@@ -138,6 +139,7 @@ function App() {
 
       if (message.type === 'quiz') {
         setQuiz(message.payload)
+        setSelectedQuizOptionId('')
       }
 
       if (message.type === 'quiz_progress') {
@@ -174,6 +176,48 @@ function App() {
         await handleSignal(message.payload)
       }
     }
+  }
+
+  function captureSharedScreenScreenshot() {
+    const video = localVideoRef.current
+    if (!video) return null
+
+    const width = video.videoWidth
+    const height = video.videoHeight
+    if (!width || !height) return null
+
+    const maxWidth = 1280
+    const scale = width > maxWidth ? maxWidth / width : 1
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(width * scale))
+    canvas.height = Math.max(1, Math.round(height * scale))
+
+    const context = canvas.getContext('2d')
+    if (!context) return null
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.8)
+  }
+
+  function submitQuizAnswer(optionId) {
+    if (!joined || isTeacher || selectedQuizOptionId) return
+    setSelectedQuizOptionId(optionId)
+    send('quiz_answer', { option_id: optionId })
+    setStatus(`Quiz answer submitted: ${optionId}`)
+  }
+
+  function generateQuizFromCurrentScreen() {
+    if (!joined || !isTeacher) return
+    const screenshotDataUrl = captureSharedScreenScreenshot()
+    if (!screenshotDataUrl) {
+      setError('Start screen share first so a screenshot can be captured for quiz generation.')
+      return
+    }
+
+    setStatus('Generating quiz from current screen…')
+    send('generate_quiz', {
+      notes,
+      screenshot_data_url: screenshotDataUrl,
+    })
   }
 
   function send(type, payload = {}) {
@@ -375,7 +419,14 @@ function App() {
               )}
             </div>
 
-            {quiz ? <QuizOverlay quiz={quiz} readonly={isTeacher} onAnswer={(optionId) => send('quiz_answer', { option_id: optionId })} /> : null}
+            {quiz ? (
+              <QuizOverlay
+                quiz={quiz}
+                readonly={isTeacher}
+                selectedOptionId={selectedQuizOptionId}
+                onAnswer={submitQuizAnswer}
+              />
+            ) : null}
 
             <div className="grid gap-4 lg:grid-cols-2">
               <section className="rounded-xl border border-slate-700 bg-slate-900/70 p-3">
@@ -408,10 +459,10 @@ function App() {
                       <button
                         type="button"
                         disabled={!joined}
-                        onClick={() => send('generate_quiz')}
+                        onClick={generateQuizFromCurrentScreen}
                         className="rounded bg-violet-600 px-3 py-2 hover:bg-violet-500 disabled:opacity-50"
                       >
-                        Generate quiz
+                        Generate quiz from screen
                       </button>
                       <button
                         type="button"

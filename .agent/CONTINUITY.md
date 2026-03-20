@@ -17,4 +17,10 @@
   - [backend/requirements.txt](backend/requirements.txt)
   - [frontend/package.json](frontend/package.json)
   - [Makefile](Makefile)
-- Decided MVP AI input source is **teacher-provided notes** (not audio transcription or image analysis) for reliability in a 24h window.
+- Updated quiz generation input to **shared-screen screenshot + teacher notes**.
+- Added support for OpenAI-compatible providers via optional `OPENAI_BASE_URL`.
+- Added student-side quiz answer confirmation state to make quiz voting feedback explicit.
+- Switched AI integration priority to **Gemini API first** (`GEMINI_API_KEY`/`GEMINI_MODEL`), with OpenAI-compatible fallback retained.
+- Hardened secret hygiene for public repo: expanded `.gitignore` for env/key files and documented explicit secret-removal/rotation steps in README.
+- Removed silent quiz fallback behavior: AI generation failures now return explicit teacher-visible errors and no new quiz is broadcast.
+- Updated Gemini default model to `gemini-2.5-flash` and added automatic retry on that model when configured Gemini model is deprecated/unavailable.
