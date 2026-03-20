@@ -137,6 +137,15 @@
         "isDefault": true
       },
       "problemMatcher": []
+    },
+    {
+      "label": "Server: Pull + Rebuild + Up",
+      "type": "shell",
+      "command": "./scripts/deploy-update.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
     }
   ]
 }

@@ -144,3 +144,8 @@
   - session settings now frame role choice as mode selection (`Host a new session` vs `Join existing session`),
   - library upload/download behavior in [frontend/src/App.jsx](frontend/src/App.jsx) now follows current session mode instead of persisted account role,
   - presentation access control in [backend/app/main.py](backend/app/main.py) now derives host permissions from session ownership (`teacher_name`) rather than user role, so both hosting and joining work from one account flow.
+- Added one-command server redeploy automation:
+  - new script [scripts/deploy-update.sh](scripts/deploy-update.sh) for `git pull --ff-only` + `docker compose up -d --build` + status check,
+  - Make alias target `deploy-update` in [Makefile](Makefile),
+  - new VS Code task **Server: Pull + Rebuild + Up** in [.vscode/tasks.json](.vscode/tasks.json),
+  - documented usage in [DEPLOYMENT.md](DEPLOYMENT.md).

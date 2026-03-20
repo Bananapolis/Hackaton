@@ -87,6 +87,20 @@ git pull
 docker compose up -d --build
 ```
 
+One-command option (recommended after this update):
+
+```bash
+./scripts/deploy-update.sh
+```
+
+Optional alias (if `make` is installed):
+
+```bash
+make deploy-update
+```
+
+If you use VS Code on the server, run task: **Server: Pull + Rebuild + Up**.
+
 ## 7) Basic CI/CD (GitHub Actions)
 
 A starter workflow is included at [.github/workflows/deploy.yml](.github/workflows/deploy.yml).
