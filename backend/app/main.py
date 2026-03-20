@@ -264,17 +264,54 @@ def build_quiz_fallback(notes: str) -> QuizPayload:
     )
 
 
-def build_quiz_with_ai(notes: str, screenshot_data_url: str | None = None) -> QuizPayload:
+QUIZ_PRESET_INSTRUCTIONS = {
+    "default": "Create a clear concept-check question focused on the most important idea from the current context.",
+    "funny": "Write a light, classroom-safe question with a subtle playful tone, while staying educational and accurate.",
+    "challenge": "Write a challenging question that requires deeper reasoning, not just recall.",
+    "misconception": "Target a common misconception and use plausible distractors that reveal misunderstanding.",
+    "real_world": "Frame the question around a practical real-world scenario or application.",
+}
+
+
+def compose_quiz_generation_prompt(style_preset: str, custom_prompt: str) -> str:
+    normalized_preset = (style_preset or "default").strip().lower()
+    style_instruction = QUIZ_PRESET_INSTRUCTIONS.get(
+        normalized_preset,
+        QUIZ_PRESET_INSTRUCTIONS["default"],
+    )
+    custom_instruction = custom_prompt.strip()
+
+    prompt = (
+        "Generate exactly one multiple choice question with 4 options (A, B, C, D) based on lecture notes and screenshot context. "
+        "Use the selected style instruction below. "
+        "Keep all options similarly sized and similarly specific, so the correct answer is NOT obvious from option length, detail level, wording style, or formatting cues. "
+        "Distractors must be plausible and non-joke unless style explicitly allows a playful tone. "
+        "Do not add explanations.")
+
+    prompt += f"\n\nStyle instruction:\n{style_instruction}"
+    if custom_instruction:
+        prompt += f"\n\nAdditional teacher instruction:\n{custom_instruction}"
+
+    prompt += (
+        "\n\nReturn JSON only with keys: question, options, correct_option_id. "
+        "options must be an array of exactly 4 objects with keys id and text, and ids must be A, B, C, D. "
+        "correct_option_id must be one of A, B, C, D."
+    )
+    return prompt
+
+
+def build_quiz_with_ai(
+    notes: str,
+    screenshot_data_url: str | None = None,
+    style_preset: str = "default",
+    custom_prompt: str = "",
+) -> QuizPayload:
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     errors: list[str] = []
 
     if gemini_api_key:
-        prompt = (
-            "Generate exactly one multiple choice question with 4 options based on lecture notes and screenshot context. "
-            "Return JSON only with keys: question, options, correct_option_id. "
-            "options must be an array of objects with keys id (A/B/C/D) and text."
-        )
+        prompt = compose_quiz_generation_prompt(style_preset, custom_prompt)
 
         parts: list[dict[str, Any]] = [
             {
@@ -358,11 +395,7 @@ def build_quiz_with_ai(notes: str, screenshot_data_url: str | None = None) -> Qu
     if api_key and OpenAI is not None:
         client = OpenAI(api_key=api_key, base_url=base_url)
 
-        prompt = (
-            "Generate exactly one multiple choice question with 4 options based on lecture notes. "
-            "Return JSON only with keys: question, options, correct_option_id. "
-            "options must be an array of objects with keys id (A/B/C/D) and text."
-        )
+        prompt = compose_quiz_generation_prompt(style_preset, custom_prompt)
 
         user_content: list[dict[str, Any]] = [
             {
@@ -817,8 +850,15 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 notes_override = str(payload.get("notes", "")).strip()
                 notes_input = notes_override if notes_override else session.notes
                 screenshot_data_url = str(payload.get("screenshot_data_url", "")).strip() or None
+                style_preset = str(payload.get("quiz_preset", "default")).strip().lower() or "default"
+                custom_prompt = str(payload.get("quiz_custom_prompt", "")).strip()
                 try:
-                    quiz = build_quiz_with_ai(notes_input, screenshot_data_url=screenshot_data_url)
+                    quiz = build_quiz_with_ai(
+                        notes_input,
+                        screenshot_data_url=screenshot_data_url,
+                        style_preset=style_preset,
+                        custom_prompt=custom_prompt,
+                    )
                 except Exception as exc:
                     reason = str(exc)[:500]
                     insert_event(code, "quiz_generation_failed", {"reason": reason})
@@ -837,7 +877,15 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 session.quiz_hidden = False
                 session.quiz_cover_mode = True
                 session.quiz_voting_closed = False
-                insert_event(code, "quiz_generated", quiz.model_dump())
+                insert_event(
+                    code,
+                    "quiz_generated",
+                    {
+                        **quiz.model_dump(),
+                        "preset": style_preset,
+                        "custom_prompt": custom_prompt,
+                    },
+                )
                 await broadcast(session, {"type": "quiz", "payload": quiz.model_dump()})
                 await broadcast(
                     session,

@@ -27,6 +27,33 @@ import { StatCard } from './components/StatCard'
 
 const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
 const sessionPreferencesStorageKey = 'session-preferences-v1'
+const quizPromptPresets = [
+  {
+    id: 'default',
+    label: 'Default',
+    description: 'Balanced concept-check based on current screen and notes.',
+  },
+  {
+    id: 'funny',
+    label: 'Funny mood-lightener',
+    description: 'Keeps it educational, but with a light classroom-safe playful tone.',
+  },
+  {
+    id: 'challenge',
+    label: 'Challenge question',
+    description: 'Harder prompt that pushes reasoning instead of simple recall.',
+  },
+  {
+    id: 'misconception',
+    label: 'Misconception check',
+    description: 'Targets common misunderstandings with plausible distractors.',
+  },
+  {
+    id: 'real_world',
+    label: 'Real-world application',
+    description: 'Frames the question around practical usage or scenario thinking.',
+  },
+]
 
 function loadSessionPreferences() {
   if (typeof window === 'undefined') {
@@ -123,6 +150,10 @@ function App() {
   const [screenExplanation, setScreenExplanation] = useState('')
   const [screenExplanationGeneratedAt, setScreenExplanationGeneratedAt] = useState('')
   const [explainLoading, setExplainLoading] = useState(false)
+  const [showQuizPromptPanel, setShowQuizPromptPanel] = useState(false)
+  const [selectedQuizPreset, setSelectedQuizPreset] = useState('default')
+  const [quizCustomPrompt, setQuizCustomPrompt] = useState('')
+  const [quizGenerationPending, setQuizGenerationPending] = useState(false)
 
   const wsRef = useRef(null)
   const localStreamRef = useRef(null)
@@ -266,6 +297,7 @@ function App() {
       setJoined(false)
       setStatus('Disconnected')
       setExplainLoading(false)
+      setQuizGenerationPending(false)
       for (const pc of peerConnectionsRef.current.values()) {
         pc.close()
       }
@@ -337,6 +369,7 @@ function App() {
         setQuiz(message.payload)
         setQuizState({ hidden: false, cover_mode: true, voting_closed: false })
         setSelectedQuizOptionId('')
+        setQuizGenerationPending(false)
       }
 
       if (message.type === 'quiz_state') {
@@ -353,6 +386,7 @@ function App() {
 
       if (message.type === 'error') {
         setExplainLoading(false)
+        setQuizGenerationPending(false)
         setError(message.payload?.message || 'Unknown session error')
       }
 
@@ -429,10 +463,15 @@ function App() {
       return
     }
 
+    const customPrompt = quizCustomPrompt.trim()
+    setQuizGenerationPending(true)
+    setShowQuizPromptPanel(false)
     setStatus('Generating quiz from current screen…')
     send('generate_quiz', {
       notes,
       screenshot_data_url: screenshotDataUrl,
+      quiz_preset: selectedQuizPreset,
+      quiz_custom_prompt: customPrompt,
     })
   }
 
@@ -768,11 +807,14 @@ function App() {
                       </button>
                       <button
                         type="button"
-                        disabled={!joined}
-                        onClick={generateQuizFromCurrentScreen}
+                        disabled={!joined || quizGenerationPending}
+                        onClick={() => {
+                          setError('')
+                          setShowQuizPromptPanel(true)
+                        }}
                         className="grid h-11 w-11 place-items-center rounded-xl bg-sky-700 text-lg text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Generate quiz"
-                        aria-label="Generate quiz"
+                        title={quizGenerationPending ? 'Generating quiz...' : 'Generate quiz'}
+                        aria-label={quizGenerationPending ? 'Generating quiz' : 'Generate quiz'}
                       >
                         <Icon name="quiz" className="h-5 w-5" />
                       </button>
@@ -1119,6 +1161,80 @@ function App() {
                   <div>Accuracy: {accuracyValue}%</div>
                 </div>
               ) : null}
+            </section>
+          </div>
+        ) : null}
+
+        {showQuizPromptPanel && isTeacher ? (
+          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowQuizPromptPanel(false)}>
+            <section
+              className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">AI quiz prompt</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowQuizPromptPanel(false)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+
+              <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">Choose a preset style or keep default, then generate from the current shared screen.</p>
+
+              <div className="space-y-2">
+                {quizPromptPresets.map((preset) => (
+                  <label
+                    key={preset.id}
+                    className="flex cursor-pointer gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm hover:border-sky-300 hover:bg-sky-50/40 dark:border-slate-700 dark:bg-slate-800/60 dark:hover:border-sky-500/50 dark:hover:bg-sky-900/20"
+                  >
+                    <input
+                      type="radio"
+                      name="quiz-preset"
+                      value={preset.id}
+                      checked={selectedQuizPreset === preset.id}
+                      onChange={(event) => setSelectedQuizPreset(event.target.value)}
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="block font-medium text-slate-900 dark:text-slate-100">{preset.label}</span>
+                      <span className="block text-xs text-slate-600 dark:text-slate-300">{preset.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <label className="mt-4 block text-sm font-medium text-slate-800 dark:text-slate-200">Optional extra instruction</label>
+              <textarea
+                value={quizCustomPrompt}
+                onChange={(event) => setQuizCustomPrompt(event.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
+                placeholder="Example: Focus on definitions from the last 5 minutes."
+              />
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">The AI is always instructed to keep option lengths similar so the correct answer is not obvious by wording or length.</p>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowQuizPromptPanel(false)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={quizGenerationPending}
+                  onClick={generateQuizFromCurrentScreen}
+                  className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {quizGenerationPending ? 'Generating...' : 'Generate quiz'}
+                </button>
+              </div>
             </section>
           </div>
         ) : null}

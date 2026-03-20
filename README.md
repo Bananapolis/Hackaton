@@ -62,7 +62,7 @@ SQLite stores:
 	- create session,
 	- join and share screen,
 	- write/push notes,
-	- generate quiz,
+	- generate quiz (with AI prompt presets like default/funny/challenge and optional custom instruction),
 	- start synchronized break,
 	- view analytics cards.
 - Student can:
@@ -80,6 +80,8 @@ For this MVP, quiz generation input is:
 
 1. **A screenshot of the current shared screen** (captured in the teacher browser), and
 2. **Teacher notes text**.
+
+Quiz prompts include guardrails so answer correctness should not be obvious from option length, formatting, or wording style alone.
 
 The backend sends both to a Gemini multimodal model when configured.
 
