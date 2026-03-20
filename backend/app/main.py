@@ -420,6 +420,145 @@ def build_quiz_with_ai(notes: str, screenshot_data_url: str | None = None) -> Qu
     raise RuntimeError("Quiz generation failed with unknown AI error")
 
 
+def build_screen_explanation_with_ai(notes: str, screenshot_data_url: str | None = None) -> str:
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    errors: list[str] = []
+
+    if gemini_api_key:
+        prompt = (
+            "Explain what the teacher is currently showing in simple student-friendly language. "
+            "Keep it concise (about 4-7 sentences), include the likely goal of the slide/screen, "
+            "and suggest one practical thing the student should focus on next."
+        )
+
+        parts: list[dict[str, Any]] = [
+            {
+                "text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
+            }
+        ]
+
+        if screenshot_data_url and screenshot_data_url.startswith("data:"):
+            try:
+                header, b64_payload = screenshot_data_url.split(",", 1)
+                mime_type = header.split(";")[0].replace("data:", "") or "image/jpeg"
+                b64decode(b64_payload, validate=True)
+                parts.append(
+                    {
+                        "inlineData": {
+                            "mimeType": mime_type,
+                            "data": b64_payload,
+                        }
+                    }
+                )
+            except Exception:
+                pass
+
+        models_to_try = [gemini_model]
+        if gemini_model != "gemini-2.5-flash":
+            models_to_try.append("gemini-2.5-flash")
+
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_api_key}"
+            body = {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {
+                    "temperature": 0.2,
+                },
+            }
+
+            try:
+                req = Request(
+                    url,
+                    data=json.dumps(body).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(req, timeout=20) as resp:
+                    response_text = resp.read().decode("utf-8")
+                response_json = json.loads(response_text)
+                text_output = (
+                    response_json.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "")
+                    .strip()
+                )
+                if text_output:
+                    return text_output[:1400]
+                raise ValueError("Gemini returned an empty explanation")
+            except HTTPError as exc:
+                details = ""
+                try:
+                    details = exc.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    details = ""
+                details = (details or exc.reason or "request failed")
+                errors.append(f"Gemini model {model_name} HTTP {exc.code}: {details[:300]}")
+            except (URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                errors.append(f"Gemini model {model_name} error: {str(exc)[:300]}")
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+
+    if api_key and OpenAI is not None:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+
+        user_content: list[dict[str, Any]] = [
+            {
+                "type": "input_text",
+                "text": (
+                    "Explain what the teacher is currently showing in simple student-friendly language. "
+                    "Keep it concise (about 4-7 sentences), include the likely goal of the slide/screen, "
+                    "and suggest one practical thing the student should focus on next.\n\n"
+                    f"Lecture notes:\n{notes or 'No notes provided.'}"
+                ),
+            }
+        ]
+        if screenshot_data_url:
+            user_content.append(
+                {
+                    "type": "input_image",
+                    "image_url": screenshot_data_url,
+                    "detail": "low",
+                }
+            )
+
+        try:
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": "You explain live lecture visuals in concise and supportive language.",
+                    },
+                    {
+                        "role": "user",
+                        "content": user_content,
+                    },
+                ],
+                temperature=0.2,
+            )
+
+            text_output = response.output_text.strip()
+            if text_output:
+                return text_output[:1400]
+            raise ValueError("OpenAI-compatible provider returned an empty explanation")
+        except Exception as exc:
+            errors.append(f"OpenAI-compatible error: {str(exc)[:300]}")
+    elif api_key and OpenAI is None:
+        errors.append("OpenAI-compatible API key is set but OpenAI SDK is unavailable")
+
+    if not gemini_api_key and not api_key:
+        raise RuntimeError("No AI provider configured. Set GEMINI_API_KEY (recommended).")
+
+    if errors:
+        raise RuntimeError("; ".join(errors))
+
+    raise RuntimeError("Screen explanation failed with unknown AI error")
+
+
 def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
     confusion = confusion_snapshot(session)
     answers = session.quiz_answers.values()
@@ -785,6 +924,45 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     {
                         "type": "session_state",
                         "payload": session_state_payload(session),
+                    },
+                )
+
+            elif msg_type == "explain_screen":
+                if role != "student":
+                    continue
+
+                notes_override = str(payload.get("notes", "")).strip()
+                notes_input = notes_override if notes_override else session.notes
+                screenshot_data_url = str(payload.get("screenshot_data_url", "")).strip() or None
+
+                try:
+                    explanation = build_screen_explanation_with_ai(
+                        notes_input,
+                        screenshot_data_url=screenshot_data_url,
+                    )
+                except Exception as exc:
+                    reason = str(exc)[:500]
+                    insert_event(code, "screen_explanation_failed", {"client_id": client_id, "reason": reason})
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "error",
+                            "payload": {
+                                "message": f"Screen explanation failed: {reason}",
+                            },
+                        },
+                    )
+                    continue
+
+                insert_event(code, "screen_explanation_generated", {"client_id": client_id})
+                await send_json(
+                    websocket,
+                    {
+                        "type": "screen_explanation",
+                        "payload": {
+                            "text": explanation,
+                            "generated_at": now_iso(),
+                        },
                     },
                 )
 

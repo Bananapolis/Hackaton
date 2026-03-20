@@ -13,6 +13,7 @@ This repository now contains a complete MVP implementation with:
 - **Backend:** FastAPI + WebSocket signaling + SQLite persistence
 - **Frontend:** React + Tailwind + browser WebRTC integration
 - **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, and analytics snapshot
+- **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, student "explain the screen" AI help, and analytics snapshot
 
 ## 2. Technical Architecture & Recommended Stack
 
@@ -100,6 +101,7 @@ The backend sends both to a Gemini multimodal model when configured.
 * **UC-S3: Break Request:** Click a button to vote for a break. *Constraint:* Must be governed by a rate-limiting cooldown mechanism to prevent spam.
 * **UC-S4: Quiz Participation:** Receive and interact with the pop-up quiz overlay, selecting one of the 4 generated options.
 * **UC-S5: Break Interface:** View the synchronized countdown timer indicating when the session resumes.
+* **UC-S6: Screen Explanation Help:** Click an "Explain the screen" action to receive a concise AI explanation of the current shared screen and what to focus on next.
 
 ## 4. Repository Layout
 
