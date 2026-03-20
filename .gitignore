@@ -11,7 +11,6 @@ frontend/dist/
 
 # IDE / OS
 .DS_Store
-.vscode/
 .env
 backend/.env
 

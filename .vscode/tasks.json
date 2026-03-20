@@ -1,0 +1,80 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Backend: Install deps",
+      "type": "shell",
+      "command": "cd backend && /usr/bin/python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt",
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: Run API",
+      "type": "shell",
+      "command": "cd backend && (fuser -k 8000/tcp >/dev/null 2>&1 || true) && .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: Stop API (free :8000)",
+      "type": "shell",
+      "command": "fuser -k 8000/tcp >/dev/null 2>&1 || true",
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: Check",
+      "type": "shell",
+      "command": "cd backend && .venv/bin/python -m compileall app",
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend: Install deps",
+      "type": "shell",
+      "command": "cd frontend && npm install",
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend: Run dev server",
+      "type": "shell",
+      "command": "cd frontend && npm run dev -- --host 0.0.0.0 --port 5173",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend: Build",
+      "type": "shell",
+      "command": "cd frontend && npm run build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Full Stack (dev)",
+      "dependsOrder": "parallel",
+      "dependsOn": [
+        "Backend: Run API",
+        "Frontend: Run dev server"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Install All",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Backend: Install deps",
+        "Frontend: Install deps"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build All",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Backend: Check",
+        "Frontend: Build"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
