@@ -24,3 +24,18 @@
 - Hardened secret hygiene for public repo: expanded `.gitignore` for env/key files and documented explicit secret-removal/rotation steps in README.
 - Removed silent quiz fallback behavior: AI generation failures now return explicit teacher-visible errors and no new quiz is broadcast.
 - Updated Gemini default model to `gemini-2.5-flash` and added automatic retry on that model when configured Gemini model is deprecated/unavailable.
+- Performed frontend UI/UX overhaul focused on stream-first usability:
+  - new 3-panel responsive layout with dominant live-share center stage,
+  - modernized cards/controls hierarchy,
+  - added persisted dark/light theme toggle,
+  - documented UX rationale in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).
+- Performed second UX pass to reduce clutter and improve information layering:
+  - default theme switched to light when no preference exists,
+  - replaced persistent text-heavy action area with icon-first floating action dock,
+  - moved session setup, notes, and insights into on-demand overlays (slide-over/modal),
+  - minimized always-visible data to compact chips + tooltip-disclosed context,
+  - updated UX documentation accordingly.
+- Refined UI for professional classroom delivery:
+  - replaced emoji controls with consistent SVG iconography,
+  - enlarged quiz question/options typography for projected-screen readability,
+  - kept action controls icon-only while preserving explicit accessible labels/tooltips.

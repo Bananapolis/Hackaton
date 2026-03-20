@@ -50,6 +50,9 @@ SQLite stores:
 ### Frontend (React + Tailwind)
 
 - Single-page app with role switch (teacher/student).
+- Stream-first layout with minimal always-on UI and on-demand layered panels.
+- Icon-first controls for high-frequency actions with hover tooltips.
+- Theme toggle (dark/light) with persisted user preference (default: light).
 - Teacher can:
 	- create session,
 	- join and share screen,
@@ -63,6 +66,8 @@ SQLite stores:
 	- submit confusion signal,
 	- vote for break,
 	- answer quiz.
+
+UX design rationale for this iteration is documented in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).
 
 ### AI Implementation Choice
 

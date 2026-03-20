@@ -25,7 +25,7 @@ export function CountdownBanner({ endTimeEpoch }) {
   const seconds = String(secondsLeft % 60).padStart(2, '0')
 
   return (
-    <div className="mb-3 rounded-xl border border-amber-500 bg-amber-500/10 px-3 py-2 text-amber-200">
+    <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-amber-800 shadow-sm dark:border-amber-500/70 dark:bg-amber-900/30 dark:text-amber-200">
       Break active. Resuming in {minutes}:{seconds}
     </div>
   )

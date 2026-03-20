@@ -21,8 +21,124 @@ async function postJson(path, body) {
   return response.json()
 }
 
+function Icon({ name, className = 'h-5 w-5' }) {
+  if (name === 'settings') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 0 0 2.572-1.065Z" />
+        <path d="M12 15.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z" />
+      </svg>
+    )
+  }
+  if (name === 'notes') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M4.75 5.75A2.75 2.75 0 0 1 7.5 3h6.543a2 2 0 0 1 1.414.586l2.957 2.957A2 2 0 0 1 19 7.957V18.25A2.75 2.75 0 0 1 16.25 21h-8.5A2.75 2.75 0 0 1 5 18.25V5.75Z" />
+        <path d="M9 10h6M9 14h6M9 18h4" />
+      </svg>
+    )
+  }
+  if (name === 'insights') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M4.75 18.25v-5.5m7.25 5.5V5.75m7.25 12.5v-8.5" strokeLinecap="round" />
+        <path d="M3 20.25h18" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'sun') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.5" />
+        <path d="M12 3v2.25M12 18.75V21M3 12h2.25M18.75 12H21M5.64 5.64l1.6 1.6M16.76 16.76l1.6 1.6M18.36 5.64l-1.6 1.6M7.24 16.76l-1.6 1.6" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'moon') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M14.5 3.4a8.6 8.6 0 1 0 6.1 14.7A9 9 0 1 1 14.5 3.4Z" />
+      </svg>
+    )
+  }
+  if (name === 'screen') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="12" rx="2" />
+        <path d="M9 20h6m-3-4v4" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'quiz') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.5 9.5a2.5 2.5 0 1 1 4.45 1.57c-.58.76-1.53 1.2-1.95 2.18M12 16.25h.01" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'break') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M7 10h9a3.5 3.5 0 1 1 0 7H7V7h8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9 4.5c0 .9-.4 1.6-1.1 2.1M12 4.5c0 .9-.4 1.6-1.1 2.1M15 4.5c0 .9-.4 1.6-1.1 2.1" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'refresh') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M20 7.5v4h-4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M4 16.5v-4h4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M6.8 9.2A7 7 0 0 1 20 11.5M17.2 14.8A7 7 0 0 1 4 12.5" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'confusion') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.5 9.5a2.5 2.5 0 1 1 4.45 1.57c-.58.76-1.53 1.2-1.95 2.18M12 16.25h.01" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'users') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M8.25 11a2.75 2.75 0 1 0 0-5.5 2.75 2.75 0 0 0 0 5.5ZM15.75 10a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Z" />
+        <path d="M3.75 18.25a4.5 4.5 0 0 1 9 0M13.5 18.25a3.75 3.75 0 0 1 6.75-2.25" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'copy') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <rect x="8" y="8" width="11" height="11" rx="2" />
+        <path d="M5 15V6a2 2 0 0 1 2-2h9" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'close') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'alert') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" className={className} stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M12 8.5v4.75M12 16.5h.01" strokeLinecap="round" />
+        <path d="M10.3 3.9 2.4 17.2A1.9 1.9 0 0 0 4.03 20h15.94a1.9 1.9 0 0 0 1.63-2.8L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z" />
+      </svg>
+    )
+  }
+  return null
+}
+
 function App() {
   const [role, setRole] = useState('student')
+  const [theme, setTheme] = useState('light')
   const [name, setName] = useState('')
   const [sessionCode, setSessionCode] = useState('')
   const [joined, setJoined] = useState(false)
@@ -37,6 +153,9 @@ function App() {
   const [quizProgress, setQuizProgress] = useState(null)
   const [analytics, setAnalytics] = useState(null)
   const [selectedQuizOptionId, setSelectedQuizOptionId] = useState('')
+  const [showSessionPanel, setShowSessionPanel] = useState(true)
+  const [showNotesPanel, setShowNotesPanel] = useState(false)
+  const [showInsightsPanel, setShowInsightsPanel] = useState(false)
 
   const wsRef = useRef(null)
   const localStreamRef = useRef(null)
@@ -45,6 +164,8 @@ function App() {
   const remoteVideoRef = useRef(null)
 
   const isTeacher = role === 'teacher'
+  const normalizedCode = sessionCode.trim().toUpperCase()
+  const themeToggleLabel = theme === 'dark' ? 'Switch to light' : 'Switch to dark'
 
   const wsUrl = useMemo(() => {
     if (!sessionCode) return ''
@@ -62,6 +183,24 @@ function App() {
       localStreamRef.current?.getTracks().forEach((track) => track.stop())
     }
   }, [])
+
+  useEffect(() => {
+    const persistedTheme = window.localStorage.getItem('ui-theme')
+    if (persistedTheme === 'dark' || persistedTheme === 'light') {
+      setTheme(persistedTheme)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!joined) {
+      setShowSessionPanel(true)
+    }
+  }, [joined])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    window.localStorage.setItem('ui-theme', theme)
+  }, [theme])
 
   async function createSession() {
     setError('')
@@ -325,201 +464,379 @@ function App() {
     send('request_analytics')
   }
 
+  async function copySessionCode() {
+    if (!normalizedCode) return
+    try {
+      await navigator.clipboard.writeText(normalizedCode)
+      setStatus(`Session code ${normalizedCode} copied`)
+    } catch {
+      setError('Could not copy session code. Please copy manually.')
+    }
+  }
+
+  const accuracyValue = Math.round(100 * (quizProgress?.accuracy ?? analytics?.quiz?.accuracy ?? 0))
+  const shortStatus = status.length > 54 ? `${status.slice(0, 54)}…` : status
+  const compactMetrics = [
+    { label: 'Students', value: metrics.student_count, icon: 'users' },
+    { label: 'Confusion alerts', value: metrics.confusion_count, icon: 'alert' },
+    { label: 'Break votes', value: metrics.break_votes, icon: 'break' },
+  ]
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        <h1 className="mb-2 text-2xl font-bold">Real-Time Educational Engagement MVP</h1>
-        <p className="mb-6 text-slate-400">WebRTC live sharing with anonymous engagement, break votes, notes, and AI quizzes.</p>
+    <div className="h-screen overflow-hidden bg-slate-100 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
+      <div className="mx-auto flex h-full max-w-[1900px] flex-col p-3 lg:p-4">
+        <header className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/90 px-4 py-2.5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
+          <div>
+            <h1 className="text-lg font-semibold lg:text-xl">Live Class Studio</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Minimal interface. Stream-first. Context on demand.
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setShowSessionPanel(true)}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-lg text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              title="Session settings"
+              aria-label="Session settings"
+            >
+              <Icon name="settings" className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNotesPanel(true)}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-lg text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              title="Shared notes"
+              aria-label="Shared notes"
+            >
+              <Icon name="notes" className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowInsightsPanel(true)}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-lg text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              title="Insights"
+              aria-label="Insights"
+            >
+              <Icon name="insights" className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-lg text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+              aria-label={themeToggleLabel}
+              title={themeToggleLabel}
+            >
+              {theme === 'dark' ? <Icon name="sun" className="h-5 w-5" /> : <Icon name="moon" className="h-5 w-5" />}
+            </button>
+          </div>
+        </header>
 
         <CountdownBanner endTimeEpoch={breakEndTime} />
 
-        <div className="grid gap-4 lg:grid-cols-[300px,1fr]">
-          <aside className="rounded-xl border border-slate-700 bg-slate-900/70 p-4">
-            <h2 className="mb-3 text-lg font-semibold">Session Controls</h2>
-
-            <label className="mb-1 block text-sm">Role</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="mb-3 w-full rounded border border-slate-600 bg-slate-800 px-2 py-2"
-              disabled={joined}
+        <main className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="absolute left-3 top-3 z-20 flex items-center gap-2">
+            <div
+              className="rounded-lg bg-slate-900/75 px-2.5 py-1 text-xs text-white backdrop-blur"
+              title={status}
+              aria-label={status}
             >
-              <option value="student">Student</option>
-              <option value="teacher">Teacher</option>
-            </select>
+              {shortStatus}
+            </div>
+            <div className="rounded-lg bg-slate-900/75 px-2 py-1 text-xs text-white backdrop-blur" title="Session code">
+              {normalizedCode || 'No code'}
+            </div>
+          </div>
 
-            <label className="mb-1 block text-sm">Name</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="mb-3 w-full rounded border border-slate-600 bg-slate-800 px-2 py-2"
-              placeholder={isTeacher ? 'Teacher name' : 'Student name'}
-              disabled={joined}
-            />
-
-            <label className="mb-1 block text-sm">Session code</label>
-            <input
-              value={sessionCode}
-              onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
-              className="mb-3 w-full rounded border border-slate-600 bg-slate-800 px-2 py-2"
-              placeholder="ABC123"
-              disabled={joined}
-            />
-
-            {!joined ? (
-              <div className="space-y-2">
-                {isTeacher ? (
-                  <button
-                    type="button"
-                    onClick={createSession}
-                    className="w-full rounded bg-indigo-600 px-3 py-2 font-medium hover:bg-indigo-500"
-                  >
-                    Create session
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={connectWebSocket}
-                  className="w-full rounded bg-emerald-600 px-3 py-2 font-medium hover:bg-emerald-500"
-                >
-                  Join session
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={disconnect}
-                className="w-full rounded bg-red-600 px-3 py-2 font-medium hover:bg-red-500"
+          <div className="absolute right-3 top-3 z-20 flex gap-1.5">
+            {compactMetrics.map((item) => (
+              <div
+                key={item.label}
+                className="rounded-lg bg-slate-900/75 px-2 py-1 text-xs text-white backdrop-blur"
+                title={`${item.label}: ${item.value}`}
               >
-                Leave session
-              </button>
+                <span className="mr-1 inline-flex align-middle">
+                  <Icon name={item.icon} className="h-3.5 w-3.5" />
+                </span>
+                {item.value}
+              </div>
+            ))}
+          </div>
+
+          <div className="relative h-full w-full bg-black">
+            {isTeacher ? (
+              <video ref={localVideoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
+            ) : (
+              <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-contain" />
             )}
 
-            <div className="mt-3 rounded border border-slate-700 bg-slate-800/70 p-2 text-xs text-slate-300">
-              <div>Status: {status}</div>
-              <div>Client: {clientId || '-'}</div>
-            </div>
-
-            {error ? <div className="mt-2 rounded border border-red-500 bg-red-500/10 p-2 text-sm text-red-200">{error}</div> : null}
-          </aside>
-
-          <main className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-3">
-              <StatCard label="Students" value={metrics.student_count} />
-              <StatCard label="Confusion alerts" value={metrics.confusion_count} />
-              <StatCard label="Break votes" value={metrics.break_votes} help="Threshold: 40%" />
-            </div>
-
-            <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-3">
-              <div className="mb-2 text-sm text-slate-400">Live stream</div>
-              {isTeacher ? (
-                <video ref={localVideoRef} autoPlay muted playsInline className="w-full rounded bg-black" />
-              ) : (
-                <video ref={remoteVideoRef} autoPlay playsInline className="w-full rounded bg-black" />
-              )}
-            </div>
+            {!joined ? (
+              <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/35">
+                <div className="rounded-xl bg-slate-950/75 px-4 py-2 text-sm text-white backdrop-blur">
+                  Open settings to create or join a session.
+                </div>
+              </div>
+            ) : null}
 
             {quiz ? (
-              <QuizOverlay
-                quiz={quiz}
-                readonly={isTeacher}
-                selectedOptionId={selectedQuizOptionId}
-                onAnswer={submitQuizAnswer}
-              />
+              <div className="absolute inset-x-4 bottom-20 z-20">
+                <QuizOverlay
+                  quiz={quiz}
+                  readonly={isTeacher}
+                  selectedOptionId={selectedQuizOptionId}
+                  onAnswer={submitQuizAnswer}
+                />
+              </div>
             ) : null}
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <section className="rounded-xl border border-slate-700 bg-slate-900/70 p-3">
-                <h3 className="mb-2 text-lg font-semibold">Notes</h3>
-                <textarea
-                  value={notes}
-                  onChange={(e) => {
-                    setNotes(e.target.value)
-                    if (isTeacher) send('note_update', { text: e.target.value })
-                  }}
-                  disabled={!joined || !isTeacher}
-                  className="h-32 w-full rounded border border-slate-600 bg-slate-800 px-2 py-2 text-sm"
-                  placeholder={isTeacher ? 'Type lecture notes here…' : 'Teacher notes will appear here…'}
-                />
-              </section>
-
-              <section className="rounded-xl border border-slate-700 bg-slate-900/70 p-3">
-                <h3 className="mb-2 text-lg font-semibold">Actions</h3>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {isTeacher ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={startShare}
-                        className="rounded bg-indigo-600 px-3 py-2 hover:bg-indigo-500 disabled:opacity-50"
-                      >
-                        Start screen share
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={generateQuizFromCurrentScreen}
-                        className="rounded bg-violet-600 px-3 py-2 hover:bg-violet-500 disabled:opacity-50"
-                      >
-                        Generate quiz from screen
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={() => send('start_break', { duration_seconds: 300 })}
-                        className="rounded bg-amber-600 px-3 py-2 hover:bg-amber-500 disabled:opacity-50"
-                      >
-                        Start 5-min break
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={requestAnalytics}
-                        className="rounded bg-cyan-600 px-3 py-2 hover:bg-cyan-500 disabled:opacity-50"
-                      >
-                        Refresh analytics
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={() => send('confusion')}
-                        className="rounded bg-red-600 px-3 py-2 hover:bg-red-500 disabled:opacity-50"
-                      >
-                        I'm confused
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={() => send('break_vote')}
-                        className="rounded bg-orange-600 px-3 py-2 hover:bg-orange-500 disabled:opacity-50"
-                      >
-                        Request break
-                      </button>
-                    </>
-                  )}
-                </div>
-              </section>
+            <div className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2">
+              <div className="flex items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/90 px-2 py-2 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/90">
+                {isTeacher ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={startShare}
+                      className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-600 text-lg text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Start screen share"
+                      aria-label="Start screen share"
+                    >
+                      <Icon name="screen" className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={generateQuizFromCurrentScreen}
+                      className="grid h-10 w-10 place-items-center rounded-xl bg-violet-600 text-lg text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Generate quiz"
+                      aria-label="Generate quiz"
+                    >
+                      <Icon name="quiz" className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={() => send('start_break', { duration_seconds: 300 })}
+                      className="grid h-10 w-10 place-items-center rounded-xl bg-amber-600 text-lg text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Start 5-minute break"
+                      aria-label="Start 5-minute break"
+                    >
+                      <Icon name="break" className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={() => {
+                        requestAnalytics()
+                        setShowInsightsPanel(true)
+                      }}
+                      className="grid h-10 w-10 place-items-center rounded-xl bg-cyan-600 text-lg text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Refresh analytics"
+                      aria-label="Refresh analytics"
+                    >
+                      <Icon name="refresh" className="h-5 w-5" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={() => send('confusion')}
+                      className="grid h-10 w-10 place-items-center rounded-xl bg-rose-600 text-lg text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Send confusion alert"
+                      aria-label="Send confusion alert"
+                    >
+                      <Icon name="confusion" className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={() => send('break_vote')}
+                      className="grid h-10 w-10 place-items-center rounded-xl bg-orange-600 text-lg text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Request break"
+                      aria-label="Request break"
+                    >
+                      <Icon name="break" className="h-5 w-5" />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
+          </div>
+        </main>
 
-            {isTeacher && (quizProgress || analytics) ? (
-              <section className="rounded-xl border border-slate-700 bg-slate-900/70 p-3">
-                <h3 className="mb-2 text-lg font-semibold">Teacher analytics</h3>
-                <div className="text-sm text-slate-300">
+        {showSessionPanel ? (
+          <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/35 p-3 backdrop-blur-sm" onClick={() => setShowSessionPanel(false)}>
+            <aside
+              className="h-full w-full max-w-sm overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Session settings</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowSessionPanel(false)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+
+              <label className="mb-1 block text-sm font-medium">Role</label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-indigo-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                disabled={joined}
+              >
+                <option value="student">Student</option>
+                <option value="teacher">Teacher</option>
+              </select>
+
+              <label className="mb-1 block text-sm font-medium">Name</label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-indigo-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                placeholder={isTeacher ? 'Teacher name' : 'Student name'}
+                disabled={joined}
+              />
+
+              <label className="mb-1 block text-sm font-medium">Session code</label>
+              <div className="mb-3 flex gap-2">
+                <input
+                  value={sessionCode}
+                  onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-indigo-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  placeholder="ABC123"
+                  disabled={joined}
+                />
+                <button
+                  type="button"
+                  onClick={copySessionCode}
+                  disabled={!normalizedCode}
+                  className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Copy session code"
+                  aria-label="Copy session code"
+                >
+                  <Icon name="copy" className="h-5 w-5" />
+                </button>
+              </div>
+
+              {!joined ? (
+                <div className="space-y-2">
+                  {isTeacher ? (
+                    <button
+                      type="button"
+                      onClick={createSession}
+                      className="w-full rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500"
+                    >
+                      Create session
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={connectWebSocket}
+                    className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                  >
+                    Join session
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={disconnect}
+                  className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
+                >
+                  Leave session
+                </button>
+              )}
+
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
+                <div className="font-medium text-slate-700 dark:text-slate-100">Status</div>
+                <div className="mt-1">{status}</div>
+                <div className="mt-1">Client: {clientId || '-'}</div>
+              </div>
+
+              {error ? (
+                <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">
+                  {error}
+                </div>
+              ) : null}
+            </aside>
+          </div>
+        ) : null}
+
+        {showNotesPanel ? (
+          <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/35 p-3 backdrop-blur-sm" onClick={() => setShowNotesPanel(false)}>
+            <aside
+              className="h-full w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Shared notes</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowNotesPanel(false)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+              <textarea
+                value={notes}
+                onChange={(e) => {
+                  setNotes(e.target.value)
+                  if (isTeacher) send('note_update', { text: e.target.value })
+                }}
+                disabled={!joined || !isTeacher}
+                className="h-[calc(100%-3rem)] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-indigo-200 focus:ring disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-900"
+                placeholder={isTeacher ? 'Type and broadcast key points...' : 'Teacher notes will appear here...'}
+              />
+            </aside>
+          </div>
+        ) : null}
+
+        {showInsightsPanel ? (
+          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4 backdrop-blur-sm" onClick={() => setShowInsightsPanel(false)}>
+            <section
+              className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Insights</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowInsightsPanel(false)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <StatCard label="Students" value={metrics.student_count} />
+                <StatCard label="Confusion alerts" value={metrics.confusion_count} />
+                <StatCard label="Break votes" value={metrics.break_votes} help="Threshold: 40%" />
+              </div>
+
+              {isTeacher ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
                   <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
                   <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
-                  <div>
-                    Accuracy:{' '}
-                    {Math.round(100 * (quizProgress?.accuracy ?? analytics?.quiz?.accuracy ?? 0))}%
-                  </div>
+                  <div>Accuracy: {accuracyValue}%</div>
                 </div>
-              </section>
-            ) : null}
-          </main>
-        </div>
+              ) : null}
+            </section>
+          </div>
+        ) : null}
       </div>
     </div>
   )
