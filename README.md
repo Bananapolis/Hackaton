@@ -64,7 +64,7 @@ SQLite stores:
 	- join and share screen,
 	- write/push notes,
 	- generate quiz (with AI prompt presets like default/funny/challenge and optional custom instruction),
-	- start synchronized break,
+	- start synchronized break and manage it live (extend/reduce by 1 minute, cancel/end now),
 	- view analytics cards.
 - Student can:
 	- join via session code,
@@ -93,7 +93,7 @@ The backend sends both to a Gemini multimodal model when configured.
 * **UC-T1: Screen Management:** Initialize session, generate join code, share screen, freeze screen, pause sharing, and modify session settings.
 * **UC-T2: Engagement Monitoring:** Receive non-intrusive UI alerts and browser desktop notifications when confusion gets high or students request a break. View real-time aggregated engagement metrics.
 * **UC-T3: AI Quiz Generation:** Trigger a single-button action to generate a contextual multiple-choice question (4 options). Push the question as a global overlay to all connected students.
-* **UC-T4: Break Management:** Initiate a synchronized break timer manually or accept a break prompt triggered by student thresholds.
+* **UC-T4: Break Management:** Initiate a synchronized break timer manually or accept a break prompt triggered by student thresholds. During break, adjust time (+/- 1 minute), end immediately, and display both countdown and "be back at" time.
 * **UC-T5: Note Distribution:** Create and push shared text notes to the student interface during the live session.
 * **UC-T6: Analytics Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, and exported notes.
 

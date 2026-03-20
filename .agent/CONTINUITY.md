@@ -92,3 +92,7 @@
   - break votes now display both absolute count and percentage (e.g., `1 (100%)`),
   - improved break notification reliability for teacher-created sessions by requesting permission earlier,
   - removed overly strict role/join guard in notification sender to avoid stale-state misses.
+- Added richer break management controls:
+  - backend in [backend/app/main.py](backend/app/main.py) now supports teacher `break_control` actions to adjust active break duration (+/- seconds) and cancel/end break,
+  - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now provides teacher controls for `-1 min`, `+1 min`, and `End` during an active break,
+  - break UI in [frontend/src/components/CountdownBanner.jsx](frontend/src/components/CountdownBanner.jsx) now shows both countdown and explicit return time ("Be back at HH:MM").

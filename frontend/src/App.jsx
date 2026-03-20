@@ -431,6 +431,12 @@ function App() {
 
       if (message.type === 'break_started') {
         setBreakEndTime(message.payload.end_time_epoch)
+        setStatus('Break timer updated')
+      }
+
+      if (message.type === 'break_ended') {
+        setBreakEndTime(null)
+        setStatus('Break ended')
       }
 
       if (message.type === 'notes') {
@@ -690,6 +696,18 @@ function App() {
     send('request_analytics')
   }
 
+  function startBreak(durationSeconds = 300) {
+    send('start_break', { duration_seconds: durationSeconds })
+  }
+
+  function adjustBreak(deltaSeconds) {
+    send('break_control', { action: 'adjust', delta_seconds: deltaSeconds })
+  }
+
+  function cancelBreak() {
+    send('break_control', { action: 'cancel' })
+  }
+
   async function copySessionCode() {
     if (!normalizedCode) return
     try {
@@ -725,6 +743,7 @@ function App() {
   const confusionMetricDisplay = `${Math.round(confusionLevelPercent)}%`
   const breakVotesMetricDisplay = `${metrics.break_votes} (${Math.round(breakVotePercent)}%)`
   const shortStatus = status.length > 54 ? `${status.slice(0, 54)}…` : status
+  const breakIsActive = Boolean(breakEndTime && breakEndTime > Date.now() / 1000)
   const compactMetrics = [
     { label: 'Students', value: metrics.student_count, icon: 'users' },
     { label: 'Confusion level', value: confusionMetricDisplay, icon: 'alert' },
@@ -911,13 +930,47 @@ function App() {
                       <button
                         type="button"
                         disabled={!joined}
-                        onClick={() => send('start_break', { duration_seconds: 300 })}
+                        onClick={() => startBreak(300)}
                         className="grid h-11 w-11 place-items-center rounded-xl bg-slate-700 text-lg text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
                         title="Start 5-minute break"
                         aria-label="Start 5-minute break"
                       >
                         <Icon name="break" className="h-5 w-5" />
                       </button>
+                      {breakIsActive ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={!joined}
+                            onClick={() => adjustBreak(-60)}
+                            className="grid h-11 min-w-11 place-items-center rounded-xl bg-slate-700 px-2 text-sm font-semibold text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="Reduce break by 1 minute"
+                            aria-label="Reduce break by 1 minute"
+                          >
+                            -1
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!joined}
+                            onClick={() => adjustBreak(60)}
+                            className="grid h-11 min-w-11 place-items-center rounded-xl bg-slate-700 px-2 text-sm font-semibold text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="Extend break by 1 minute"
+                            aria-label="Extend break by 1 minute"
+                          >
+                            +1
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!joined}
+                            onClick={cancelBreak}
+                            className="grid h-11 min-w-11 place-items-center rounded-xl bg-rose-600 px-2 text-sm font-semibold text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="End break now"
+                            aria-label="End break now"
+                          >
+                            End
+                          </button>
+                        </>
+                      ) : null}
                       <button
                         type="button"
                         disabled={!joined}

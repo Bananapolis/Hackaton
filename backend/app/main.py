@@ -211,6 +211,7 @@ def session_state_payload(session: RuntimeSession) -> dict[str, Any]:
 SESSIONS: dict[str, RuntimeSession] = {}
 BREAK_COOLDOWN_SECONDS = 30
 BREAK_THRESHOLD_PERCENT = 0.4
+MAX_BREAK_DURATION_SECONDS = 3600
 
 
 def generate_session_code() -> str:
@@ -836,6 +837,76 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                         "payload": {"end_time_epoch": session.break_active_until},
                     },
                 )
+
+            elif msg_type == "break_control":
+                if role != "teacher":
+                    continue
+
+                action = str(payload.get("action", "")).strip().lower()
+
+                if action == "cancel":
+                    if not session.break_active_until:
+                        continue
+                    session.break_active_until = None
+                    session.break_votes.clear()
+                    insert_event(code, "break_cancelled", {"by": client_id})
+                    await broadcast(session, {"type": "break_ended", "payload": {"reason": "cancelled"}})
+                    await broadcast(
+                        session,
+                        {
+                            "type": "metrics",
+                            "payload": metrics_payload(session),
+                        },
+                    )
+                    continue
+
+                if action == "adjust":
+                    if not session.break_active_until:
+                        continue
+
+                    try:
+                        delta_seconds = int(payload.get("delta_seconds", 0))
+                    except Exception:
+                        delta_seconds = 0
+
+                    if delta_seconds == 0:
+                        continue
+
+                    now_epoch = time.time()
+                    current_end = max(session.break_active_until, now_epoch)
+                    updated_end = max(now_epoch, current_end + delta_seconds)
+                    updated_end = min(updated_end, now_epoch + MAX_BREAK_DURATION_SECONDS)
+
+                    if updated_end <= now_epoch + 1:
+                        session.break_active_until = None
+                        session.break_votes.clear()
+                        insert_event(code, "break_adjusted", {"delta_seconds": delta_seconds, "ended": True})
+                        await broadcast(session, {"type": "break_ended", "payload": {"reason": "adjusted_to_zero"}})
+                        await broadcast(
+                            session,
+                            {
+                                "type": "metrics",
+                                "payload": metrics_payload(session),
+                            },
+                        )
+                    else:
+                        session.break_active_until = updated_end
+                        insert_event(
+                            code,
+                            "break_adjusted",
+                            {
+                                "delta_seconds": delta_seconds,
+                                "end_time_epoch": session.break_active_until,
+                            },
+                        )
+                        await broadcast(
+                            session,
+                            {
+                                "type": "break_started",
+                                "payload": {"end_time_epoch": session.break_active_until},
+                            },
+                        )
+                    continue
 
             elif msg_type == "note_update":
                 if role != "teacher":
