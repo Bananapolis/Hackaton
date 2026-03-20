@@ -104,7 +104,12 @@ function App() {
   const [status, setStatus] = useState('Ready')
   const [error, setError] = useState('')
 
-  const [metrics, setMetrics] = useState({ confusion_count: 0, break_votes: 0, student_count: 0 })
+  const [metrics, setMetrics] = useState({
+    confusion_count: 0,
+    confusion_level_percent: 0,
+    break_votes: 0,
+    student_count: 0,
+  })
   const [notes, setNotes] = useState('')
   const [breakEndTime, setBreakEndTime] = useState(null)
   const [quiz, setQuiz] = useState(null)
@@ -159,6 +164,16 @@ function App() {
     if (!joined) {
       setShowSessionPanel(true)
     }
+  }, [joined])
+
+  useEffect(() => {
+    if (!joined) return undefined
+
+    const timer = window.setInterval(() => {
+      send('request_state')
+    }, 2000)
+
+    return () => window.clearInterval(timer)
   }, [joined])
 
   useEffect(() => {
@@ -271,6 +286,7 @@ function App() {
         setMetrics(
           message.payload.metrics || {
             confusion_count: 0,
+            confusion_level_percent: 0,
             break_votes: 0,
             student_count: 0,
           },
@@ -292,6 +308,7 @@ function App() {
         setMetrics(
           nextState.metrics || {
             confusion_count: 0,
+            confusion_level_percent: 0,
             break_votes: 0,
             student_count: 0,
           },
@@ -573,10 +590,15 @@ function App() {
   }
 
   const accuracyValue = Math.round(100 * (quizProgress?.accuracy ?? analytics?.quiz?.accuracy ?? 0))
+  const confusionLevelPercent = Math.max(
+    0,
+    Math.min(100, Number(metrics.confusion_level_percent ?? metrics.confusion_count ?? 0)),
+  )
+  const confusionMetricDisplay = `${Math.round(confusionLevelPercent)}%`
   const shortStatus = status.length > 54 ? `${status.slice(0, 54)}…` : status
   const compactMetrics = [
     { label: 'Students', value: metrics.student_count, icon: 'users' },
-    { label: 'Confusion alerts', value: metrics.confusion_count, icon: 'alert' },
+    { label: 'Confusion level', value: confusionMetricDisplay, icon: 'alert' },
     { label: 'Break votes', value: metrics.break_votes, icon: 'break' },
   ]
   const roleLabel = isTeacher ? 'Teacher desk' : 'Student view'
@@ -783,7 +805,10 @@ function App() {
                       <button
                         type="button"
                         disabled={!joined}
-                        onClick={() => send('confusion')}
+                        onClick={() => {
+                          send('confusion')
+                          setStatus('Confusion signal sent')
+                        }}
                         className="grid h-11 w-11 place-items-center rounded-xl bg-slate-800 text-lg text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                         title="Send confusion alert"
                         aria-label="Send confusion alert"
@@ -1083,7 +1108,7 @@ function App() {
 
               <div className="grid gap-3 sm:grid-cols-3">
                 <StatCard label="Students" value={metrics.student_count} />
-                <StatCard label="Confusion alerts" value={metrics.confusion_count} />
+                <StatCard label="Confusion level" value={confusionMetricDisplay} />
                 <StatCard label="Break votes" value={metrics.break_votes} help="Threshold: 40%" />
               </div>
 

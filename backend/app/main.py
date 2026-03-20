@@ -121,6 +121,7 @@ class ClientState:
     name: str
     joined_at: float = field(default_factory=time.time)
     last_break_vote_at: float = 0.0
+    last_confusion_vote_at: float | None = None
 
 
 @dataclass
@@ -128,7 +129,6 @@ class RuntimeSession:
     code: str
     teacher_name: str
     clients: dict[str, ClientState] = field(default_factory=dict)
-    confusion_count: int = 0
     break_votes: set[str] = field(default_factory=set)
     break_active_until: float | None = None
     notes: str = ""
@@ -143,11 +143,51 @@ class RuntimeSession:
         return sum(1 for c in self.clients.values() if c.role == "student")
 
 
+CONFUSION_DECAY_SECONDS = 90.0
+CONFUSION_ACTIVE_THRESHOLD = 0.2
+
+
+def current_student_confusion_level(student: ClientState, now_epoch: float) -> float:
+    if student.role != "student" or student.last_confusion_vote_at is None:
+        return 0.0
+
+    elapsed = max(0.0, now_epoch - student.last_confusion_vote_at)
+    return max(0.0, 1.0 - (elapsed / CONFUSION_DECAY_SECONDS))
+
+
+def confusion_snapshot(session: RuntimeSession, now_epoch: float | None = None) -> dict[str, Any]:
+    now_epoch = now_epoch if now_epoch is not None else time.time()
+    total_level = 0.0
+    active_students = 0
+    student_count = 0
+
+    for client in session.clients.values():
+        if client.role != "student":
+            continue
+        student_count += 1
+        level = current_student_confusion_level(client, now_epoch)
+        total_level += level
+        if level >= CONFUSION_ACTIVE_THRESHOLD:
+            active_students += 1
+
+    average_level = (total_level / student_count) if student_count else 0.0
+    level_percent = int(round(average_level * 100))
+    return {
+        "average_level": average_level,
+        "level_percent": max(0, min(level_percent, 100)),
+        "active_students": active_students,
+        "student_count": student_count,
+    }
+
+
 def metrics_payload(session: RuntimeSession) -> dict[str, Any]:
-    student_count = session.student_count
+    confusion = confusion_snapshot(session)
+    student_count = confusion["student_count"]
     ratio = (len(session.break_votes) / student_count) if student_count else 0.0
     return {
-        "confusion_count": session.confusion_count,
+        "confusion_count": confusion["level_percent"],
+        "confusion_level_percent": confusion["level_percent"],
+        "confusion_active_students": confusion["active_students"],
         "break_votes": len(session.break_votes),
         "student_count": student_count,
         "break_ratio": round(ratio, 3),
@@ -520,6 +560,7 @@ def build_screen_explanation_with_ai(notes: str, screenshot_data_url: str | None
 
 
 def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
+    confusion = confusion_snapshot(session)
     answers = session.quiz_answers.values()
     total_answers = len(session.quiz_answers)
     correct_answers = 0
@@ -531,8 +572,10 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
     return {
         "session_code": session.code,
         "teacher_name": session.teacher_name,
-        "student_count": session.student_count,
-        "confusion_count": session.confusion_count,
+        "student_count": confusion["student_count"],
+        "confusion_count": confusion["level_percent"],
+        "confusion_level_percent": confusion["level_percent"],
+        "confusion_active_students": confusion["active_students"],
         "break_votes": len(session.break_votes),
         "break_active": bool(session.break_active_until and session.break_active_until > time.time()),
         "quiz": {
@@ -689,8 +732,9 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
             elif msg_type == "confusion":
                 if role != "student":
                     continue
-                session.confusion_count += 1
-                insert_event(code, "confusion", {"client_id": client_id})
+                now_epoch = time.time()
+                state.last_confusion_vote_at = now_epoch
+                insert_event(code, "confusion", {"client_id": client_id, "level": 1.0})
                 await broadcast(
                     session,
                     {
