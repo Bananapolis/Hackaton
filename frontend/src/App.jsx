@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { config } from './config'
 import { CountdownBanner } from './components/CountdownBanner'
 import { QuizOverlay } from './components/QuizOverlay'
+import { SessionQRCode } from './components/SessionQRCode'
 import { StatCard } from './components/StatCard'
 
 const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
@@ -166,6 +167,14 @@ function App() {
   const isTeacher = role === 'teacher'
   const normalizedCode = sessionCode.trim().toUpperCase()
   const themeToggleLabel = theme === 'dark' ? 'Switch to light' : 'Switch to dark'
+  const joinUrl = useMemo(() => {
+    if (!normalizedCode) return ''
+    if (typeof window === 'undefined') return `?code=${encodeURIComponent(normalizedCode)}`
+
+    const url = new URL(window.location.href)
+    url.searchParams.set('code', normalizedCode)
+    return url.toString()
+  }, [normalizedCode])
 
   const wsUrl = useMemo(() => {
     if (!sessionCode) return ''
@@ -196,6 +205,29 @@ function App() {
       setShowSessionPanel(true)
     }
   }, [joined])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const codeFromUrl = (params.get('code') || '').trim().toUpperCase()
+    if (!codeFromUrl) return
+
+    setSessionCode(codeFromUrl)
+    setStatus(`Session code ${codeFromUrl} loaded from URL`)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const url = new URL(window.location.href)
+    if (normalizedCode) {
+      url.searchParams.set('code', normalizedCode)
+    } else {
+      url.searchParams.delete('code')
+    }
+    window.history.replaceState({}, '', url)
+  }, [normalizedCode])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -474,6 +506,16 @@ function App() {
     }
   }
 
+  async function copyJoinLink() {
+    if (!joinUrl) return
+    try {
+      await navigator.clipboard.writeText(joinUrl)
+      setStatus('Student join link copied')
+    } catch {
+      setError('Could not copy student join link. Please copy manually.')
+    }
+  }
+
   const accuracyValue = Math.round(100 * (quizProgress?.accuracy ?? analytics?.quiz?.accuracy ?? 0))
   const shortStatus = status.length > 54 ? `${status.slice(0, 54)}…` : status
   const compactMetrics = [
@@ -725,6 +767,36 @@ function App() {
                   <Icon name="copy" className="h-5 w-5" />
                 </button>
               </div>
+
+              <label className="mb-1 block text-sm font-medium">Student join URL</label>
+              <div className="mb-3 flex gap-2">
+                <input
+                  value={joinUrl}
+                  readOnly
+                  className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700 shadow-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  placeholder="Join URL appears when a session code is set"
+                />
+                <button
+                  type="button"
+                  onClick={copyJoinLink}
+                  disabled={!joinUrl}
+                  className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Copy student join URL"
+                  aria-label="Copy student join URL"
+                >
+                  <Icon name="copy" className="h-5 w-5" />
+                </button>
+              </div>
+
+              {isTeacher && joinUrl ? (
+                <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
+                  <div className="mb-2 text-center text-sm font-semibold text-slate-700 dark:text-slate-100">Students: scan to join</div>
+                  <div className="flex justify-center">
+                    <SessionQRCode value={joinUrl} size={420} className="h-[320px] w-[320px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
+                  </div>
+                  <div className="mt-3 text-center text-4xl font-black tracking-widest text-slate-900 dark:text-slate-100">{normalizedCode}</div>
+                </div>
+              ) : null}
 
               {!joined ? (
                 <div className="space-y-2">

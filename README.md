@@ -53,6 +53,8 @@ SQLite stores:
 - Stream-first layout with minimal always-on UI and on-demand layered panels.
 - Icon-first controls for high-frequency actions with hover tooltips.
 - Theme toggle (dark/light) with persisted user preference (default: light).
+- Session join URL supports `?code=ABC123` prefill for student devices.
+- Teacher stage includes a large on-screen QR code that encodes the student join URL.
 - Teacher can:
 	- create session,
 	- join and share screen,

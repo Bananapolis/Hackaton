@@ -13,6 +13,7 @@
 The app now uses a **single persistent main stage** with layered controls:
 
 - **Always visible:** stream canvas, compact status chips, floating action dock.
+- **Teacher presentation aid:** a large on-stage QR card for fast student onboarding.
 - **On demand layers:** slide-over panels for session setup and notes, centered modal for insights.
 - **Header utility icons:** settings, notes, insights, and theme toggle.
 
@@ -50,6 +51,12 @@ This avoids constant sidebars and reduces the need for vertical scrolling.
 - Unified rounded card system (`rounded-2xl`) and subtle shadows.
 - Better contrast for text/action color tokens in both themes.
 - Consistent spacing rhythm and uppercase section labels for fast scanability.
+
+### 6) Session Onboarding via URL + QR
+
+- Session code can be carried in URL query (`?code=ABC123`) and is auto-prefilled on load.
+- Teacher UI surfaces a copyable student join URL in settings.
+- Main stage shows a large QR code (join URL payload) so students can scan from classroom distance.
 
 ## UX Impact Summary
 

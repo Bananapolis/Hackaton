@@ -39,3 +39,7 @@
   - replaced emoji controls with consistent SVG iconography,
   - enlarged quiz question/options typography for projected-screen readability,
   - kept action controls icon-only while preserving explicit accessible labels/tooltips.
+- Added classroom onboarding improvements:
+  - session code is now URL-addressable via `?code=...` and auto-prefills on load,
+  - teacher settings now expose and copy a full student join URL,
+  - teacher stage now renders a large scan-friendly QR code encoding the join URL.
