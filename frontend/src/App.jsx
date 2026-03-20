@@ -184,7 +184,6 @@ function App() {
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [authDisplayName, setAuthDisplayName] = useState('')
-  const [authRole, setAuthRole] = useState('teacher')
   const [authPending, setAuthPending] = useState(false)
   const [showLibraryPanel, setShowLibraryPanel] = useState(false)
   const [libraryTab, setLibraryTab] = useState('sessions')
@@ -422,7 +421,7 @@ function App() {
               email: authEmail,
               display_name: authDisplayName,
               password: authPassword,
-              role: authRole,
+              role: 'teacher',
             }
           : {
               email: authEmail,
@@ -436,7 +435,6 @@ function App() {
       setAuthToken(data.token)
       setAuthUser(data.user)
       setName(data.user.display_name || '')
-      setRole(data.user.role === 'student' ? 'student' : 'teacher')
       setStatus(`Signed in as ${data.user.display_name}`)
       setAuthPassword('')
     } catch (err) {
@@ -460,13 +458,12 @@ function App() {
     if (!authToken) return
     setLibraryLoading(true)
     try {
-      const canRequestStudentFiles = authUser?.role !== 'student' || Boolean(normalizedCode)
       const filesPath = normalizedCode
         ? `/api/presentations?session_code=${encodeURIComponent(normalizedCode)}`
         : '/api/presentations'
       const [sessionsData, filesData, quizzesData] = await Promise.all([
         apiRequest('/api/library/sessions', { token: authToken }),
-        canRequestStudentFiles ? apiRequest(filesPath, { token: authToken }) : Promise.resolve({ presentations: [] }),
+        apiRequest(filesPath, { token: authToken }),
         apiRequest('/api/quizzes', { token: authToken }),
       ])
       setLibrarySessions(Array.isArray(sessionsData?.sessions) ? sessionsData.sessions : [])
@@ -487,7 +484,7 @@ function App() {
   async function onUploadPresentation(event) {
     const file = event.target.files?.[0]
     if (!file || !authToken) return
-    if (authUser?.role !== 'teacher') return
+    if (!isTeacher) return
     if (!normalizedCode) {
       setError('Set or join a session code before uploading files.')
       event.target.value = ''
@@ -971,7 +968,7 @@ function App() {
     if (!authToken) return
     try {
       const downloadSuffix =
-        authUser?.role === 'student' && normalizedCode
+        !isTeacher && normalizedCode
           ? `${item.download_url}?session_code=${encodeURIComponent(normalizedCode)}`
           : item.download_url
       const response = await fetch(`${config.apiBase}${downloadSuffix}`, {
@@ -1021,7 +1018,7 @@ function App() {
     { label: 'Confusion level', value: confusionMetricDisplay, icon: 'alert' },
     { label: 'Break votes', value: breakVotesMetricDisplay, icon: 'break' },
   ]
-  const roleLabel = isTeacher ? 'Teacher desk' : 'Student view'
+  const roleLabel = isTeacher ? 'Host mode' : 'Join mode'
   const quizVisible = Boolean(quiz) && !quizState.hidden
   const quizReadonly = isTeacher || quizState.voting_closed
 
@@ -1059,14 +1056,6 @@ function App() {
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:ring-sky-500/40"
                   placeholder="Display name"
                 />
-                <select
-                  value={authRole}
-                  onChange={(event) => setAuthRole(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:ring-sky-500/40"
-                >
-                  <option value="teacher">Teacher</option>
-                  <option value="student">Student</option>
-                </select>
               </>
             ) : null}
             <input
@@ -1522,15 +1511,15 @@ function App() {
                 </button>
               </div>
 
-              <label className="mb-1 block text-sm font-medium">Role</label>
+              <label className="mb-1 block text-sm font-medium">Mode</label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
                 disabled={joined}
               >
-                <option value="student">Student</option>
-                <option value="teacher">Teacher</option>
+                <option value="student">Join existing session</option>
+                <option value="teacher">Host a new session</option>
               </select>
 
               <label className="mb-1 block text-sm font-medium">Name</label>
@@ -1601,7 +1590,7 @@ function App() {
                       onClick={createSession}
                       className="w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200"
                     >
-                      Create session
+                      Host session
                     </button>
                   ) : (
                     <button
@@ -1814,7 +1803,7 @@ function App() {
 
               {!libraryLoading && libraryTab === 'files' ? (
                 <div className="space-y-3">
-                  {authUser?.role === 'teacher' ? (
+                  {isTeacher ? (
                     <div className="flex items-center gap-3">
                       <label className="inline-flex cursor-pointer items-center rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-600">
                         {uploadPending ? 'Uploading...' : 'Upload presentation'}

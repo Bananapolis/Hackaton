@@ -222,7 +222,7 @@ class AuthRegisterRequest(BaseModel):
     email: str
     display_name: str
     password: str
-    role: str
+    role: str = "teacher"
 
 
 class AuthLoginRequest(BaseModel):
@@ -832,7 +832,7 @@ def register(payload: AuthRegisterRequest) -> AuthResponse:
     email = payload.email.strip().lower()
     display_name = payload.display_name.strip()
     password = payload.password
-    role = payload.role.strip().lower()
+    role = (payload.role or "teacher").strip().lower()
 
     if role not in {"teacher", "student"}:
         raise HTTPException(status_code=400, detail="role must be teacher or student")
@@ -951,8 +951,6 @@ async def upload_presentation(
     authorization: str | None = Header(default=None),
 ) -> PresentationItem:
     user = require_user(authorization)
-    if user["role"] != "teacher":
-        raise HTTPException(status_code=403, detail="Only teachers can upload files")
 
     normalized_session_code = session_code.strip().upper()
     if not normalized_session_code:
@@ -1032,8 +1030,18 @@ def list_presentations(
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    if user["role"] == "teacher":
-        if normalized_session_code:
+    if normalized_session_code:
+        cursor.execute(
+            "SELECT teacher_name FROM sessions WHERE code = ?",
+            (normalized_session_code,),
+        )
+        session_row = cursor.fetchone()
+        if not session_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        is_session_owner = session_row["teacher_name"] == user["display_name"]
+        if is_session_owner:
             cursor.execute(
                 """
                 SELECT p.id, p.session_code, p.original_name, p.mime_type, p.size_bytes, p.created_at
@@ -1049,29 +1057,25 @@ def list_presentations(
         else:
             cursor.execute(
                 """
-                SELECT id, session_code, original_name, mime_type, size_bytes, created_at
-                FROM presentations
-                WHERE user_id = ?
-                ORDER BY datetime(created_at) DESC
+                SELECT p.id, p.session_code, p.original_name, p.mime_type, p.size_bytes, p.created_at
+                FROM presentations p
+                JOIN sessions s ON s.code = p.session_code
+                JOIN users u ON u.id = p.user_id
+                WHERE p.session_code = ?
+                  AND s.teacher_name = u.display_name
+                ORDER BY datetime(p.created_at) DESC
                 """,
-                (user["id"],),
+                (normalized_session_code,),
             )
     else:
-        if not normalized_session_code:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Students must provide session_code")
         cursor.execute(
             """
-            SELECT p.id, p.session_code, p.original_name, p.mime_type, p.size_bytes, p.created_at
-            FROM presentations p
-            JOIN sessions s ON s.code = p.session_code
-            JOIN users u ON u.id = p.user_id
-            WHERE p.session_code = ?
-              AND u.role = 'teacher'
-              AND s.teacher_name = u.display_name
-            ORDER BY datetime(p.created_at) DESC
+            SELECT id, session_code, original_name, mime_type, size_bytes, created_at
+            FROM presentations
+            WHERE user_id = ?
+            ORDER BY datetime(created_at) DESC
             """,
-            (normalized_session_code,),
+            (user["id"],),
         )
 
     items = [
@@ -1103,7 +1107,37 @@ def download_presentation(
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    if user["role"] == "teacher":
+    if normalized_session_code:
+        cursor.execute("SELECT teacher_name FROM sessions WHERE code = ?", (normalized_session_code,))
+        session_row = cursor.fetchone()
+        if not session_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        is_session_owner = session_row["teacher_name"] == user["display_name"]
+        if is_session_owner:
+            cursor.execute(
+                """
+                SELECT id, session_code, original_name, stored_name, mime_type
+                FROM presentations
+                WHERE id = ? AND user_id = ?
+                """,
+                (presentation_id, user["id"]),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT p.id, p.session_code, p.original_name, p.stored_name, p.mime_type
+                FROM presentations p
+                JOIN sessions s ON s.code = p.session_code
+                JOIN users u ON u.id = p.user_id
+                WHERE p.id = ?
+                  AND p.session_code = ?
+                  AND s.teacher_name = u.display_name
+                """,
+                (presentation_id, normalized_session_code),
+            )
+    else:
         cursor.execute(
             """
             SELECT id, session_code, original_name, stored_name, mime_type
@@ -1111,23 +1145,6 @@ def download_presentation(
             WHERE id = ? AND user_id = ?
             """,
             (presentation_id, user["id"]),
-        )
-    else:
-        if not normalized_session_code:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Students must provide session_code")
-        cursor.execute(
-            """
-            SELECT p.id, p.session_code, p.original_name, p.stored_name, p.mime_type
-            FROM presentations p
-            JOIN sessions s ON s.code = p.session_code
-            JOIN users u ON u.id = p.user_id
-            WHERE p.id = ?
-              AND p.session_code = ?
-              AND u.role = 'teacher'
-              AND s.teacher_name = u.display_name
-            """,
-            (presentation_id, normalized_session_code),
         )
 
     row = cursor.fetchone()

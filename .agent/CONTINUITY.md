@@ -139,3 +139,8 @@
   - replaced stale `session.confusion_count` access in `analytics_for_session` with confusion snapshot-derived values,
   - restored a consistent `engagement` analytics block (`score`, participation, break-vote rate, confusion-per-student) used by end-session reporting,
   - added safe duration/session fields to the analytics payload so report generation is stable after merges.
+- Simplified account UX to match host/join intent:
+  - registration UI in [frontend/src/App.jsx](frontend/src/App.jsx) no longer asks users to choose teacher/student,
+  - session settings now frame role choice as mode selection (`Host a new session` vs `Join existing session`),
+  - library upload/download behavior in [frontend/src/App.jsx](frontend/src/App.jsx) now follows current session mode instead of persisted account role,
+  - presentation access control in [backend/app/main.py](backend/app/main.py) now derives host permissions from session ownership (`teacher_name`) rather than user role, so both hosting and joining work from one account flow.
