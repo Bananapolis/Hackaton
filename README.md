@@ -6,6 +6,14 @@ This project is a browser-based, live screen-sharing application designed to sol
 
 **Primary Objective:** Deliver a fully functional, deployed Minimum Viable Product (MVP) within a 24-hour hackathon timeframe.
 
+## 1.1 Current Repository Status
+
+This repository now contains a complete MVP implementation with:
+
+- **Backend:** FastAPI + WebSocket signaling + SQLite persistence
+- **Frontend:** React + Tailwind + browser WebRTC integration
+- **Core flows:** teacher session creation, student join by code, live screen sharing, engagement metrics, break voting, notes, quiz generation, and analytics snapshot
+
 ## 2. Technical Architecture & Recommended Stack
 
 To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architecture must prioritize low latency and rapid development.
@@ -16,6 +24,51 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 * **Backend:** Python with FastAPI
 * **AI Integration:** OpenAI API (GPT-3.5/4o-mini) or Anthropic API. Used strictly for parsing the current context/notes and generating the 1-question quiz with 4 options.
 * **Database:** SQLite or PostgreSQL. For a 24h MVP, SQLite is sufficient to store session data, attendance, and basic statistics.
+
+## 2.1 Implemented Architecture (Actual)
+
+### Backend (FastAPI)
+
+- `POST /api/sessions` creates a teacher session and join code.
+- `GET /api/sessions/{code}/analytics` returns current analytics for active sessions.
+- `GET /health` provides health status.
+- `WS /ws/{code}?role=teacher|student&name=...` handles:
+	- participant joins/leaves,
+	- WebRTC signal relay (`offer`/`answer`/`ICE`),
+	- confusion events,
+	- break votes with cooldown,
+	- teacher-triggered break timer,
+	- note updates,
+	- quiz generation and answer tracking,
+	- teacher analytics updates.
+
+SQLite stores:
+
+- `sessions` table (session lifecycle metadata)
+- `events` table (append-only event log)
+
+### Frontend (React + Tailwind)
+
+- Single-page app with role switch (teacher/student).
+- Teacher can:
+	- create session,
+	- join and share screen,
+	- write/push notes,
+	- generate quiz,
+	- start synchronized break,
+	- view analytics cards.
+- Student can:
+	- join via session code,
+	- receive teacher stream,
+	- submit confusion signal,
+	- vote for break,
+	- answer quiz.
+
+### AI Implementation Choice
+
+For this MVP, quiz generation input is **teacher-provided notes text**.
+
+Reason: This is reliable for a 24-hour build and avoids added latency and complexity from audio transcription or computer-vision analysis.
 
 ## 3. Actor Analysis & Use Cases
 
@@ -36,7 +89,88 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 * **UC-S4: Quiz Participation:** Receive and interact with the pop-up quiz overlay, selecting one of the 4 generated options.
 * **UC-S5: Break Interface:** View the synchronized countdown timer indicating when the session resumes.
 
-## 5. Deployment Protocol
+## 4. Repository Layout
+
+```text
+.
+├── backend/
+│   ├── app/
+│   │   └── main.py
+│   ├── .env.example
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── App.jsx
+│   │   ├── config.js
+│   │   ├── main.jsx
+│   │   └── styles.css
+│   ├── index.html
+│   ├── package.json
+│   ├── postcss.config.js
+│   ├── tailwind.config.js
+│   └── vite.config.js
+├── .agent/CONTINUITY.md
+├── .gitignore
+├── Makefile
+├── AGENTS.md
+└── README.md
+```
+
+## 5. Local Development (Nobara/Fedora)
+
+### 5.1 Prerequisites
+
+- Python 3.11+
+- Node.js 20+
+- npm
+
+### 5.2 Backend setup
+
+1. Create and activate a Python virtual environment in `backend/`.
+2. Install dependencies from `backend/requirements.txt`.
+3. Copy `backend/.env.example` to `backend/.env` and configure values.
+4. Run backend:
+
+```bash
+make backend-run
+```
+
+Backend default URL: `http://localhost:8000`
+
+### 5.3 Frontend setup
+
+1. Install dependencies:
+
+```bash
+make frontend-install
+```
+
+2. Run dev server:
+
+```bash
+make frontend-dev
+```
+
+Frontend default URL: `http://localhost:5173`
+
+If backend is not on `http://localhost:8000`, set `VITE_API_BASE` in frontend environment.
+
+### 5.4 Build checks
+
+- Backend syntax check:
+
+```bash
+make backend-check
+```
+
+- Frontend production build:
+
+```bash
+make frontend-build
+```
+
+## 6. Deployment Protocol
 
 You have an Ubuntu server and domains. Execute the following for a stable MVP deployment:
 
@@ -46,7 +180,11 @@ You have an Ubuntu server and domains. Execute the following for a stable MVP de
 
 To finalize the technical scope for the 24-hour window, I need clarification on the AI implementation: What specific input data will the AI use to generate the quiz question? Will it transcribe the teacher's audio, analyze the shared screen visually, or rely on the teacher's manually typed notes?
 
-# 6. Implementation notes
+### AI Clarification (Resolved)
+
+The MVP uses **teacher manually typed notes** as the AI quiz input.
+
+# 7. Implementation notes
 
 Should be extremely simple to deploy. Everything must be in this one repository, ideally split into folders that make sense.
 

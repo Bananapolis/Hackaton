@@ -1,6 +1,5 @@
 Read the README.md whenever working.
 
-
 ### Editing files
 
 - Make the smallest safe change that solves the issue.
@@ -18,7 +17,6 @@ Read the README.md whenever working.
   - wording/style is preserved unless the user explicitly asked to rewrite.
 - If paraphrasing is required, label it explicitly as a paraphrase.
 
-
 ## Definition of done
 
 A task is done when:
@@ -33,3 +31,7 @@ A task is done when:
 - impact is explained (what changed, where, why),
 - follow-ups are listed if anything was intentionally left out.
 - `.agent/CONTINUITY.md` is updated if the change materially affects goal/state/decisions.
+
+# Golden Rule
+
+Do not claim for something to be done if the app doesn't run or it doesn't pass tests.
