@@ -100,3 +100,9 @@
   - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now exposes a single trophy button (top toolbar) instead of duplicate analytics triggers,
   - frontend awards modal now presents rankings such as most active student and most correct answers,
   - backend in [backend/app/main.py](backend/app/main.py) now tracks per-student participation/correctness counters and includes computed `awards` in analytics payloads.
+- Applied typography and readability hardening in frontend:
+  - [frontend/src/styles.css](frontend/src/styles.css) now uses a local-first `Inter` + system-ui stack (external web-font import removed),
+  - heading and body defaults now follow neo-grotesque hierarchy (dense/tight headings, regular-weight legible body text),
+  - added `.hero-subtext`, `.lead`, and `.pastel-surface` rules for stronger typographic contrast and WCAG-friendly card text,
+  - updated panel heading classes and hero label usage in [frontend/src/App.jsx](frontend/src/App.jsx),
+  - documented this visual direction update in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).

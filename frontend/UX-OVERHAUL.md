@@ -117,3 +117,26 @@ This pass focused on making the interface feel more premium and presentation-gra
 - The UI now reads as a cohesive product rather than a collection of utilities.
 - Visual emphasis is clearer on projected screens: stream first, controls second, analytics third.
 - Standardized icons and restrained color improve trust and reduce visual fatigue in longer sessions.
+
+## 2026-03-20 - Typography System Pass (Scandinavian Neo-Grotesque)
+
+This pass aligned the UI typography with a stricter institutional minimal style.
+
+### Additions
+
+- Removed external web-font loading and standardized to a local-first stack:
+	- `Inter`, then immediate system-ui neo-grotesque fallbacks.
+- Replaced serif/editorial heading treatment with neo-grotesque headings.
+- Enforced heading hierarchy for `h1/h2/h3`:
+	- bold/extra-bold weights,
+	- tighter tracking (`-0.02em`),
+	- deep charcoal heading color in light mode.
+- Added baseline rhythm tokens and consistent text line-height for a stricter geometric grid feel.
+- Added explicit hero/lead text style (`.hero-subtext`, `.lead`) using light weight and mid-dark gray.
+- Added pastel-surface contrast guardrails (`.pastel-surface`) to force darker regular-weight body text for AA-safe readability.
+
+### Why this matters
+
+- Improves legibility in classroom projection contexts.
+- Reduces visual inconsistency caused by mixed typography identities.
+- Prevents low-contrast thin text on tinted cards/containers.

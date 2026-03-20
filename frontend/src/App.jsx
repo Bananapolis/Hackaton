@@ -764,7 +764,7 @@ function App() {
       <div className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col px-3 py-3 lg:px-6 lg:py-5">
         <header className="mb-4 flex flex-wrap items-center justify-between gap-3 ui-fade-up">
           <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-2.5 shadow-[0_18px_35px_-24px_rgba(15,23,42,0.65)] backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/75">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Live engagement studio</div>
+            <div className="hero-subtext text-[11px] uppercase tracking-[0.08em]">Live engagement studio</div>
             <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
               <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               {roleLabel}
@@ -1061,7 +1061,7 @@ function App() {
             </div>
 
             {!isTeacher ? (
-              <div className="rounded-2xl border border-sky-200/90 bg-sky-50/90 p-3 dark:border-sky-500/40 dark:bg-sky-900/20">
+              <div className="pastel-surface rounded-2xl border border-sky-200/90 bg-sky-50/90 p-3 dark:border-sky-500/40 dark:bg-sky-900/20">
                 <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-sky-700 dark:text-sky-300">AI explain the screen</div>
                 {explainLoading ? <div className="text-sm text-sky-700 dark:text-sky-200">Generating explanation...</div> : null}
                 {!explainLoading && screenExplanation ? (
@@ -1108,7 +1108,7 @@ function App() {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Session settings</h2>
+                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Session settings</h2>
                 <button
                   type="button"
                   onClick={() => setShowSessionPanel(false)}
@@ -1243,7 +1243,7 @@ function App() {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Shared notes</h2>
+                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Shared notes</h2>
                 <button
                   type="button"
                   onClick={() => setShowNotesPanel(false)}
@@ -1275,7 +1275,7 @@ function App() {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Class awards</h2>
+                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Class awards</h2>
                 <button
                   type="button"
                   onClick={() => setShowAwardsPanel(false)}
@@ -1334,7 +1334,7 @@ function App() {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">AI quiz prompt</h2>
+                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">AI quiz prompt</h2>
                 <button
                   type="button"
                   onClick={() => setShowQuizPromptPanel(false)}
