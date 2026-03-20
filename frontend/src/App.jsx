@@ -1008,8 +1008,8 @@ function App() {
                   value={sessionCode}
                   onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
-                  placeholder="ABC123"
-                  disabled={joined}
+                  placeholder={isTeacher ? 'Auto-generated for host' : 'ABC123'}
+                  disabled={joined || isTeacher}
                 />
                 <button
                   type="button"
@@ -1063,14 +1063,15 @@ function App() {
                     >
                       Create session
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={connectWebSocket}
-                    className="w-full rounded-lg bg-sky-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600"
-                  >
-                    Join session
-                  </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={connectWebSocket}
+                      className="w-full rounded-lg bg-sky-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600"
+                    >
+                      Join session
+                    </button>
+                  )}
                 </div>
               ) : (
                 <button
