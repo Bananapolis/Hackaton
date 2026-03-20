@@ -36,7 +36,7 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 	- participant joins/leaves,
 	- full session-state sync on connect (notes, break timer, quiz state, metrics),
 	- WebRTC signal relay (`offer`/`answer`/`ICE`),
-	- confusion events,
+	- per-student confusion signals with automatic level decay over time,
 	- break votes with cooldown,
 	- teacher-triggered break timer,
 	- note updates,
@@ -96,7 +96,7 @@ The backend sends both to a Gemini multimodal model when configured.
 ### Actor 2: Student (Client)
 
 * **UC-S1: Session Access:** Join the live session via browser using the teacher's code. View the live screen share.
-* **UC-S2: Confusion Reporting:** Click a button to anonymously flag confusion.
+* **UC-S2: Confusion Reporting:** Click a button to anonymously raise personal confusion level (capped per student). The level decays automatically over time so teacher sees live classroom confusion intensity instead of unlimited alert accumulation.
 * **UC-S3: Break Request:** Click a button to vote for a break. *Constraint:* Must be governed by a rate-limiting cooldown mechanism to prevent spam.
 * **UC-S4: Quiz Participation:** Receive and interact with the pop-up quiz overlay, selecting one of the 4 generated options.
 * **UC-S5: Break Interface:** View the synchronized countdown timer indicating when the session resumes.

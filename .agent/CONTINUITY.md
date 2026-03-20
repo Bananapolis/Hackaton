@@ -68,3 +68,14 @@
 - Fixed participant count desync on join/leave in [backend/app/main.py](backend/app/main.py):
   - server now broadcasts fresh `metrics` immediately after participant joins/leaves,
   - teacher and students now see consistent `student_count` without waiting for another event.
+- Reworked confusion tracking to prevent unlimited per-student alerts:
+  - each student now has a capped personal confusion level in [backend/app/main.py](backend/app/main.py),
+  - levels decay automatically over time and teacher metrics expose a live confusion percentage,
+  - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now displays “Confusion level” instead of raw alert count.
+- Fixed instability in confusion behavior by simplifying the model in [backend/app/main.py](backend/app/main.py):
+  - a student click now records a single confusion vote timestamp (resets that student to 100%),
+  - displayed level is computed deterministically from timestamp + decay window (no additive drift),
+  - this removes jumpy sequences like 45 → 100 → unexpected resets during repeated clicks.
+- Fixed stale confusion display updates in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - while connected, client now requests fresh session state every 2 seconds,
+  - this ensures decaying confusion percentages continue updating even when no new websocket events occur.
