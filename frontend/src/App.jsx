@@ -4,8 +4,12 @@ import {
   BarChart3,
   Coffee,
   Copy,
+  Eye,
+  EyeOff,
   FileText,
   HelpCircle,
+  Lock,
+  LockOpen,
   Monitor,
   Moon,
   RefreshCw,
@@ -54,6 +58,10 @@ function Icon({ name, className = 'h-5 w-5' }) {
     copy: Copy,
     close: X,
     alert: AlertTriangle,
+    eye: Eye,
+    eyeOff: EyeOff,
+    lock: Lock,
+    lockOpen: LockOpen,
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -328,6 +336,15 @@ function App() {
     })
   }
 
+  function closeQuiz() {
+    if (!joined || !isTeacher || !quiz) return
+    send('quiz_control', { hidden: true })
+    setQuizState((current) => ({ ...current, hidden: true }))
+    setQuiz(null)
+    setSelectedQuizOptionId('')
+    setStatus('Quiz closed')
+  }
+
   function send(type, payload = {}) {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
     wsRef.current.send(JSON.stringify({ type, payload }))
@@ -574,6 +591,43 @@ function App() {
                 </div>
               ) : null}
 
+              {isTeacher && quizVisible ? (
+                <div className="absolute right-4 bottom-24 z-20">
+                  <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/15 bg-white/90 p-2 shadow-2xl backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/88">
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={() => send('quiz_control', { cover_mode: !quizState.cover_mode })}
+                      className="grid h-11 w-11 place-items-center rounded-xl bg-slate-800 text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={quizState.cover_mode ? 'Uncover question' : 'Cover question'}
+                      aria-label={quizState.cover_mode ? 'Uncover question' : 'Cover question'}
+                    >
+                      <Icon name={quizState.cover_mode ? 'eyeOff' : 'eye'} className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={() => send('quiz_control', { voting_closed: !quizState.voting_closed })}
+                      className="grid h-11 w-11 place-items-center rounded-xl bg-slate-700 text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={quizState.voting_closed ? 'Resume voting' : 'Close voting'}
+                      aria-label={quizState.voting_closed ? 'Resume voting' : 'Close voting'}
+                    >
+                      <Icon name={quizState.voting_closed ? 'lockOpen' : 'lock'} className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!joined}
+                      onClick={closeQuiz}
+                      className="grid h-11 w-11 place-items-center rounded-xl bg-rose-600 text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Close question"
+                      aria-label="Close question"
+                    >
+                      <Icon name="close" className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
                 <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/90 p-2 shadow-2xl backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/88">
                   {isTeacher ? (
@@ -621,40 +675,6 @@ function App() {
                       >
                         <Icon name="refresh" className="h-5 w-5" />
                       </button>
-                      {quiz ? (
-                        <>
-                          <button
-                            type="button"
-                            disabled={!joined}
-                            onClick={() => send('quiz_control', { cover_mode: !quizState.cover_mode })}
-                            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-                            title="Toggle full-screen question cover"
-                            aria-label="Toggle full-screen question cover"
-                          >
-                            {quizState.cover_mode ? 'Uncover' : 'Cover'}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!joined}
-                            onClick={() => send('quiz_control', { voting_closed: !quizState.voting_closed })}
-                            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-                            title="Toggle voting"
-                            aria-label="Toggle voting"
-                          >
-                            {quizState.voting_closed ? 'Resume voting' : 'Stop voting'}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!joined}
-                            onClick={() => send('quiz_control', { hidden: !quizState.hidden })}
-                            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
-                            title="Show or hide quiz"
-                            aria-label="Show or hide quiz"
-                          >
-                            {quizState.hidden ? 'Show quiz' : 'Hide quiz'}
-                          </button>
-                        </>
-                      ) : null}
                     </>
                   ) : (
                     <>
