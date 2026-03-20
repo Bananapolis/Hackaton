@@ -110,3 +110,10 @@
   - maximize/minimize now uses browser Fullscreen API (`requestFullscreen` / `exitFullscreen`) for full-display behavior,
   - fullscreen state now syncs via `fullscreenchange` so icon/state follow Esc and browser-exit actions,
   - while fullscreen is active, stage action buttons are hidden by default and appear on hover/focus (YouTube-style).
+- Added production deployment foundation for Ubuntu servers:
+  - containerized backend via [backend/Dockerfile](backend/Dockerfile),
+  - containerized frontend + API/WebSocket reverse proxy via [frontend/Dockerfile](frontend/Dockerfile) and [frontend/nginx.conf](frontend/nginx.conf),
+  - orchestration via [docker-compose.yml](docker-compose.yml),
+  - deployment runbook and secret-handling guidance in [DEPLOYMENT.md](DEPLOYMENT.md),
+  - starter GitHub Actions CI/CD workflow in [.github/workflows/deploy.yml](.github/workflows/deploy.yml),
+  - linked deployment assets from [README.md](README.md).
