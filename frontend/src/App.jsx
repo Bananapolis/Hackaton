@@ -26,6 +26,29 @@ import { SessionQRCode } from './components/SessionQRCode'
 import { StatCard } from './components/StatCard'
 
 const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+const sessionPreferencesStorageKey = 'session-preferences-v1'
+
+function loadSessionPreferences() {
+  if (typeof window === 'undefined') {
+    return { role: 'student', name: '', sessionCode: '' }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(sessionPreferencesStorageKey)
+    if (!raw) {
+      return { role: 'student', name: '', sessionCode: '' }
+    }
+
+    const parsed = JSON.parse(raw)
+    const role = parsed?.role === 'teacher' ? 'teacher' : 'student'
+    const name = typeof parsed?.name === 'string' ? parsed.name : ''
+    const sessionCode = typeof parsed?.sessionCode === 'string' ? parsed.sessionCode.toUpperCase() : ''
+
+    return { role, name, sessionCode }
+  } catch {
+    return { role: 'student', name: '', sessionCode: '' }
+  }
+}
 
 async function postJson(path, body) {
   const response = await fetch(`${config.apiBase}${path}`, {
@@ -70,10 +93,12 @@ function Icon({ name, className = 'h-5 w-5' }) {
 }
 
 function App() {
-  const [role, setRole] = useState('student')
+  const [initialSessionPreferences] = useState(() => loadSessionPreferences())
+
+  const [role, setRole] = useState(initialSessionPreferences.role)
   const [theme, setTheme] = useState('light')
-  const [name, setName] = useState('')
-  const [sessionCode, setSessionCode] = useState('')
+  const [name, setName] = useState(initialSessionPreferences.name)
+  const [sessionCode, setSessionCode] = useState(initialSessionPreferences.sessionCode)
   const [joined, setJoined] = useState(false)
   const [clientId, setClientId] = useState('')
   const [status, setStatus] = useState('Ready')
@@ -143,6 +168,17 @@ function App() {
     setSessionCode(codeFromUrl)
     setStatus(`Session code ${codeFromUrl} loaded from URL`)
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const preferences = {
+      role,
+      name,
+      sessionCode: sessionCode.toUpperCase(),
+    }
+    window.localStorage.setItem(sessionPreferencesStorageKey, JSON.stringify(preferences))
+  }, [role, name, sessionCode])
 
   useEffect(() => {
     if (typeof window === 'undefined') return

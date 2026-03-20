@@ -58,3 +58,6 @@
   - shifted the interface to a restrained neutral-and-blue palette with more editorial typography,
   - added subtle shell atmosphere and motion while keeping existing teacher/student workflows intact,
   - documented the updated visual direction in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).
+- Added session-preference persistence in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - role, participant name, and last session code now persist across browser sessions,
+  - URL `?code=...` prefill remains higher priority and overrides stored code on load.
