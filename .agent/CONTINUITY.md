@@ -68,3 +68,7 @@
 - Fixed participant count desync on join/leave in [backend/app/main.py](backend/app/main.py):
   - server now broadcasts fresh `metrics` immediately after participant joins/leaves,
   - teacher and students now see consistent `student_count` without waiting for another event.
+- Added a student-facing AI "Explain the screen" feature:
+  - backend now handles `explain_screen` websocket requests and returns per-student explanations generated from notes + shared-screen screenshot,
+  - frontend now exposes an explain action button for students and renders generated explanations with loading and timestamp states,
+  - documented the new capability in [README.md](README.md).

@@ -115,6 +115,9 @@ function App() {
   const [showSessionPanel, setShowSessionPanel] = useState(true)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
   const [showInsightsPanel, setShowInsightsPanel] = useState(false)
+  const [screenExplanation, setScreenExplanation] = useState('')
+  const [screenExplanationGeneratedAt, setScreenExplanationGeneratedAt] = useState('')
+  const [explainLoading, setExplainLoading] = useState(false)
 
   const wsRef = useRef(null)
   const localStreamRef = useRef(null)
@@ -247,6 +250,7 @@ function App() {
     ws.onclose = () => {
       setJoined(false)
       setStatus('Disconnected')
+      setExplainLoading(false)
       for (const pc of peerConnectionsRef.current.values()) {
         pc.close()
       }
@@ -331,7 +335,15 @@ function App() {
       }
 
       if (message.type === 'error') {
+        setExplainLoading(false)
         setError(message.payload?.message || 'Unknown session error')
+      }
+
+      if (message.type === 'screen_explanation') {
+        setExplainLoading(false)
+        setScreenExplanation(message.payload?.text || '')
+        setScreenExplanationGeneratedAt(message.payload?.generated_at || '')
+        setStatus('AI explanation ready')
       }
 
       if (message.type === 'break_threshold_reached') {
@@ -358,8 +370,7 @@ function App() {
     }
   }
 
-  function captureSharedScreenScreenshot() {
-    const video = localVideoRef.current
+  function captureVideoFrame(video) {
     if (!video) return null
 
     const width = video.videoWidth
@@ -376,6 +387,14 @@ function App() {
     if (!context) return null
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
     return canvas.toDataURL('image/jpeg', 0.8)
+  }
+
+  function captureSharedScreenScreenshot() {
+    return captureVideoFrame(localVideoRef.current)
+  }
+
+  function captureCurrentViewScreenshot() {
+    return captureVideoFrame(isTeacher ? localVideoRef.current : remoteVideoRef.current)
   }
 
   function submitQuizAnswer(optionId) {
@@ -395,6 +414,24 @@ function App() {
 
     setStatus('Generating quiz from current screen…')
     send('generate_quiz', {
+      notes,
+      screenshot_data_url: screenshotDataUrl,
+    })
+  }
+
+  function explainCurrentScreen() {
+    if (!joined || isTeacher || explainLoading) return
+
+    const screenshotDataUrl = captureCurrentViewScreenshot()
+    if (!screenshotDataUrl) {
+      setError('No shared screen frame available yet. Wait for the teacher screen to load and try again.')
+      return
+    }
+
+    setError('')
+    setExplainLoading(true)
+    setStatus('Generating AI explanation...')
+    send('explain_screen', {
       notes,
       screenshot_data_url: screenshotDataUrl,
     })
@@ -508,6 +545,7 @@ function App() {
   function disconnect() {
     wsRef.current?.close()
     setJoined(false)
+    setExplainLoading(false)
   }
 
   function requestAnalytics() {
@@ -762,6 +800,16 @@ function App() {
                       >
                         <Icon name="break" className="h-5 w-5" />
                       </button>
+                      <button
+                        type="button"
+                        disabled={!joined || explainLoading}
+                        onClick={explainCurrentScreen}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-sky-800 text-lg text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Explain the screen"
+                        aria-label="Explain the screen"
+                      >
+                        <Icon name="quiz" className="h-5 w-5" />
+                      </button>
                     </>
                   )}
                 </div>
@@ -806,6 +854,24 @@ function App() {
                 </div>
               ))}
             </div>
+
+            {!isTeacher ? (
+              <div className="rounded-2xl border border-sky-200/90 bg-sky-50/90 p-3 dark:border-sky-500/40 dark:bg-sky-900/20">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-sky-700 dark:text-sky-300">AI explain the screen</div>
+                {explainLoading ? <div className="text-sm text-sky-700 dark:text-sky-200">Generating explanation...</div> : null}
+                {!explainLoading && screenExplanation ? (
+                  <>
+                    <div className="text-sm leading-relaxed text-sky-900 dark:text-sky-100">{screenExplanation}</div>
+                    {screenExplanationGeneratedAt ? (
+                      <div className="mt-2 text-xs text-sky-700/80 dark:text-sky-300/80">Updated: {new Date(screenExplanationGeneratedAt).toLocaleTimeString()}</div>
+                    ) : null}
+                  </>
+                ) : null}
+                {!explainLoading && !screenExplanation ? (
+                  <div className="text-sm text-sky-700 dark:text-sky-200">Tap the sparkle button below the video to get a short explanation of the current screen.</div>
+                ) : null}
+              </div>
+            ) : null}
 
             {isTeacher && joinUrl ? (
               <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 dark:border-slate-700 dark:bg-slate-800/70">
