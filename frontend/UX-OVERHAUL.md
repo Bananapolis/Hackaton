@@ -55,6 +55,7 @@ This avoids constant sidebars and reduces the need for vertical scrolling.
 ### 6) Session Onboarding via URL + QR
 
 - Session code can be carried in URL query (`?code=ABC123`) and is auto-prefilled on load.
+- Role, name, and last session code are persisted in local storage and restored between visits.
 - Teacher UI surfaces a copyable student join URL in settings.
 - Main stage shows a large QR code (join URL payload) so students can scan from classroom distance.
 
@@ -95,3 +96,24 @@ This pass focused on **presentation quality** and a more polished institutional 
 - Better first impression in demos and faculty presentations.
 - Reduced visual noise while preserving all existing teacher/student workflows.
 - Improved readability and spacing rhythm for both laptop and projector usage.
+
+## 2026-03-20 - Professional Refinement Pass (Neutral + Editorial)
+
+This pass focused on making the interface feel more premium and presentation-grade while keeping the existing information architecture and feature set intact.
+
+### Additions
+
+- Replaced custom inline SVG icons with `lucide-react` to standardize iconography and improve visual consistency.
+- Shifted from mixed accent colors to a restrained neutral system with one blue accent for key emphasis.
+- Introduced a more editorial typographic pairing:
+  - UI/body: `Manrope`
+  - Display headings: `Fraunces`
+- Upgraded shell atmosphere with layered gradients, subtle grid texture, and soft motion (`fade-up`) for initial load polish.
+- Refined stage overlays, floating action dock, and side intelligence rail with crisper spacing, cleaner contrast, and stronger visual hierarchy.
+- Restyled quiz overlay, break banner, and stat cards to align with the same professional surface language.
+
+### Why this matters
+
+- The UI now reads as a cohesive product rather than a collection of utilities.
+- Visual emphasis is clearer on projected screens: stream first, controls second, analytics third.
+- Standardized icons and restrained color improve trust and reduce visual fatigue in longer sessions.

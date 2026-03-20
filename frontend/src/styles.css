@@ -1,28 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Manrope:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: light;
+  --app-bg: #f4f7fb;
+  --app-bg-soft: #eef3f9;
+  --app-ink: #0f172a;
+  --app-surface: rgba(255, 255, 255, 0.72);
+  --app-grid: rgba(15, 23, 42, 0.03);
 }
 
 .dark {
   color-scheme: dark;
+  --app-bg: #04070f;
+  --app-bg-soft: #0b1220;
+  --app-ink: #e2e8f0;
+  --app-surface: rgba(15, 23, 42, 0.68);
+  --app-grid: rgba(148, 163, 184, 0.08);
 }
 
 body {
+  position: relative;
   margin: 0;
   min-height: 100vh;
-  font-family: "Inter", "SF Pro Text", "SF Pro Display", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-  background: radial-gradient(circle at top left, #e0f2fe, #f8fafc 38%, #f1f5f9 78%);
-  color: #0f172a;
+  font-family: "Manrope", "Avenir Next", "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(125, 211, 252, 0.2) 0%, transparent 32%),
+    radial-gradient(circle at 88% 88%, rgba(148, 163, 184, 0.16) 0%, transparent 36%),
+    linear-gradient(165deg, var(--app-bg) 0%, var(--app-bg-soft) 55%, var(--app-bg) 100%);
+  color: var(--app-ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-.dark body {
-  background: radial-gradient(circle at top left, #0f172a, #020617 45%, #020617 100%);
-  color: #e2e8f0;
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(to right, var(--app-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--app-grid) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(circle at center, rgba(15, 23, 42, 0.55), transparent 78%);
+  z-index: -1;
 }
 
 button {
@@ -34,6 +56,42 @@ button {
 }
 
 ::selection {
-  background: #7dd3fc;
+  background: #93c5fd;
   color: #0f172a;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Fraunces", "Times New Roman", serif;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+*:focus-visible {
+  outline: 2px solid rgba(14, 116, 144, 0.4);
+  outline-offset: 2px;
+}
+
+.ui-fade-up {
+  animation: fade-up 520ms cubic-bezier(0.21, 0.98, 0.35, 1) both;
+}
+
+.ui-fade-up-delay {
+  animation-delay: 90ms;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

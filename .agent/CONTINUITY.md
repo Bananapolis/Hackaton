@@ -53,3 +53,18 @@
   - introduced backend-synchronized quiz state (`hidden`, `cover_mode`, `voting_closed`),
   - enabled teacher actions to cover/uncover quiz, stop/resume voting, and hide/show quiz,
   - increased quiz question/option typography significantly in cover mode with stronger contrast blur.
+- Applied a professional UI refinement pass focused on cleaner product polish:
+  - adopted `lucide-react` for consistent React-native iconography across controls and overlays,
+  - shifted the interface to a restrained neutral-and-blue palette with more editorial typography,
+  - added subtle shell atmosphere and motion while keeping existing teacher/student workflows intact,
+  - documented the updated visual direction in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).
+- Added session-preference persistence in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - role, participant name, and last session code now persist across browser sessions,
+  - URL `?code=...` prefill remains higher priority and overrides stored code on load.
+- Improved live-session state synchronization for late-joining students:
+  - centralized backend session snapshot helpers in [backend/app/main.py](backend/app/main.py),
+  - welcome/state messages now include metrics + full current context (notes, break timer, quiz, quiz controls),
+  - frontend hydration in [frontend/src/App.jsx](frontend/src/App.jsx) now applies full session context immediately.
+- Fixed participant count desync on join/leave in [backend/app/main.py](backend/app/main.py):
+  - server now broadcasts fresh `metrics` immediately after participant joins/leaves,
+  - teacher and students now see consistent `student_count` without waiting for another event.

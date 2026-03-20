@@ -143,6 +143,31 @@ class RuntimeSession:
         return sum(1 for c in self.clients.values() if c.role == "student")
 
 
+def metrics_payload(session: RuntimeSession) -> dict[str, Any]:
+    student_count = session.student_count
+    ratio = (len(session.break_votes) / student_count) if student_count else 0.0
+    return {
+        "confusion_count": session.confusion_count,
+        "break_votes": len(session.break_votes),
+        "student_count": student_count,
+        "break_ratio": round(ratio, 3),
+    }
+
+
+def session_state_payload(session: RuntimeSession) -> dict[str, Any]:
+    return {
+        "notes": session.notes,
+        "break_active_until": session.break_active_until,
+        "quiz": session.current_quiz.model_dump() if session.current_quiz else None,
+        "quiz_state": {
+            "hidden": session.quiz_hidden,
+            "cover_mode": session.quiz_cover_mode,
+            "voting_closed": session.quiz_voting_closed,
+        },
+        "metrics": metrics_payload(session),
+    }
+
+
 SESSIONS: dict[str, RuntimeSession] = {}
 BREAK_COOLDOWN_SECONDS = 30
 BREAK_THRESHOLD_PERCENT = 0.4
@@ -459,15 +484,16 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
             "payload": {
                 "client_id": client_id,
                 "session_code": code,
-                "notes": session.notes,
-                "break_active_until": session.break_active_until,
-                "quiz": session.current_quiz.model_dump() if session.current_quiz else None,
-                "quiz_state": {
-                    "hidden": session.quiz_hidden,
-                    "cover_mode": session.quiz_cover_mode,
-                    "voting_closed": session.quiz_voting_closed,
-                },
+                **session_state_payload(session),
             },
+        },
+    )
+
+    await send_json(
+        websocket,
+        {
+            "type": "session_state",
+            "payload": session_state_payload(session),
         },
     )
 
@@ -476,6 +502,14 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
         {
             "type": "participant_joined",
             "payload": {"client_id": client_id, "role": role, "name": name},
+        },
+    )
+
+    await broadcast(
+        session,
+        {
+            "type": "metrics",
+            "payload": metrics_payload(session),
         },
     )
 
@@ -522,11 +556,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     session,
                     {
                         "type": "metrics",
-                        "payload": {
-                            "confusion_count": session.confusion_count,
-                            "break_votes": len(session.break_votes),
-                            "student_count": session.student_count,
-                        },
+                        "payload": metrics_payload(session),
                     },
                 )
 
@@ -558,12 +588,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     session,
                     {
                         "type": "metrics",
-                        "payload": {
-                            "confusion_count": session.confusion_count,
-                            "break_votes": len(session.break_votes),
-                            "student_count": session.student_count,
-                            "break_ratio": round(ratio, 3),
-                        },
+                        "payload": metrics_payload(session),
                     },
                 )
 
@@ -710,6 +735,15 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     },
                 )
 
+            elif msg_type == "request_state":
+                await send_json(
+                    websocket,
+                    {
+                        "type": "session_state",
+                        "payload": session_state_payload(session),
+                    },
+                )
+
     except WebSocketDisconnect:
         pass
     finally:
@@ -720,6 +754,14 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
             {
                 "type": "participant_left",
                 "payload": {"client_id": client_id, "role": role, "name": name},
+            },
+        )
+
+        await broadcast(
+            session,
+            {
+                "type": "metrics",
+                "payload": metrics_payload(session),
             },
         )
 
