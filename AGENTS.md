@@ -1,4 +1,4 @@
-Read the README.md whenever working.
+Read the README.md in the beginning when working on something and from time to time.
 
 ### Editing files
 

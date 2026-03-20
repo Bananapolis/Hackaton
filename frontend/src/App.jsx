@@ -176,12 +176,6 @@ function App() {
     return url.toString()
   }, [normalizedCode])
 
-  const wsUrl = useMemo(() => {
-    if (!sessionCode) return ''
-    const params = new URLSearchParams({ role, name })
-    return `${config.wsBase}/ws/${sessionCode.toUpperCase()}?${params.toString()}`
-  }, [name, role, sessionCode])
-
   useEffect(() => {
     return () => {
       wsRef.current?.close()
@@ -236,32 +230,42 @@ function App() {
 
   async function createSession() {
     setError('')
-    if (!name.trim()) {
+    const teacherName = name.trim()
+    if (!teacherName) {
       setError('Teacher name is required')
       return
     }
 
     try {
-      const data = await postJson('/api/sessions', { teacher_name: name.trim() })
+      const data = await postJson('/api/sessions', { teacher_name: teacherName })
+      const newCode = data.code.toUpperCase()
       setRole('teacher')
-      setSessionCode(data.code)
-      setStatus(`Session ${data.code} created. Click Join session.`)
+      setName(teacherName)
+      setSessionCode(newCode)
+      setStatus(`Session ${newCode} created. Joining…`)
+      connectWebSocket({ nextRole: 'teacher', nextName: teacherName, nextSessionCode: newCode })
     } catch (err) {
       setError(err.message)
     }
   }
 
-  function connectWebSocket() {
+  function connectWebSocket({ nextRole = role, nextName = name, nextSessionCode = sessionCode } = {}) {
     setError('')
 
-    if (!name.trim()) {
+    const trimmedName = nextName.trim()
+    const normalizedSessionCode = nextSessionCode.trim().toUpperCase()
+
+    if (!trimmedName) {
       setError('Name is required')
       return
     }
-    if (!sessionCode.trim()) {
+    if (!normalizedSessionCode) {
       setError('Session code is required')
       return
     }
+
+    const params = new URLSearchParams({ role: nextRole, name: trimmedName })
+    const wsUrl = `${config.wsBase}/ws/${normalizedSessionCode}?${params.toString()}`
 
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
