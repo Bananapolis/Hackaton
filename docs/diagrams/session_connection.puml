@@ -1,0 +1,23 @@
+@startuml
+!theme plain
+
+actor "Teacher\n(React/Electron)" as T
+actor "Student\n(React/Browser)" as S
+participant "Backend\n(FastAPI WebSockets)" as B
+
+T -> B: POST /api/sessions/create {title, notes}
+B --> T: 200 OK (Returns 6-digit JOINDCODE)
+
+T -> B: HTTP GET /ws/{JOINCODE}?role=teacher&name=Instructor
+B --> T: 101 Switching Protocols (WebSocket Established)
+
+S -> B: POST /api/sessions/join {code: JOINCODE}
+B --> S: 200 OK
+
+S -> B: HTTP GET /ws/{JOINCODE}?role=student&name=Alice
+B --> S: 101 Switching Protocols
+
+B -> T: WS Emit "participant_joined" (Alice)
+B -> S: WS Emit "metrics" (current room state)
+
+@enduml
