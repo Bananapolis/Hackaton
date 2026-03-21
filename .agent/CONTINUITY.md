@@ -290,3 +290,7 @@
 - Added TLS client-compatibility hardening for production HTTPS:
   - configured Caddy in [deploy/Caddyfile](deploy/Caddyfile) to issue RSA certificates (`key_type rsa2048`) for broader browser compatibility,
   - rotated cached certificate material and re-issued certificate chain for `vialive.libreuni.com`.
+- Fixed Safari blank-page startup crash in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - wrapped all startup/session/theme/auth `localStorage` reads/writes in safe helpers that gracefully fall back when storage access throws (e.g., Safari private mode),
+  - made `history.replaceState` use an explicit URL string via `url.toString()` for compatibility,
+  - kept explicit `React` default import because this codebase/runtime path currently requires it at runtime (`React is not defined` without it).

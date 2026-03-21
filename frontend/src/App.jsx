@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Camera,
@@ -77,7 +77,7 @@ export function loadSessionPreferences() {
   }
 
   try {
-    const raw = window.localStorage.getItem(sessionPreferencesStorageKey)
+    const raw = readLocalStorage(sessionPreferencesStorageKey)
     if (!raw) {
       return { role: 'student', name: '', sessionCode: '' }
     }
@@ -90,6 +90,30 @@ export function loadSessionPreferences() {
   } catch {
     return { role: 'student', name: '', sessionCode: '' }
   }
+}
+
+function readLocalStorage(key, fallback = '') {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const value = window.localStorage.getItem(key)
+    return value ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeLocalStorage(key, value) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {}
+}
+
+function removeLocalStorage(key) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(key)
+  } catch {}
 }
 
 export async function postJson(path, body) {
@@ -190,10 +214,10 @@ function App() {
   const [clientId, setClientId] = useState('')
   const [status, setStatus] = useState('Ready')
   const [error, setError] = useState('')
-  const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(authTokenStorageKey) || '')
+  const [authToken, setAuthToken] = useState(() => readLocalStorage(authTokenStorageKey))
   const [authUser, setAuthUser] = useState(() => {
     try {
-      const raw = window.localStorage.getItem(authUserStorageKey)
+      const raw = readLocalStorage(authUserStorageKey)
       return raw ? JSON.parse(raw) : null
     } catch {
       return null
@@ -312,7 +336,7 @@ function App() {
   }, [isTeacher, joined])
 
   useEffect(() => {
-    const persistedTheme = window.localStorage.getItem('ui-theme')
+    const persistedTheme = readLocalStorage('ui-theme')
     if (persistedTheme === 'dark' || persistedTheme === 'light') {
       setTheme(persistedTheme)
     }
@@ -390,7 +414,7 @@ function App() {
       role,
       name,
     }
-    window.localStorage.setItem(sessionPreferencesStorageKey, JSON.stringify(preferences))
+    writeLocalStorage(sessionPreferencesStorageKey, JSON.stringify(preferences))
   }, [role, name])
 
   useEffect(() => {
@@ -402,27 +426,27 @@ function App() {
     } else {
       url.searchParams.delete('code')
     }
-    window.history.replaceState({}, '', url)
+    window.history.replaceState({}, '', url.toString())
   }, [activeSessionCode])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
-    window.localStorage.setItem('ui-theme', theme)
+    writeLocalStorage('ui-theme', theme)
   }, [theme])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
 
     if (authToken) {
-      window.localStorage.setItem(authTokenStorageKey, authToken)
+      writeLocalStorage(authTokenStorageKey, authToken)
     } else {
-      window.localStorage.removeItem(authTokenStorageKey)
+      removeLocalStorage(authTokenStorageKey)
     }
 
     if (authUser) {
-      window.localStorage.setItem(authUserStorageKey, JSON.stringify(authUser))
+      writeLocalStorage(authUserStorageKey, JSON.stringify(authUser))
     } else {
-      window.localStorage.removeItem(authUserStorageKey)
+      removeLocalStorage(authUserStorageKey)
     }
   }, [authToken, authUser])
 
