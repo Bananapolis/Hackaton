@@ -2,6 +2,25 @@
 
 ## 2026-03-21
 
+- Refined classroom session UX and quiz library behavior across frontend/backend:
+  - fixed session settings overlay close behavior in [frontend/src/App.jsx](frontend/src/App.jsx) so drag-selecting text and releasing outside no longer closes the panel unless it was a true backdrop click,
+  - gated join artifacts to active sessions in [frontend/src/App.jsx](frontend/src/App.jsx) (session code/join link/QR are shown only once connected),
+  - changed preference persistence in [frontend/src/App.jsx](frontend/src/App.jsx) so only role/name are stored (session code is no longer restored from storage),
+  - made library modal content properly scrollable in [frontend/src/App.jsx](frontend/src/App.jsx),
+  - fixed library refresh crash in [frontend/src/App.jsx](frontend/src/App.jsx) by preventing click-event objects from being treated as session-code strings.
+- Implemented secure auto-saved quiz workflow and anti-cheat answer gating:
+  - backend in [backend/app/main.py](backend/app/main.py) now auto-saves generated live quizzes for the session host,
+  - `/api/quizzes` in [backend/app/main.py](backend/app/main.py) now supports session-scoped queries and role-aware visibility,
+  - while a quiz is live, API responses return `answer_revealed=false` and hide `correct_option_id`; answers become revealable only after quiz closure.
+- Updated frontend quiz library/practice flow in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - removed manual save-quiz action from the main controls,
+  - replaced raw answer data listing with practice cards and attempt modal,
+  - added retry/revote practice behavior with reshuffled options per attempt while respecting `answer_revealed` state.
+- Added and adjusted tests for the new behavior:
+  - updated helper expectation in [frontend/src/App.helpers.test.jsx](frontend/src/App.helpers.test.jsx) to reflect non-persistent session code,
+  - expanded backend coverage in [backend/tests/test_main.py](backend/tests/test_main.py) for live concealment and post-close answer reveal,
+  - added `pytest-asyncio` to [backend/requirements.txt](backend/requirements.txt) so asyncio pytest configuration is recognized.
+
 - Added broad automated test coverage across backend and frontend, and enforced coverage in CI:
   - backend: introduced `pytest` + `pytest-cov` and new suite in [backend/tests/test_main.py](backend/tests/test_main.py),
   - backend: added [backend/pytest.ini](backend/pytest.ini) with coverage fail-under gate,
