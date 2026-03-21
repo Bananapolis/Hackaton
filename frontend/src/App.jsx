@@ -414,16 +414,28 @@ function App() {
     }
 
     if (pendingQuestionCount > lastAnonymousQuestionPendingRef.current) {
+      const pendingQuestions = anonymousQuestions.filter((question) => !question?.resolved)
+      const newestPendingQuestion = [...pendingQuestions].sort((first, second) =>
+        String(second?.created_at || '').localeCompare(String(first?.created_at || '')),
+      )[0]
+      const newestQuestionText = String(newestPendingQuestion?.text || '').trim()
+      const questionPreview = newestQuestionText
+        ? newestQuestionText.length > 180
+          ? `${newestQuestionText.slice(0, 177)}...`
+          : newestQuestionText
+        : ''
       const plural = pendingQuestionCount === 1 ? '' : 's'
       notifyTeacher(
         'Anonymous student question waiting',
-        `${pendingQuestionCount} anonymous question${plural} waiting for review.`,
+        questionPreview
+          ? `${pendingQuestionCount} anonymous question${plural} waiting. Latest: ${questionPreview}`
+          : `${pendingQuestionCount} anonymous question${plural} waiting for review.`,
         'teacher-anonymous-questions',
       )
     }
 
     lastAnonymousQuestionPendingRef.current = pendingQuestionCount
-  }, [isTeacher, joined, pendingQuestionCount])
+  }, [anonymousQuestions, isTeacher, joined, pendingQuestionCount])
 
   async function ensureTeacherNotificationPermission(nextRole) {
     if (typeof window === 'undefined') return
@@ -453,6 +465,18 @@ function App() {
     } catch {
       // Ignore notification failures in unsupported browser states.
     }
+  }
+
+  function handlePanelBackdropMouseDown(event) {
+    sessionPanelBackdropPointerDownRef.current = event.target === event.currentTarget
+  }
+
+  function handlePanelBackdropClick(event, onClose) {
+    const clickOnBackdrop = event.target === event.currentTarget
+    if (clickOnBackdrop && sessionPanelBackdropPointerDownRef.current) {
+      onClose()
+    }
+    sessionPanelBackdropPointerDownRef.current = false
   }
 
   async function submitAuth() {
@@ -1713,16 +1737,8 @@ function App() {
         {showSessionPanel ? (
           <div
             className="fixed inset-0 z-40 flex justify-end bg-slate-950/45 p-3 backdrop-blur-sm"
-            onMouseDown={(event) => {
-              sessionPanelBackdropPointerDownRef.current = event.target === event.currentTarget
-            }}
-            onClick={(event) => {
-              const clickOnBackdrop = event.target === event.currentTarget
-              if (clickOnBackdrop && sessionPanelBackdropPointerDownRef.current) {
-                setShowSessionPanel(false)
-              }
-              sessionPanelBackdropPointerDownRef.current = false
-            }}
+            onMouseDown={handlePanelBackdropMouseDown}
+            onClick={(event) => handlePanelBackdropClick(event, () => setShowSessionPanel(false))}
           >
             <aside
               className="h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
@@ -1870,7 +1886,11 @@ function App() {
         ) : null}
 
         {showNotesPanel ? (
-          <div className="fixed inset-0 z-40 flex justify-end bg-slate-950/45 p-3 backdrop-blur-sm" onClick={() => setShowNotesPanel(false)}>
+          <div
+            className="fixed inset-0 z-40 flex justify-end bg-slate-950/45 p-3 backdrop-blur-sm"
+            onMouseDown={handlePanelBackdropMouseDown}
+            onClick={(event) => handlePanelBackdropClick(event, () => setShowNotesPanel(false))}
+          >
             <aside
               className="h-full w-full max-w-md rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
@@ -1902,7 +1922,11 @@ function App() {
         ) : null}
 
         {showAwardsPanel ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowAwardsPanel(false)}>
+          <div
+            className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"
+            onMouseDown={handlePanelBackdropMouseDown}
+            onClick={(event) => handlePanelBackdropClick(event, () => setShowAwardsPanel(false))}
+          >
             <section
               className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
@@ -1971,7 +1995,11 @@ function App() {
         ) : null}
 
         {showLibraryPanel ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowLibraryPanel(false)}>
+          <div
+            className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"
+            onMouseDown={handlePanelBackdropMouseDown}
+            onClick={(event) => handlePanelBackdropClick(event, () => setShowLibraryPanel(false))}
+          >
             <section
               className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
@@ -2125,7 +2153,11 @@ function App() {
         ) : null}
 
         {showSavedQuizAttemptPanel && savedQuizAttemptItem ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowSavedQuizAttemptPanel(false)}>
+          <div
+            className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"
+            onMouseDown={handlePanelBackdropMouseDown}
+            onClick={(event) => handlePanelBackdropClick(event, () => setShowSavedQuizAttemptPanel(false))}
+          >
             <section
               className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
@@ -2204,7 +2236,11 @@ function App() {
         ) : null}
 
         {showQuizPromptPanel && isTeacher ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowQuizPromptPanel(false)}>
+          <div
+            className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"
+            onMouseDown={handlePanelBackdropMouseDown}
+            onClick={(event) => handlePanelBackdropClick(event, () => setShowQuizPromptPanel(false))}
+          >
             <section
               className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
@@ -2278,7 +2314,11 @@ function App() {
         ) : null}
 
         {showQuestionsPanel && isTeacher ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowQuestionsPanel(false)}>
+          <div
+            className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"
+            onMouseDown={handlePanelBackdropMouseDown}
+            onClick={(event) => handlePanelBackdropClick(event, () => setShowQuestionsPanel(false))}
+          >
             <section
               className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
@@ -2335,7 +2375,11 @@ function App() {
         ) : null}
 
         {showAskQuestionPanel && !isTeacher ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowAskQuestionPanel(false)}>
+          <div
+            className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"
+            onMouseDown={handlePanelBackdropMouseDown}
+            onClick={(event) => handlePanelBackdropClick(event, () => setShowAskQuestionPanel(false))}
+          >
             <section
               className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
