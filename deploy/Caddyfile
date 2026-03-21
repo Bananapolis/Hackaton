@@ -1,6 +1,9 @@
 vialive.libreuni.com {
   tls {
     key_type rsa2048
+    issuer acme {
+      disable_tlsalpn_challenge
+    }
   }
 
   encode gzip zstd

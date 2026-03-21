@@ -241,6 +241,13 @@ Generated artifacts are written to `desktop/dist/`.
 
 Containerized deployment is now included for Ubuntu servers.
 
+If the server was compromised or rebuilt, use the hardened recovery runbook in [DEPLOYMENT.md](DEPLOYMENT.md), which now includes:
+
+- fresh-user bootstrap with correct `mkdir`/`cd` flow,
+- swap-file setup for low-memory droplets,
+- SSH hardening + `fail2ban` + `ufw` baseline,
+- full redeploy and post-incident checklist.
+
 - Compose setup: [docker-compose.yml](docker-compose.yml)
 - Backend image: [backend/Dockerfile](backend/Dockerfile)
 - Frontend image + internal reverse proxy: [frontend/Dockerfile](frontend/Dockerfile) and [frontend/nginx.conf](frontend/nginx.conf)

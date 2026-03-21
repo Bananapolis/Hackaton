@@ -2,6 +2,14 @@
 
 ## 2026-03-21
 
+- Updated deployment documentation for post-compromise recovery:
+  - expanded [DEPLOYMENT.md](DEPLOYMENT.md) into a full start-to-finish rebuild runbook,
+  - added explicit server bootstrap (`ssh`, `adduser`, `mkdir`, `cd`), swap setup/tuning, Docker install, and deploy-user workflow,
+  - added security hardening steps (`ufw`, `fail2ban`, SSH hardening, unattended upgrades),
+  - added post-hack credential rotation checklist and troubleshooting commands,
+  - updated [README.md](README.md) deployment section to point to the hardened recovery flow.
+  - corrected ordering in [DEPLOYMENT.md](DEPLOYMENT.md): swap is now explicitly mandatory *before* `apt upgrade/install` on low-memory droplets; added interrupted-upgrade recovery commands (`dpkg --configure -a`, `apt -f install -y`).
+
 - Added a cross-platform desktop client wrapper in [desktop/package.json](desktop/package.json), [desktop/main.cjs](desktop/main.cjs), and [desktop/preload.cjs](desktop/preload.cjs):
   - Electron shell opens only `https://vialive.libreuni.com`,
   - secure defaults (`sandbox`, `contextIsolation`, no Node integration),
