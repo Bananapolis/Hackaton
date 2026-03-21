@@ -48,6 +48,7 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 	- WebRTC signal relay (`offer`/`answer`/`ICE`),
 	- per-student confusion signals with automatic level decay over time,
 	- break votes with cooldown,
+	- anonymous student questions to host, including host-side pending question inbox and resolution,
 	- teacher-triggered break timer,
 	- note updates,
 	- AI quiz generation and answer tracking,
@@ -111,9 +112,9 @@ The backend sends notes to Gemini when configured.
 * **UC-T3: AI Quiz Generation:** Trigger a single-button action to generate a contextual multiple-choice question (4 options). Push the question as a global overlay to all connected students.
 * **UC-T4: Break Management:** Initiate a synchronized break timer manually or accept a break prompt triggered by student thresholds. During break, adjust time (+/- 1 minute), end immediately, and display both countdown and "be back at" time.
 * **UC-T5: Note Distribution:** Create and push shared text notes to the student interface during the live session.
-* **UC-T6: Analytics & Awards Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, class awards (e.g. most active student / most correct answers), and exported notes.
-* **UC-T6: Analytics Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, and exported notes.
-* **UC-T7: Session Closure & Report Export:** End the live session from settings and download a full analytics PDF report with engagement score, participation rates, quiz outcomes, AI-generated insight recommendations, a dual-series engagement/confusion trend graph over session duration, and quiz performance visualization.
+* **UC-T6: Anonymous Question Moderation:** Receive notifications when anonymous student questions arrive, review queued questions, and mark each one as resolved.
+* **UC-T7: Analytics & Awards Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, class awards (e.g. most active student / most correct answers), and exported notes.
+* **UC-T8: Session Closure & Report Export:** End the live session from settings and download a full analytics PDF report with engagement score, participation rates, quiz outcomes, AI-generated insight recommendations, a dual-series engagement/confusion trend graph over session duration, and quiz performance visualization.
 
 ### Actor 2: Student (Client)
 
@@ -121,8 +122,9 @@ The backend sends notes to Gemini when configured.
 * **UC-S2: Confusion Reporting:** Click a button to anonymously raise personal confusion level (capped per student). The level decays automatically over time so teacher sees live classroom confusion intensity instead of unlimited alert accumulation.
 * **UC-S3: Break Request:** Click a button to vote for a break. *Constraint:* Must be governed by a rate-limiting cooldown mechanism to prevent spam.
 * **UC-S4: Quiz Participation:** Receive and interact with the pop-up quiz overlay, selecting one of the 4 generated options.
-* **UC-S5: Break Interface:** View the synchronized countdown timer indicating when the session resumes.
-* **UC-S6: Screen Explanation Help:** Click an "Explain the screen" action to receive a concise AI explanation of the current shared screen and what to focus on next.
+* **UC-S5: Anonymous Questions:** Send anonymous free-text questions to the host without exposing student identity in the host inbox.
+* **UC-S6: Break Interface:** View the synchronized countdown timer indicating when the session resumes.
+* **UC-S7: Screen Explanation Help:** Click an "Explain the screen" action to receive a concise AI explanation of the current shared screen and what to focus on next.
 
 ## 4. Repository Layout
 

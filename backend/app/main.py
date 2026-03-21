@@ -327,6 +327,15 @@ class ClientState:
 
 
 @dataclass
+class AnonymousQuestion:
+    id: str
+    text: str
+    created_at: str
+    resolved: bool = False
+    resolved_at: str | None = None
+
+
+@dataclass
 class RuntimeSession:
     code: str
     teacher_name: str
@@ -341,6 +350,7 @@ class RuntimeSession:
     quiz_hidden: bool = False
     quiz_cover_mode: bool = True
     quiz_voting_closed: bool = False
+    anonymous_questions: list[AnonymousQuestion] = field(default_factory=list)
     active: bool = True
     ended_at_epoch: float | None = None
     final_report: dict[str, Any] | None = None
@@ -414,6 +424,24 @@ def session_state_payload(session: RuntimeSession) -> dict[str, Any]:
             "voting_closed": session.quiz_voting_closed,
         },
         "metrics": metrics_payload(session),
+    }
+
+
+def anonymous_questions_payload(session: RuntimeSession) -> dict[str, Any]:
+    questions = [
+        {
+            "id": question.id,
+            "text": question.text,
+            "created_at": question.created_at,
+            "resolved": question.resolved,
+            "resolved_at": question.resolved_at,
+        }
+        for question in session.anonymous_questions
+    ]
+    pending_count = sum(1 for question in session.anonymous_questions if not question.resolved)
+    return {
+        "questions": questions,
+        "pending_count": pending_count,
     }
 
 
@@ -2536,6 +2564,14 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     "payload": {"student_id": client_id, "name": name},
                 },
             )
+    elif role == "teacher":
+        await send_json(
+            websocket,
+            {
+                "type": "anonymous_questions",
+                "payload": anonymous_questions_payload(session),
+            },
+        )
 
     try:
         while True:
@@ -2725,6 +2761,95 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 insert_event(code, "note_update", {"len": len(session.notes)})
                 await broadcast(session, {"type": "notes", "payload": {"text": session.notes}})
 
+            elif msg_type == "ask_question":
+                if role != "student":
+                    continue
+
+                text = str(payload.get("text", "")).strip()
+                if not text:
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "error",
+                            "payload": {
+                                "message": "Question text is required.",
+                            },
+                        },
+                    )
+                    continue
+
+                question = AnonymousQuestion(
+                    id=uuid.uuid4().hex[:12],
+                    text=text[:600],
+                    created_at=now_iso(),
+                )
+                session.anonymous_questions.append(question)
+                state.last_active_at = time.time()
+                insert_event(
+                    code,
+                    "anonymous_question_submitted",
+                    {
+                        "question_id": question.id,
+                        "text_len": len(question.text),
+                    },
+                )
+
+                await send_json(
+                    websocket,
+                    {
+                        "type": "anonymous_question_submitted",
+                        "payload": {
+                            "question_id": question.id,
+                        },
+                    },
+                )
+
+                teacher = get_teacher(session)
+                if teacher:
+                    await send_json(
+                        teacher.websocket,
+                        {
+                            "type": "anonymous_questions",
+                            "payload": anonymous_questions_payload(session),
+                        },
+                    )
+
+            elif msg_type == "resolve_question":
+                if role != "teacher":
+                    continue
+
+                question_id = str(payload.get("question_id", "")).strip()
+                if not question_id:
+                    continue
+
+                changed = False
+                for question in session.anonymous_questions:
+                    if question.id != question_id:
+                        continue
+                    if not question.resolved:
+                        question.resolved = True
+                        question.resolved_at = now_iso()
+                        changed = True
+                    break
+
+                if not changed:
+                    continue
+
+                insert_event(
+                    code,
+                    "anonymous_question_resolved",
+                    {
+                        "question_id": question_id,
+                    },
+                )
+                await send_json(
+                    websocket,
+                    {
+                        "type": "anonymous_questions",
+                        "payload": anonymous_questions_payload(session),
+                    },
+                )
+
             elif msg_type == "generate_quiz":
                 if role != "teacher":
                     continue
@@ -2882,6 +3007,14 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                         "payload": session_state_payload(session),
                     },
                 )
+                if role == "teacher":
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "anonymous_questions",
+                            "payload": anonymous_questions_payload(session),
+                        },
+                    )
 
             elif msg_type == "explain_screen":
                 if role != "student":

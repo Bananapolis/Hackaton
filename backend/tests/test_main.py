@@ -53,6 +53,14 @@ def auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def receive_until_type(ws, expected_type: str, max_messages: int = 20) -> dict:
+    for _ in range(max_messages):
+        message = ws.receive_json()
+        if message.get("type") == expected_type:
+            return message
+    raise AssertionError(f"Message type {expected_type} not received within {max_messages} messages")
+
+
 def test_parse_bearer_token_and_password_hashing_helpers() -> None:
     assert main.parse_bearer_token(None) is None
     assert main.parse_bearer_token("") is None
@@ -339,6 +347,43 @@ def test_websocket_join_confusion_and_break_vote_signals(client: TestClient) -> 
         session = main.SESSIONS[code]
         assert len(session.break_votes) > 0
         assert any(c.confusion_signals_sent > 0 for c in session.clients.values() if c.role == "student")
+
+
+def test_websocket_anonymous_question_submit_and_resolve(client: TestClient) -> None:
+    create = client.post("/api/sessions", json={"teacher_name": "Teacher"})
+    assert create.status_code == 200
+    code = create.json()["code"]
+
+    with client.websocket_connect(f"/ws/{code}?role=teacher&name=Teacher") as teacher_ws:
+        receive_until_type(teacher_ws, "anonymous_questions")
+
+        with client.websocket_connect(f"/ws/{code}?role=student&name=Alice") as student_ws:
+            receive_until_type(student_ws, "session_state")
+
+            student_ws.send_json({"type": "ask_question", "payload": {"text": "Can you repeat the last formula?"}})
+            submitted = receive_until_type(student_ws, "anonymous_question_submitted")
+            assert submitted["payload"]["question_id"]
+
+            teacher_questions = receive_until_type(teacher_ws, "anonymous_questions")
+            assert teacher_questions["payload"]["pending_count"] == 1
+            assert len(teacher_questions["payload"]["questions"]) == 1
+            question_item = teacher_questions["payload"]["questions"][0]
+            assert question_item["text"] == "Can you repeat the last formula?"
+            assert question_item["resolved"] is False
+
+            teacher_ws.send_json(
+                {
+                    "type": "resolve_question",
+                    "payload": {"question_id": question_item["id"]},
+                }
+            )
+            resolved_state = receive_until_type(teacher_ws, "anonymous_questions")
+            assert resolved_state["payload"]["pending_count"] == 0
+            assert resolved_state["payload"]["questions"][0]["resolved"] is True
+
+            session = main.SESSIONS[code]
+            assert len(session.anonymous_questions) == 1
+            assert session.anonymous_questions[0].resolved is True
 
 
 

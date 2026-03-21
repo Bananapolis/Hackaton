@@ -12,6 +12,7 @@ import {
   LockOpen,
   LogOut,
   Maximize2,
+  MessageSquare,
   Minimize2,
   Monitor,
   Moon,
@@ -152,6 +153,7 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     eyeOff: EyeOff,
     lock: Lock,
     lockOpen: LockOpen,
+    question: MessageSquare,
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -207,6 +209,12 @@ function App() {
   const [savedQuizAttemptOptions, setSavedQuizAttemptOptions] = useState([])
   const [savedQuizAttemptChoice, setSavedQuizAttemptChoice] = useState('')
   const [savedQuizAttemptResult, setSavedQuizAttemptResult] = useState('')
+  const [anonymousQuestions, setAnonymousQuestions] = useState([])
+  const [pendingQuestionCount, setPendingQuestionCount] = useState(0)
+  const [showQuestionsPanel, setShowQuestionsPanel] = useState(false)
+  const [showAskQuestionPanel, setShowAskQuestionPanel] = useState(false)
+  const [anonymousQuestionDraft, setAnonymousQuestionDraft] = useState('')
+  const [anonymousQuestionSubmitting, setAnonymousQuestionSubmitting] = useState(false)
 
   const [metrics, setMetrics] = useState({
     confusion_count: 0,
@@ -244,6 +252,7 @@ function App() {
   const notificationPermissionRequestedRef = useRef(false)
   const confusionNotificationArmedRef = useRef(true)
   const lastBreakNotificationAtRef = useRef(0)
+  const lastAnonymousQuestionPendingRef = useRef(0)
 
   const isTeacher = role === 'teacher'
   const normalizedCode = sessionCode.trim().toUpperCase()
@@ -398,6 +407,24 @@ function App() {
     }
   }, [isTeacher, joined, metrics.confusion_count, metrics.confusion_level_percent])
 
+  useEffect(() => {
+    if (!isTeacher || !joined) {
+      lastAnonymousQuestionPendingRef.current = 0
+      return
+    }
+
+    if (pendingQuestionCount > lastAnonymousQuestionPendingRef.current) {
+      const plural = pendingQuestionCount === 1 ? '' : 's'
+      notifyTeacher(
+        'Anonymous student question waiting',
+        `${pendingQuestionCount} anonymous question${plural} waiting for review.`,
+        'teacher-anonymous-questions',
+      )
+    }
+
+    lastAnonymousQuestionPendingRef.current = pendingQuestionCount
+  }, [isTeacher, joined, pendingQuestionCount])
+
   async function ensureTeacherNotificationPermission(nextRole) {
     if (typeof window === 'undefined') return
     if (nextRole !== 'teacher') return
@@ -470,6 +497,8 @@ function App() {
     setLibraryFiles([])
     setLibraryQuizzes([])
     setLibrarySessionCode('')
+    setAnonymousQuestions([])
+    setPendingQuestionCount(0)
     setStatus('Signed out')
   }
 
@@ -647,6 +676,7 @@ function App() {
       setStatus('Disconnected')
       setExplainLoading(false)
       setQuizGenerationPending(false)
+      setAnonymousQuestionSubmitting(false)
       for (const pc of peerConnectionsRef.current.values()) {
         pc.close()
       }
@@ -748,6 +778,7 @@ function App() {
       if (message.type === 'error') {
         setExplainLoading(false)
         setQuizGenerationPending(false)
+        setAnonymousQuestionSubmitting(false)
         setError(message.payload?.message || 'Unknown session error')
       }
 
@@ -756,6 +787,20 @@ function App() {
         setScreenExplanation(message.payload?.text || '')
         setScreenExplanationGeneratedAt(message.payload?.generated_at || '')
         setStatus('AI explanation ready')
+      }
+
+      if (message.type === 'anonymous_questions') {
+        const questions = Array.isArray(message.payload?.questions) ? message.payload.questions : []
+        const pending = Number(message.payload?.pending_count ?? 0)
+        setAnonymousQuestions(questions)
+        setPendingQuestionCount(Number.isFinite(pending) ? Math.max(0, pending) : 0)
+      }
+
+      if (message.type === 'anonymous_question_submitted') {
+        setAnonymousQuestionSubmitting(false)
+        setAnonymousQuestionDraft('')
+        setShowAskQuestionPanel(false)
+        setStatus('Anonymous question sent to host')
       }
 
       if (message.type === 'break_threshold_reached') {
@@ -821,6 +866,24 @@ function App() {
     send('explain_screen', {
       notes,
     })
+  }
+
+  function submitAnonymousQuestion() {
+    if (!joined || isTeacher || anonymousQuestionSubmitting) return
+    const text = anonymousQuestionDraft.trim()
+    if (!text) {
+      setError('Question cannot be empty')
+      return
+    }
+
+    setError('')
+    setAnonymousQuestionSubmitting(true)
+    send('ask_question', { text })
+  }
+
+  function markQuestionResolved(questionId) {
+    if (!joined || !isTeacher) return
+    send('resolve_question', { question_id: questionId })
   }
 
   function closeQuiz() {
@@ -933,6 +996,11 @@ function App() {
     setJoined(false)
     setExplainLoading(false)
     setSessionCode('')
+    setAnonymousQuestions([])
+    setPendingQuestionCount(0)
+    setShowQuestionsPanel(false)
+    setShowAskQuestionPanel(false)
+    setAnonymousQuestionSubmitting(false)
   }
 
   function requestAnalytics() {
@@ -1237,6 +1305,22 @@ function App() {
             {isTeacher ? (
               <button
                 type="button"
+                onClick={() => setShowQuestionsPanel(true)}
+                className="relative grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+                title="Anonymous questions"
+                aria-label="Anonymous questions"
+              >
+                <Icon name="question" className="h-5 w-5" />
+                {pendingQuestionCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-rose-600 px-1 text-center text-[10px] font-bold text-white">
+                    {pendingQuestionCount > 9 ? '9+' : pendingQuestionCount}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
+            {isTeacher ? (
+              <button
+                type="button"
                 onClick={openAwardsPanel}
                 className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
                 title="Class awards"
@@ -1498,6 +1582,19 @@ function App() {
                       <button
                         type="button"
                         disabled={!joined}
+                        onClick={() => {
+                          setError('')
+                          setShowAskQuestionPanel(true)
+                        }}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-amber-600 text-lg text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Ask anonymous question"
+                        aria-label="Ask anonymous question"
+                      >
+                        <Icon name="question" className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!joined}
                         onClick={toggleStageFullscreen}
                         className="grid h-11 w-11 place-items-center rounded-xl bg-slate-700 text-lg text-white transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
                         title={isScreenMaximized ? 'Minimize shared screen' : 'Maximize shared screen'}
@@ -1553,6 +1650,24 @@ function App() {
                 </div>
               ))}
             </div>
+
+            {isTeacher ? (
+              <div className="rounded-2xl border border-amber-200/90 bg-amber-50/90 p-3 dark:border-amber-500/40 dark:bg-amber-900/20">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-700 dark:text-amber-300">Anonymous questions</div>
+                <div className="text-sm text-amber-900 dark:text-amber-100">
+                  {pendingQuestionCount > 0
+                    ? `${pendingQuestionCount} waiting for your review.`
+                    : 'No pending anonymous questions.'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowQuestionsPanel(true)}
+                  className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 dark:border-amber-700/70 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/45"
+                >
+                  Open inbox
+                </button>
+              </div>
+            ) : null}
 
             {!isTeacher ? (
               <div className="pastel-surface rounded-2xl border border-sky-200/90 bg-sky-50/90 p-3 dark:border-sky-500/40 dark:bg-sky-900/20">
@@ -2156,6 +2271,117 @@ function App() {
                   className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {quizGenerationPending ? 'Generating...' : 'Generate quiz'}
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {showQuestionsPanel && isTeacher ? (
+          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowQuestionsPanel(false)}>
+            <section
+              className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Anonymous question inbox</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowQuestionsPanel(false)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-200">
+                Pending questions: <span className="font-semibold">{pendingQuestionCount}</span>
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                {anonymousQuestions.length ? (
+                  anonymousQuestions.map((question) => (
+                    <div key={question.id} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm dark:border-slate-700 dark:bg-slate-800/70">
+                      <div className="text-slate-900 dark:text-slate-100">{question.text}</div>
+                      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        Asked: {question.created_at ? new Date(question.created_at).toLocaleString() : '-'}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between">
+                        <div className={`text-xs font-semibold uppercase tracking-wide ${question.resolved ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                          {question.resolved ? 'Resolved' : 'Pending'}
+                        </div>
+                        {!question.resolved ? (
+                          <button
+                            type="button"
+                            onClick={() => markQuestionResolved(question.id)}
+                            className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/35"
+                          >
+                            Mark resolved
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                    No anonymous questions yet.
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {showAskQuestionPanel && !isTeacher ? (
+          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowAskQuestionPanel(false)}>
+            <section
+              className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Ask anonymous question</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowAskQuestionPanel(false)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+
+              <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+                Your name is not shown to the host. Keep your question clear and specific.
+              </p>
+
+              <textarea
+                value={anonymousQuestionDraft}
+                onChange={(event) => setAnonymousQuestionDraft(event.target.value)}
+                rows={5}
+                maxLength={600}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
+                placeholder="Example: Could you explain why this formula uses a logarithm here?"
+              />
+              <div className="mt-1 text-right text-xs text-slate-500 dark:text-slate-400">{anonymousQuestionDraft.length}/600</div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAskQuestionPanel(false)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitAnonymousQuestion}
+                  disabled={anonymousQuestionSubmitting || !anonymousQuestionDraft.trim()}
+                  className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {anonymousQuestionSubmitting ? 'Sending...' : 'Send anonymously'}
                 </button>
               </div>
             </section>

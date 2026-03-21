@@ -2,6 +2,14 @@
 
 ## 2026-03-21
 
+- Implemented anonymous student question workflow across websocket backend and React frontend:
+  - backend in [backend/app/main.py](backend/app/main.py) now stores per-session anonymous questions in runtime state,
+  - students can submit `ask_question` events and teachers can resolve them via `resolve_question`,
+  - teacher receives synchronized `anonymous_questions` payloads with pending count for inbox/notification UX,
+  - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now includes student "Ask anonymous question" modal, teacher inbox panel, pending badge, and teacher desktop notification when new pending questions arrive,
+  - added websocket regression coverage in [backend/tests/test_main.py](backend/tests/test_main.py) for submit + resolve behavior,
+  - documented the feature in [README.md](README.md) actor/use-case and websocket capability sections.
+
 - Refined classroom session UX and quiz library behavior across frontend/backend:
   - fixed session settings overlay close behavior in [frontend/src/App.jsx](frontend/src/App.jsx) so drag-selecting text and releasing outside no longer closes the panel unless it was a true backdrop click,
   - gated join artifacts to active sessions in [frontend/src/App.jsx](frontend/src/App.jsx) (session code/join link/QR are shown only once connected),
