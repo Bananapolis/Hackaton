@@ -1,11 +1,11 @@
+{
+  email admin@vialive.libreuni.com
+}
+
 vialive.libreuni.com {
   tls {
-    key_type rsa2048
-    issuer acme {
-      disable_tlsalpn_challenge
-    }
+    issuer acme https://acme.zerossl.com/v2/DV90
   }
-
   encode gzip zstd
   reverse_proxy web:80
 }

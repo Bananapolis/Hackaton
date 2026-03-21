@@ -341,6 +341,39 @@ docker compose logs -f --tail=300 caddy
 
 This avoids TLS-ALPN validation path issues and uses HTTP-01 only.
 
+### 5.1) Handling Let's Encrypt Secondary Validation Timeouts (Post-Compromise)
+
+If your server was recently compromised, cloud providers (like DigitalOcean) often enable silent anti-abuse network filters. This acts as a partial null-route that allows typical user traffic to flow, but silently drops inbound connections from specific international IP ranges.
+
+Because Let's Encrypt enforces **Multi-Perspective Validation** (checking port 80 from multiple countries simultaneously to prevent BGP hijacking), these international probes will be dropped by the cloud provider. This results in persistent `During secondary validation: ... Timeout during connect` errors, even though the website seems completely reachable to you.
+
+**The Fix (Fallback to ZeroSSL):**
+You can bypass this limitation by switching Caddy to use ZeroSSL, which does not enforce the exact same aggressively distributed background probes.
+
+Edit `deploy/Caddyfile` to include a global email block at the top and the ZeroSSL issuer:
+
+```text
+{
+  email admin@YOUR_DOMAIN.com
+}
+
+YOUR_DOMAIN.com {
+  tls {
+    issuer acme https://acme.zerossl.com/v2/DV90
+  }
+  encode gzip zstd
+  reverse_proxy web:80
+}
+```
+
+Apply the fix:
+
+```bash
+cd ~/apps/app
+docker compose up -d --force-recreate caddy
+docker compose logs -f --tail=100 caddy
+```
+
 ## 6) Day-2 operations (manual updates)
 
 From project root on server:
