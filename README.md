@@ -39,6 +39,7 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 - `GET /api/auth/me` returns the authenticated profile.
 - `GET /api/library/sessions` returns historical sessions for the authenticated teacher name.
 - `POST /api/presentations`, `GET /api/presentations`, and `GET /api/presentations/{id}/download` manage uploaded presentation files per account.
+- `POST /api/presentations/{id}/notes-png` generates student-friendly AI notes from a presentation and returns a downloadable PNG.
 - `POST /api/quizzes/save` and `GET /api/quizzes` manage a per-account quiz library.
 - `GET /health` provides health status.
 - `WS /ws/{code}?role=teacher|student&name=...` handles:
@@ -80,6 +81,7 @@ SQLite stores:
 	- open a trophy-based class awards modal with rankings like most active student and most correct answers.
 	- open a sessions/files/quizzes library panel,
 	- upload and download presentation files,
+	- generate student-friendly notes PNG from uploaded presentation files via AI,
 	- save live generated quizzes into a persistent account-level quiz library.
 - Student can:
 	- join via session code,
@@ -209,11 +211,12 @@ Containerized deployment is now included for Ubuntu servers.
 
 - Compose setup: [docker-compose.yml](docker-compose.yml)
 - Backend image: [backend/Dockerfile](backend/Dockerfile)
-- Frontend + reverse proxy image: [frontend/Dockerfile](frontend/Dockerfile) and [frontend/nginx.conf](frontend/nginx.conf)
+- Frontend image + internal reverse proxy: [frontend/Dockerfile](frontend/Dockerfile) and [frontend/nginx.conf](frontend/nginx.conf)
+- HTTPS termination: [deploy/Caddyfile](deploy/Caddyfile) (automatic Let's Encrypt on `vialive.libreuni.com`)
 - Full step-by-step runbook: [DEPLOYMENT.md](DEPLOYMENT.md)
 - Starter CI/CD pipeline: [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
 
-For production demos, HTTPS remains mandatory for reliable WebRTC behavior.
+For production demos, HTTPS is mandatory for reliable WebRTC behavior and is now handled directly by Docker Compose.
 
 ### AI Provider Setup
 

@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-check backend-run frontend-install frontend-build frontend-dev
+.PHONY: backend-install backend-check backend-run frontend-install frontend-build frontend-dev deploy-update
 
 backend-install:
 	cd backend && pip install -r requirements.txt
@@ -17,3 +17,6 @@ frontend-build:
 
 frontend-dev:
 	cd frontend && npm run dev -- --host 0.0.0.0 --port 5173
+
+deploy-update:
+	./scripts/deploy-update.sh

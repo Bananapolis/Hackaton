@@ -187,11 +187,13 @@ function App() {
   const [authPending, setAuthPending] = useState(false)
   const [showLibraryPanel, setShowLibraryPanel] = useState(false)
   const [libraryTab, setLibraryTab] = useState('sessions')
+  const [librarySessionCode, setLibrarySessionCode] = useState('')
   const [librarySessions, setLibrarySessions] = useState([])
   const [libraryFiles, setLibraryFiles] = useState([])
   const [libraryQuizzes, setLibraryQuizzes] = useState([])
   const [libraryLoading, setLibraryLoading] = useState(false)
   const [uploadPending, setUploadPending] = useState(false)
+  const [notesPngPendingById, setNotesPngPendingById] = useState({})
 
   const [metrics, setMetrics] = useState({
     confusion_count: 0,
@@ -231,6 +233,7 @@ function App() {
 
   const isTeacher = role === 'teacher'
   const normalizedCode = sessionCode.trim().toUpperCase()
+  const activeLibrarySessionCode = (librarySessionCode || normalizedCode).trim().toUpperCase()
   const themeToggleLabel = theme === 'dark' ? 'Switch to light' : 'Switch to dark'
   const joinUrl = useMemo(() => {
     if (!normalizedCode) return ''
@@ -451,22 +454,31 @@ function App() {
     setLibrarySessions([])
     setLibraryFiles([])
     setLibraryQuizzes([])
+    setLibrarySessionCode('')
     setStatus('Signed out')
   }
 
-  async function refreshLibraryData() {
+  async function refreshLibraryData(targetSessionCode = null) {
     if (!authToken) return
     setLibraryLoading(true)
     try {
-      const filesPath = normalizedCode
-        ? `/api/presentations?session_code=${encodeURIComponent(normalizedCode)}`
+      const sessionsData = await apiRequest('/api/library/sessions', { token: authToken })
+      const sessionsList = Array.isArray(sessionsData?.sessions) ? sessionsData.sessions : []
+      setLibrarySessions(sessionsList)
+
+      let codeForFiles = (targetSessionCode || librarySessionCode || normalizedCode || '').trim().toUpperCase()
+      if (!codeForFiles && sessionsList.length > 0) {
+        codeForFiles = String(sessionsList[0]?.code || '').trim().toUpperCase()
+      }
+      setLibrarySessionCode(codeForFiles)
+
+      const filesPath = codeForFiles
+        ? `/api/presentations?session_code=${encodeURIComponent(codeForFiles)}`
         : '/api/presentations'
-      const [sessionsData, filesData, quizzesData] = await Promise.all([
-        apiRequest('/api/library/sessions', { token: authToken }),
+      const [filesData, quizzesData] = await Promise.all([
         apiRequest(filesPath, { token: authToken }),
         apiRequest('/api/quizzes', { token: authToken }),
       ])
-      setLibrarySessions(Array.isArray(sessionsData?.sessions) ? sessionsData.sessions : [])
       setLibraryFiles(Array.isArray(filesData?.presentations) ? filesData.presentations : [])
       setLibraryQuizzes(Array.isArray(quizzesData?.quizzes) ? quizzesData.quizzes : [])
     } catch (err) {
@@ -478,7 +490,15 @@ function App() {
 
   async function openLibraryPanel() {
     setShowLibraryPanel(true)
-    await refreshLibraryData()
+    await refreshLibraryData(activeLibrarySessionCode)
+  }
+
+  async function useLibrarySession(code) {
+    const picked = (code || '').trim().toUpperCase()
+    if (!picked) return
+    setLibrarySessionCode(picked)
+    setLibraryTab('files')
+    await refreshLibraryData(picked)
   }
 
   async function onUploadPresentation(event) {
@@ -545,7 +565,11 @@ function App() {
     }
 
     try {
-      const data = await postJson('/api/sessions', { teacher_name: teacherName })
+      const data = await apiRequest('/api/sessions', {
+        method: 'POST',
+        token: authToken,
+        body: { teacher_name: teacherName },
+      })
       const newCode = data.code.toUpperCase()
       setRole('teacher')
       setName(teacherName)
@@ -979,8 +1003,8 @@ function App() {
     if (!authToken) return
     try {
       const downloadSuffix =
-        !isTeacher && normalizedCode
-          ? `${item.download_url}?session_code=${encodeURIComponent(normalizedCode)}`
+        !isTeacher && activeLibrarySessionCode
+          ? `${item.download_url}?session_code=${encodeURIComponent(activeLibrarySessionCode)}`
           : item.download_url
       const response = await fetch(`${config.apiBase}${downloadSuffix}`, {
         headers: {
@@ -1004,6 +1028,49 @@ function App() {
       URL.revokeObjectURL(objectUrl)
     } catch (err) {
       setError(err.message)
+    }
+  }
+
+  async function generatePresentationNotesPng(item) {
+    if (!authToken) return
+    setNotesPngPendingById((current) => ({ ...current, [item.id]: true }))
+    try {
+      const notesSuffixBase = `/api/presentations/${item.id}/notes-png`
+      const notesSuffix = !isTeacher && activeLibrarySessionCode
+        ? `${notesSuffixBase}?session_code=${encodeURIComponent(activeLibrarySessionCode)}`
+        : notesSuffixBase
+
+      const response = await fetch(`${config.apiBase}${notesSuffix}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || `Notes generation failed (${response.status})`)
+      }
+
+      const blob = await response.blob()
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      const fallbackStem = (item.original_name || 'presentation').replace(/\.[^.]+$/, '')
+      link.download = `${fallbackStem}-student-notes.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(objectUrl)
+      setStatus(`Generated notes PNG for ${item.original_name}`)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setNotesPngPendingById((current) => {
+        const copy = { ...current }
+        delete copy[item.id]
+        return copy
+      })
     }
   }
 
@@ -1800,11 +1867,16 @@ function App() {
                 <div className="space-y-2">
                   {librarySessions.length ? (
                     librarySessions.map((item) => (
-                      <div key={`${item.code}-${item.created_at}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70">
+                      <button
+                        key={`${item.code}-${item.created_at}`}
+                        type="button"
+                        onClick={() => useLibrarySession(item.code)}
+                        className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition dark:bg-slate-800/70 ${activeLibrarySessionCode === String(item.code || '').trim().toUpperCase() ? 'border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20' : 'border-slate-200 bg-white dark:border-slate-700'}`}
+                      >
                         <div className="font-semibold text-slate-900 dark:text-slate-100">{item.code}</div>
                         <div className="text-slate-600 dark:text-slate-300">Teacher: {item.teacher_name}</div>
                         <div className="text-xs text-slate-500 dark:text-slate-400">{new Date(item.created_at).toLocaleString()}</div>
-                      </div>
+                      </button>
                     ))
                   ) : (
                     <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No sessions found for this account yet.</div>
@@ -1814,6 +1886,9 @@ function App() {
 
               {!libraryLoading && libraryTab === 'files' ? (
                 <div className="space-y-3">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+                    Session context: {activeLibrarySessionCode || 'your personal uploads'}
+                  </div>
                   {isTeacher ? (
                     <div className="flex items-center gap-3">
                       <label className="inline-flex cursor-pointer items-center rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-600">
@@ -1834,13 +1909,23 @@ function App() {
                           <div className="font-semibold text-slate-900 dark:text-slate-100">{item.original_name}</div>
                           <div className="text-xs text-slate-500 dark:text-slate-400">{Math.round(item.size_bytes / 1024)} KB · {new Date(item.created_at).toLocaleString()}</div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => downloadPresentation(item)}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          Download
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => generatePresentationNotesPng(item)}
+                            disabled={Boolean(notesPngPendingById[item.id])}
+                            className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/35"
+                          >
+                            {notesPngPendingById[item.id] ? 'Generating PNG...' : 'AI notes PNG'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadPresentation(item)}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                          >
+                            Download
+                          </button>
+                        </div>
                       </div>
                     ))
                   ) : (
