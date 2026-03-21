@@ -66,13 +66,40 @@ const quizPromptPresets = [
   },
 ]
 
+function storageGetItem(key) {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function storageSetItem(key, value) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // Ignore storage errors (common in strict iOS private browsing settings).
+  }
+}
+
+function storageRemoveItem(key) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // Ignore storage errors (common in strict iOS private browsing settings).
+  }
+}
+
 export function loadSessionPreferences() {
   if (typeof window === 'undefined') {
     return { role: 'student', name: '', sessionCode: '' }
   }
 
   try {
-    const raw = window.localStorage.getItem(sessionPreferencesStorageKey)
+    const raw = storageGetItem(sessionPreferencesStorageKey)
     if (!raw) {
       return { role: 'student', name: '', sessionCode: '' }
     }
@@ -132,6 +159,37 @@ export async function apiRequest(path, { method = 'GET', body, token, isFormData
   return response.json()
 }
 
+function getFullscreenElement() {
+  if (typeof document === 'undefined') return null
+  return document.fullscreenElement || document.webkitFullscreenElement || null
+}
+
+function requestStageFullscreen(element) {
+  if (!element) return Promise.reject(new Error('Fullscreen target unavailable'))
+
+  const requestFullscreen = element.requestFullscreen || element.webkitRequestFullscreen
+  if (typeof requestFullscreen !== 'function') {
+    return Promise.reject(new Error('Fullscreen API unavailable'))
+  }
+
+  const result = requestFullscreen.call(element)
+  return result instanceof Promise ? result : Promise.resolve()
+}
+
+function exitStageFullscreen() {
+  if (typeof document === 'undefined') {
+    return Promise.reject(new Error('Document unavailable'))
+  }
+
+  const exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen
+  if (typeof exitFullscreen !== 'function') {
+    return Promise.reject(new Error('Fullscreen API unavailable'))
+  }
+
+  const result = exitFullscreen.call(document)
+  return result instanceof Promise ? result : Promise.resolve()
+}
+
 export function Icon({ name, className = 'h-5 w-5' }) {
   const icons = {
     settings: Settings,
@@ -184,10 +242,10 @@ function App() {
   const [clientId, setClientId] = useState('')
   const [status, setStatus] = useState('Ready')
   const [error, setError] = useState('')
-  const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(authTokenStorageKey) || '')
+  const [authToken, setAuthToken] = useState(() => storageGetItem(authTokenStorageKey) || '')
   const [authUser, setAuthUser] = useState(() => {
     try {
-      const raw = window.localStorage.getItem(authUserStorageKey)
+      const raw = storageGetItem(authUserStorageKey)
       return raw ? JSON.parse(raw) : null
     } catch {
       return null
@@ -301,7 +359,7 @@ function App() {
   }, [isTeacher, joined])
 
   useEffect(() => {
-    const persistedTheme = window.localStorage.getItem('ui-theme')
+    const persistedTheme = storageGetItem('ui-theme')
     if (persistedTheme === 'dark' || persistedTheme === 'light') {
       setTheme(persistedTheme)
     }
@@ -311,8 +369,8 @@ function App() {
     if (!joined) {
       setShowSessionPanel(true)
 
-      if (document.fullscreenElement === stageContainerRef.current) {
-        document.exitFullscreen().catch(() => {})
+      if (getFullscreenElement() === stageContainerRef.current) {
+        exitStageFullscreen().catch(() => {})
       }
 
       setIsScreenMaximized(false)
@@ -321,12 +379,16 @@ function App() {
 
   useEffect(() => {
     const syncFullscreenState = () => {
-      const fullscreenElement = document.fullscreenElement
+      const fullscreenElement = getFullscreenElement()
       setIsScreenMaximized(fullscreenElement === stageContainerRef.current)
     }
 
     document.addEventListener('fullscreenchange', syncFullscreenState)
-    return () => document.removeEventListener('fullscreenchange', syncFullscreenState)
+    document.addEventListener('webkitfullscreenchange', syncFullscreenState)
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreenState)
+      document.removeEventListener('webkitfullscreenchange', syncFullscreenState)
+    }
   }, [])
 
   useEffect(() => {
@@ -357,7 +419,7 @@ function App() {
       role,
       name,
     }
-    window.localStorage.setItem(sessionPreferencesStorageKey, JSON.stringify(preferences))
+    storageSetItem(sessionPreferencesStorageKey, JSON.stringify(preferences))
   }, [role, name])
 
   useEffect(() => {
@@ -374,22 +436,22 @@ function App() {
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
-    window.localStorage.setItem('ui-theme', theme)
+    storageSetItem('ui-theme', theme)
   }, [theme])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
 
     if (authToken) {
-      window.localStorage.setItem(authTokenStorageKey, authToken)
+      storageSetItem(authTokenStorageKey, authToken)
     } else {
-      window.localStorage.removeItem(authTokenStorageKey)
+      storageRemoveItem(authTokenStorageKey)
     }
 
     if (authUser) {
-      window.localStorage.setItem(authUserStorageKey, JSON.stringify(authUser))
+      storageSetItem(authUserStorageKey, JSON.stringify(authUser))
     } else {
-      window.localStorage.removeItem(authUserStorageKey)
+      storageRemoveItem(authUserStorageKey)
     }
   }, [authToken, authUser])
 
@@ -982,6 +1044,17 @@ function App() {
   async function startShare() {
     if (!isTeacher) return
 
+    // Screen sharing requires Secure Context (HTTPS or localhost)
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      // Check if the issue is likely due to insecure context (HTTP + IP address)
+      const isSecure = window.isSecureContext
+      const msg = isSecure
+        ? 'Screen sharing not supported by this browser.'
+        : 'Screen sharing blocked by browser security. Please reload using HTTPS or Localhost.'
+      setError(msg)
+      return
+    }
+
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
@@ -1011,8 +1084,9 @@ function App() {
         await pc.setLocalDescription(offer)
         send('signal', { target_id: studentId, description: offer })
       }
-    } catch {
-      setError('Screen share permission denied or unavailable')
+    } catch (err) {
+      console.error('[StartShare] Error:', err)
+      setError('Screen share failed: ' + (err.message || 'Check permissions'))
     }
   }
 
@@ -1164,10 +1238,10 @@ function App() {
     if (!container) return
 
     try {
-      if (document.fullscreenElement === container) {
-        await document.exitFullscreen()
-      } else if (!document.fullscreenElement) {
-        await container.requestFullscreen()
+      if (getFullscreenElement() === container) {
+        await exitStageFullscreen()
+      } else if (!getFullscreenElement()) {
+        await requestStageFullscreen(container)
       }
     } catch {
       setError('Fullscreen is unavailable on this browser/device.')
