@@ -149,3 +149,11 @@
   - Make alias target `deploy-update` in [Makefile](Makefile),
   - new VS Code task **Server: Pull + Rebuild + Up** in [.vscode/tasks.json](.vscode/tasks.json),
   - documented usage in [DEPLOYMENT.md](DEPLOYMENT.md).
+- Switched production HTTPS to Docker-native TLS termination:
+  - added `caddy` service in [docker-compose.yml](docker-compose.yml) exposing ports `80` and `443`,
+  - added [deploy/Caddyfile](deploy/Caddyfile) for automatic certificate provisioning on `vialive.libreuni.com`,
+  - removed direct host port publishing from `web` service (now internal only),
+  - updated deployment docs in [DEPLOYMENT.md](DEPLOYMENT.md) and [README.md](README.md) for the new HTTPS path.
+- Added TLS client-compatibility hardening for production HTTPS:
+  - configured Caddy in [deploy/Caddyfile](deploy/Caddyfile) to issue RSA certificates (`key_type rsa2048`) for broader browser compatibility,
+  - rotated cached certificate material and re-issued certificate chain for `vialive.libreuni.com`.
