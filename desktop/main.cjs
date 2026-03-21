@@ -24,7 +24,7 @@ function configureDesktopPermissions() {
       return false;
     }
 
-    return ['media', 'display-capture', 'fullscreen', 'notifications'].includes(permission);
+    return ['media', 'display-capture', 'fullscreen', 'notifications', 'clipboard-read', 'clipboard-sanitized-write'].includes(permission);
   });
 
   ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
@@ -34,13 +34,21 @@ function configureDesktopPermissions() {
       return;
     }
 
-    callback(['media', 'display-capture', 'fullscreen', 'notifications'].includes(permission));
+    callback(['media', 'display-capture', 'fullscreen', 'notifications', 'clipboard-read', 'clipboard-sanitized-write'].includes(permission));
   });
 
   ses.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
       if (!isTrustedOrigin(request.securityOrigin)) {
         callback({});
+        return;
+      }
+
+      if (process.platform === 'linux' && (process.env.WAYLAND_DISPLAY || process.env.XDG_SESSION_TYPE === 'wayland')) {
+        // Under Wayland, desktopCapturer.getSources() freezes the app.
+        // We pass a dummy screen ID to let the WebRTCPipeWireCapturer (and XDG Desktop Portal)
+        // handle the screen selection natively.
+        callback({ video: { id: 'screen:1:0', name: 'Screen' } });
         return;
       }
 
