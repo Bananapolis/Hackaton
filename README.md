@@ -65,6 +65,7 @@ SQLite stores:
 ### Frontend (React + Tailwind)
 
 - Single-page app with role switch (teacher/student).
+- Startup presentation pages available at `/home`, `/our-mission`, and `/contact` for product marketing/navigation.
 - Account-first access: users register/login once, then choose whether to host a new session or join an existing one from session settings.
 - Stream-first layout with minimal always-on UI and on-demand layered panels.
 - Icon-first controls for high-frequency actions with hover tooltips.
