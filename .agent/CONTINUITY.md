@@ -2,6 +2,39 @@
 
 ## 2026-03-21
 
+- Unified overlay close interaction safety in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - applied the same backdrop `mousedown`+`click` guard pattern used by session settings to notes, awards, library, saved-quiz attempt, quiz prompt, teacher question inbox, and student ask-question panels,
+  - this prevents accidental close when text selection starts inside a panel and mouse is released outside.
+- Improved teacher anonymous-question notifications in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - desktop notification now includes a preview of the newest pending anonymous question text (truncated) instead of only pending count.
+
+- Implemented anonymous student question workflow across websocket backend and React frontend:
+  - backend in [backend/app/main.py](backend/app/main.py) now stores per-session anonymous questions in runtime state,
+  - students can submit `ask_question` events and teachers can resolve them via `resolve_question`,
+  - teacher receives synchronized `anonymous_questions` payloads with pending count for inbox/notification UX,
+  - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now includes student "Ask anonymous question" modal, teacher inbox panel, pending badge, and teacher desktop notification when new pending questions arrive,
+  - added websocket regression coverage in [backend/tests/test_main.py](backend/tests/test_main.py) for submit + resolve behavior,
+  - documented the feature in [README.md](README.md) actor/use-case and websocket capability sections.
+
+- Refined classroom session UX and quiz library behavior across frontend/backend:
+  - fixed session settings overlay close behavior in [frontend/src/App.jsx](frontend/src/App.jsx) so drag-selecting text and releasing outside no longer closes the panel unless it was a true backdrop click,
+  - gated join artifacts to active sessions in [frontend/src/App.jsx](frontend/src/App.jsx) (session code/join link/QR are shown only once connected),
+  - changed preference persistence in [frontend/src/App.jsx](frontend/src/App.jsx) so only role/name are stored (session code is no longer restored from storage),
+  - made library modal content properly scrollable in [frontend/src/App.jsx](frontend/src/App.jsx),
+  - fixed library refresh crash in [frontend/src/App.jsx](frontend/src/App.jsx) by preventing click-event objects from being treated as session-code strings.
+- Implemented secure auto-saved quiz workflow and anti-cheat answer gating:
+  - backend in [backend/app/main.py](backend/app/main.py) now auto-saves generated live quizzes for the session host,
+  - `/api/quizzes` in [backend/app/main.py](backend/app/main.py) now supports session-scoped queries and role-aware visibility,
+  - while a quiz is live, API responses return `answer_revealed=false` and hide `correct_option_id`; answers become revealable only after quiz closure.
+- Updated frontend quiz library/practice flow in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - removed manual save-quiz action from the main controls,
+  - replaced raw answer data listing with practice cards and attempt modal,
+  - added retry/revote practice behavior with reshuffled options per attempt while respecting `answer_revealed` state.
+- Added and adjusted tests for the new behavior:
+  - updated helper expectation in [frontend/src/App.helpers.test.jsx](frontend/src/App.helpers.test.jsx) to reflect non-persistent session code,
+  - expanded backend coverage in [backend/tests/test_main.py](backend/tests/test_main.py) for live concealment and post-close answer reveal,
+  - added `pytest-asyncio` to [backend/requirements.txt](backend/requirements.txt) so asyncio pytest configuration is recognized.
+
 - Added broad automated test coverage across backend and frontend, and enforced coverage in CI:
   - backend: introduced `pytest` + `pytest-cov` and new suite in [backend/tests/test_main.py](backend/tests/test_main.py),
   - backend: added [backend/pytest.ini](backend/pytest.ini) with coverage fail-under gate,

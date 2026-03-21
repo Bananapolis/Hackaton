@@ -299,6 +299,16 @@ class SavedQuizItem(BaseModel):
     correct_option_id: str
     created_at: str
 
+class SavedQuizListItem(BaseModel):
+    id: int
+    session_code: str | None
+    question: str
+    options: list[QuizOption]
+    correct_option_id: str | None
+    answer_revealed: bool
+    is_live: bool
+    created_at: str
+
 
 @dataclass
 class ClientState:
@@ -317,6 +327,15 @@ class ClientState:
 
 
 @dataclass
+class AnonymousQuestion:
+    id: str
+    text: str
+    created_at: str
+    resolved: bool = False
+    resolved_at: str | None = None
+
+
+@dataclass
 class RuntimeSession:
     code: str
     teacher_name: str
@@ -326,10 +345,12 @@ class RuntimeSession:
     break_active_until: float | None = None
     notes: str = ""
     current_quiz: QuizPayload | None = None
+    current_quiz_saved_id: int | None = None
     quiz_answers: dict[str, str] = field(default_factory=dict)
     quiz_hidden: bool = False
     quiz_cover_mode: bool = True
     quiz_voting_closed: bool = False
+    anonymous_questions: list[AnonymousQuestion] = field(default_factory=list)
     active: bool = True
     ended_at_epoch: float | None = None
     final_report: dict[str, Any] | None = None
@@ -403,6 +424,24 @@ def session_state_payload(session: RuntimeSession) -> dict[str, Any]:
             "voting_closed": session.quiz_voting_closed,
         },
         "metrics": metrics_payload(session),
+    }
+
+
+def anonymous_questions_payload(session: RuntimeSession) -> dict[str, Any]:
+    questions = [
+        {
+            "id": question.id,
+            "text": question.text,
+            "created_at": question.created_at,
+            "resolved": question.resolved,
+            "resolved_at": question.resolved_at,
+        }
+        for question in session.anonymous_questions
+    ]
+    pending_count = sum(1 for question in session.anonymous_questions if not question.resolved)
+    return {
+        "questions": questions,
+        "pending_count": pending_count,
     }
 
 
@@ -2207,21 +2246,24 @@ def generate_presentation_notes_png(
     )
 
 
-@app.post("/api/quizzes/save", response_model=SavedQuizItem)
-def save_quiz(payload: SavedQuizCreateRequest, authorization: str | None = Header(default=None)) -> SavedQuizItem:
-    user = require_user(authorization)
-    question = payload.question.strip()
+def save_quiz_for_user(
+    *,
+    user_id: int,
+    session_code: str | None,
+    quiz: QuizPayload,
+) -> SavedQuizItem:
+    question = quiz.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
 
-    correct_option_id = payload.correct_option_id.strip().upper()
-    options = payload.options
+    correct_option_id = quiz.correct_option_id.strip().upper()
+    options = quiz.options
     valid_option_ids = {option.id.upper() for option in options}
     if correct_option_id not in valid_option_ids:
         raise HTTPException(status_code=400, detail="correct_option_id must match an option id")
 
     serialized_options = json.dumps([option.model_dump() for option in options])
-    normalized_session_code = (payload.session_code or "").strip().upper() or None
+    normalized_session_code = (session_code or "").strip().upper() or None
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -2231,7 +2273,7 @@ def save_quiz(payload: SavedQuizCreateRequest, authorization: str | None = Heade
         INSERT INTO saved_quizzes(user_id, session_code, question, options_json, correct_option_id, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (user["id"], normalized_session_code, question, serialized_options, correct_option_id, created_at),
+        (user_id, normalized_session_code, question, serialized_options, correct_option_id, created_at),
     )
     quiz_id = cursor.lastrowid
     conn.commit()
@@ -2247,37 +2289,113 @@ def save_quiz(payload: SavedQuizCreateRequest, authorization: str | None = Heade
     )
 
 
-@app.get("/api/quizzes")
-def list_saved_quizzes(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+@app.post("/api/quizzes/save", response_model=SavedQuizItem)
+def save_quiz(payload: SavedQuizCreateRequest, authorization: str | None = Header(default=None)) -> SavedQuizItem:
     user = require_user(authorization)
+    quiz = QuizPayload(
+        question=payload.question,
+        options=payload.options,
+        correct_option_id=payload.correct_option_id,
+    )
+    return save_quiz_for_user(
+        user_id=user["id"],
+        session_code=payload.session_code,
+        quiz=quiz,
+    )
+
+
+@app.get("/api/quizzes")
+def list_saved_quizzes(
+    session_code: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user = require_user(authorization)
+    normalized_session_code = (session_code or "").strip().upper() or None
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT id, session_code, question, options_json, correct_option_id, created_at
-        FROM saved_quizzes
-        WHERE user_id = ?
-        ORDER BY datetime(created_at) DESC
-        """,
-        (user["id"],),
-    )
+
+    if normalized_session_code:
+        cursor.execute(
+            "SELECT teacher_name, owner_user_id FROM sessions WHERE code = ?",
+            (normalized_session_code,),
+        )
+        session_row = cursor.fetchone()
+        if not session_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        session_owner_id = session_row["owner_user_id"]
+        is_session_owner = (
+            (session_owner_id is not None and session_owner_id == user["id"])
+            or (session_owner_id is None and session_row["teacher_name"] == user["display_name"])
+        )
+
+        if is_session_owner:
+            cursor.execute(
+                """
+                SELECT id, session_code, question, options_json, correct_option_id, created_at
+                FROM saved_quizzes
+                WHERE user_id = ? AND session_code = ?
+                ORDER BY datetime(created_at) DESC
+                """,
+                (user["id"], normalized_session_code),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT q.id, q.session_code, q.question, q.options_json, q.correct_option_id, q.created_at
+                FROM saved_quizzes q
+                JOIN sessions s ON s.code = q.session_code
+                JOIN users u ON u.id = q.user_id
+                WHERE q.session_code = ?
+                  AND (
+                    (s.owner_user_id IS NOT NULL AND s.owner_user_id = u.id)
+                    OR (s.owner_user_id IS NULL AND s.teacher_name = u.display_name)
+                  )
+                ORDER BY datetime(q.created_at) DESC
+                """,
+                (normalized_session_code,),
+            )
+    else:
+        cursor.execute(
+            """
+            SELECT id, session_code, question, options_json, correct_option_id, created_at
+            FROM saved_quizzes
+            WHERE user_id = ?
+            ORDER BY datetime(created_at) DESC
+            """,
+            (user["id"],),
+        )
+
     rows = cursor.fetchall()
     conn.close()
+
+    live_saved_quiz_ids = {
+        live_session.current_quiz_saved_id
+        for live_session in SESSIONS.values()
+        if live_session.current_quiz_saved_id is not None
+        and not live_session.quiz_voting_closed
+        and not live_session.quiz_hidden
+    }
 
     quizzes: list[dict[str, Any]] = []
     for row in rows:
         options_raw = json.loads(row["options_json"])
-        options = [QuizOption(**item).model_dump() for item in options_raw]
+        is_live = row["id"] in live_saved_quiz_ids
+        answer_revealed = not is_live
         quizzes.append(
-            {
-                "id": row["id"],
-                "session_code": row["session_code"],
-                "question": row["question"],
-                "options": options,
-                "correct_option_id": row["correct_option_id"],
-                "created_at": row["created_at"],
-            }
+            SavedQuizListItem(
+                id=row["id"],
+                session_code=row["session_code"],
+                question=row["question"],
+                options=[QuizOption(**item) for item in options_raw],
+                correct_option_id=row["correct_option_id"] if answer_revealed else None,
+                answer_revealed=answer_revealed,
+                is_live=is_live,
+                created_at=row["created_at"],
+            ).model_dump()
         )
 
     return {"quizzes": quizzes}
@@ -2446,6 +2564,14 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     "payload": {"student_id": client_id, "name": name},
                 },
             )
+    elif role == "teacher":
+        await send_json(
+            websocket,
+            {
+                "type": "anonymous_questions",
+                "payload": anonymous_questions_payload(session),
+            },
+        )
 
     try:
         while True:
@@ -2635,6 +2761,95 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 insert_event(code, "note_update", {"len": len(session.notes)})
                 await broadcast(session, {"type": "notes", "payload": {"text": session.notes}})
 
+            elif msg_type == "ask_question":
+                if role != "student":
+                    continue
+
+                text = str(payload.get("text", "")).strip()
+                if not text:
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "error",
+                            "payload": {
+                                "message": "Question text is required.",
+                            },
+                        },
+                    )
+                    continue
+
+                question = AnonymousQuestion(
+                    id=uuid.uuid4().hex[:12],
+                    text=text[:600],
+                    created_at=now_iso(),
+                )
+                session.anonymous_questions.append(question)
+                state.last_active_at = time.time()
+                insert_event(
+                    code,
+                    "anonymous_question_submitted",
+                    {
+                        "question_id": question.id,
+                        "text_len": len(question.text),
+                    },
+                )
+
+                await send_json(
+                    websocket,
+                    {
+                        "type": "anonymous_question_submitted",
+                        "payload": {
+                            "question_id": question.id,
+                        },
+                    },
+                )
+
+                teacher = get_teacher(session)
+                if teacher:
+                    await send_json(
+                        teacher.websocket,
+                        {
+                            "type": "anonymous_questions",
+                            "payload": anonymous_questions_payload(session),
+                        },
+                    )
+
+            elif msg_type == "resolve_question":
+                if role != "teacher":
+                    continue
+
+                question_id = str(payload.get("question_id", "")).strip()
+                if not question_id:
+                    continue
+
+                changed = False
+                for question in session.anonymous_questions:
+                    if question.id != question_id:
+                        continue
+                    if not question.resolved:
+                        question.resolved = True
+                        question.resolved_at = now_iso()
+                        changed = True
+                    break
+
+                if not changed:
+                    continue
+
+                insert_event(
+                    code,
+                    "anonymous_question_resolved",
+                    {
+                        "question_id": question_id,
+                    },
+                )
+                await send_json(
+                    websocket,
+                    {
+                        "type": "anonymous_questions",
+                        "payload": anonymous_questions_payload(session),
+                    },
+                )
+
             elif msg_type == "generate_quiz":
                 if role != "teacher":
                     continue
@@ -2662,10 +2877,29 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     )
                     continue
                 session.current_quiz = quiz
+                session.current_quiz_saved_id = None
                 session.quiz_answers.clear()
                 session.quiz_hidden = False
                 session.quiz_cover_mode = True
                 session.quiz_voting_closed = False
+                conn = sqlite3.connect(DB_PATH)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT owner_user_id FROM sessions WHERE code = ?", (code,))
+                owner_row = cursor.fetchone()
+                conn.close()
+                owner_user_id = owner_row["owner_user_id"] if owner_row else None
+                if owner_user_id:
+                    try:
+                        saved_quiz = save_quiz_for_user(
+                            user_id=owner_user_id,
+                            session_code=code,
+                            quiz=quiz,
+                        )
+                        session.current_quiz_saved_id = saved_quiz.id
+                    except Exception:
+                        # Keep live flow intact even if persistence fails.
+                        session.current_quiz_saved_id = None
                 record_engagement_point(session, "quiz_generated")
                 insert_event(
                     code,
@@ -2773,6 +3007,14 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                         "payload": session_state_payload(session),
                     },
                 )
+                if role == "teacher":
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "anonymous_questions",
+                            "payload": anonymous_questions_payload(session),
+                        },
+                    )
 
             elif msg_type == "explain_screen":
                 if role != "student":

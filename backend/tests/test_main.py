@@ -53,6 +53,14 @@ def auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def receive_until_type(ws, expected_type: str, max_messages: int = 20) -> dict:
+    for _ in range(max_messages):
+        message = ws.receive_json()
+        if message.get("type") == expected_type:
+            return message
+    raise AssertionError(f"Message type {expected_type} not received within {max_messages} messages")
+
+
 def test_parse_bearer_token_and_password_hashing_helpers() -> None:
     assert main.parse_bearer_token(None) is None
     assert main.parse_bearer_token("") is None
@@ -155,6 +163,12 @@ def test_auth_register_login_and_profile(client: TestClient) -> None:
 
 def test_sessions_library_quizzes_end_and_report_pdf(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     token, user = register_user(client, email="owner@example.com", display_name="Owner")
+    student_token, _ = register_user(
+        client,
+        email="quizstudent@example.com",
+        display_name="Quiz Student",
+        role="student",
+    )
 
     create = client.post(
         "/api/sessions",
@@ -201,10 +215,41 @@ def test_sessions_library_quizzes_end_and_report_pdf(client: TestClient, monkeyp
         },
     )
     assert save_ok.status_code == 200
+    saved_quiz_id = save_ok.json()["id"]
 
     list_quizzes = client.get("/api/quizzes", headers=auth_headers(token))
     assert list_quizzes.status_code == 200
     assert len(list_quizzes.json()["quizzes"]) == 1
+    assert list_quizzes.json()["quizzes"][0]["answer_revealed"] is True
+
+    # Simulate an active live quiz bound to the saved quiz id: answers must stay hidden.
+    session = main.SESSIONS[code]
+    session.current_quiz_saved_id = saved_quiz_id
+    session.quiz_voting_closed = False
+    session.quiz_hidden = False
+
+    owner_live_view = client.get(f"/api/quizzes?session_code={code}", headers=auth_headers(token))
+    assert owner_live_view.status_code == 200
+    owner_live_quiz = owner_live_view.json()["quizzes"][0]
+    assert owner_live_quiz["is_live"] is True
+    assert owner_live_quiz["answer_revealed"] is False
+    assert owner_live_quiz["correct_option_id"] is None
+
+    student_live_view = client.get(f"/api/quizzes?session_code={code}", headers=auth_headers(student_token))
+    assert student_live_view.status_code == 200
+    student_live_quiz = student_live_view.json()["quizzes"][0]
+    assert student_live_quiz["is_live"] is True
+    assert student_live_quiz["answer_revealed"] is False
+    assert student_live_quiz["correct_option_id"] is None
+
+    # Once host closes/finishes voting, correct answer becomes visible again.
+    session.quiz_voting_closed = True
+    student_closed_view = client.get(f"/api/quizzes?session_code={code}", headers=auth_headers(student_token))
+    assert student_closed_view.status_code == 200
+    student_closed_quiz = student_closed_view.json()["quizzes"][0]
+    assert student_closed_quiz["is_live"] is False
+    assert student_closed_quiz["answer_revealed"] is True
+    assert student_closed_quiz["correct_option_id"] == "B"
 
     analytics = client.get(f"/api/sessions/{code}/analytics")
     assert analytics.status_code == 200
@@ -302,6 +347,43 @@ def test_websocket_join_confusion_and_break_vote_signals(client: TestClient) -> 
         session = main.SESSIONS[code]
         assert len(session.break_votes) > 0
         assert any(c.confusion_signals_sent > 0 for c in session.clients.values() if c.role == "student")
+
+
+def test_websocket_anonymous_question_submit_and_resolve(client: TestClient) -> None:
+    create = client.post("/api/sessions", json={"teacher_name": "Teacher"})
+    assert create.status_code == 200
+    code = create.json()["code"]
+
+    with client.websocket_connect(f"/ws/{code}?role=teacher&name=Teacher") as teacher_ws:
+        receive_until_type(teacher_ws, "anonymous_questions")
+
+        with client.websocket_connect(f"/ws/{code}?role=student&name=Alice") as student_ws:
+            receive_until_type(student_ws, "session_state")
+
+            student_ws.send_json({"type": "ask_question", "payload": {"text": "Can you repeat the last formula?"}})
+            submitted = receive_until_type(student_ws, "anonymous_question_submitted")
+            assert submitted["payload"]["question_id"]
+
+            teacher_questions = receive_until_type(teacher_ws, "anonymous_questions")
+            assert teacher_questions["payload"]["pending_count"] == 1
+            assert len(teacher_questions["payload"]["questions"]) == 1
+            question_item = teacher_questions["payload"]["questions"][0]
+            assert question_item["text"] == "Can you repeat the last formula?"
+            assert question_item["resolved"] is False
+
+            teacher_ws.send_json(
+                {
+                    "type": "resolve_question",
+                    "payload": {"question_id": question_item["id"]},
+                }
+            )
+            resolved_state = receive_until_type(teacher_ws, "anonymous_questions")
+            assert resolved_state["payload"]["pending_count"] == 0
+            assert resolved_state["payload"]["questions"][0]["resolved"] is True
+
+            session = main.SESSIONS[code]
+            assert len(session.anonymous_questions) == 1
+            assert session.anonymous_questions[0].resolved is True
 
 
 

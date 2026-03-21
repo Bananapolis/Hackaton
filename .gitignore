@@ -32,3 +32,12 @@ id_ed25519
 desktop/*.AppImage
 desktop/*.deb
 desktop/*.rpm
+
+# Tests / Coverage
+.coverage
+*.xml
+backend/pytest-results.xml
+backend/coverage.xml
+frontend/vitest-results.xml
+frontend/coverage/
+backend/.pytest_cache/
