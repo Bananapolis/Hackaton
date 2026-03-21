@@ -77,9 +77,8 @@ function loadSessionPreferences() {
     const parsed = JSON.parse(raw)
     const role = parsed?.role === 'teacher' ? 'teacher' : 'student'
     const name = typeof parsed?.name === 'string' ? parsed.name : ''
-    const sessionCode = typeof parsed?.sessionCode === 'string' ? parsed.sessionCode.toUpperCase() : ''
 
-    return { role, name, sessionCode }
+    return { role, name, sessionCode: '' }
   } catch {
     return { role: 'student', name: '', sessionCode: '' }
   }
@@ -227,6 +226,7 @@ function App() {
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
   const stageContainerRef = useRef(null)
+  const sessionPanelBackdropPointerDownRef = useRef(false)
   const notificationPermissionRequestedRef = useRef(false)
   const confusionNotificationArmedRef = useRef(true)
   const lastBreakNotificationAtRef = useRef(0)
@@ -234,6 +234,7 @@ function App() {
   const isTeacher = role === 'teacher'
   const normalizedCode = sessionCode.trim().toUpperCase()
   const activeLibrarySessionCode = (librarySessionCode || normalizedCode).trim().toUpperCase()
+  const activeSessionCode = joined ? normalizedCode : ''
   const themeToggleLabel = theme === 'dark' ? 'Switch to light' : 'Switch to dark'
   const joinUrl = useMemo(() => {
     if (!normalizedCode) return ''
@@ -243,6 +244,7 @@ function App() {
     url.searchParams.set('code', normalizedCode)
     return url.toString()
   }, [normalizedCode])
+  const activeJoinUrl = joined ? joinUrl : ''
 
   useEffect(() => {
     return () => {
@@ -320,22 +322,21 @@ function App() {
     const preferences = {
       role,
       name,
-      sessionCode: sessionCode.toUpperCase(),
     }
     window.localStorage.setItem(sessionPreferencesStorageKey, JSON.stringify(preferences))
-  }, [role, name, sessionCode])
+  }, [role, name])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
 
     const url = new URL(window.location.href)
-    if (normalizedCode) {
-      url.searchParams.set('code', normalizedCode)
+    if (activeSessionCode) {
+      url.searchParams.set('code', activeSessionCode)
     } else {
       url.searchParams.delete('code')
     }
     window.history.replaceState({}, '', url)
-  }, [normalizedCode])
+  }, [activeSessionCode])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -898,6 +899,7 @@ function App() {
     wsRef.current?.close()
     setJoined(false)
     setExplainLoading(false)
+    setSessionCode('')
   }
 
   function requestAnalytics() {
@@ -1256,7 +1258,7 @@ function App() {
                 {shortStatus}
               </div>
               <div className="rounded-full border border-sky-300/35 bg-sky-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-100" title="Session code">
-                {normalizedCode || 'No code'}
+                {activeSessionCode || 'No active code'}
               </div>
               <div className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs text-slate-200">{roleLabel}</div>
             </div>
@@ -1494,13 +1496,13 @@ function App() {
           >
             <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-3 dark:border-slate-700 dark:from-slate-800 dark:to-slate-900">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Session</div>
-              <div className="mt-2 text-3xl font-black tracking-widest text-slate-900 dark:text-white">{normalizedCode || '------'}</div>
+              <div className="mt-2 text-3xl font-black tracking-widest text-slate-900 dark:text-white">{activeSessionCode || '------'}</div>
               <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">{joined ? 'Live and connected' : 'Not connected yet'}</div>
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
                   onClick={copySessionCode}
-                  disabled={!normalizedCode}
+                  disabled={!activeSessionCode}
                   className="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                 >
                   <Icon name="copy" className="h-4 w-4" /> Code
@@ -1508,7 +1510,7 @@ function App() {
                 <button
                   type="button"
                   onClick={copyJoinLink}
-                  disabled={!joinUrl}
+                  disabled={!activeJoinUrl}
                   className="inline-flex items-center gap-1 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                 >
                   <Icon name="copy" className="h-4 w-4" /> Link
@@ -1547,11 +1549,11 @@ function App() {
               </div>
             ) : null}
 
-            {isTeacher && joinUrl ? (
+            {isTeacher && activeJoinUrl ? (
               <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 dark:border-slate-700 dark:bg-slate-800/70">
                 <div className="mb-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Scan to join</div>
                 <div className="flex justify-center">
-                  <SessionQRCode value={joinUrl} size={320} className="h-40 w-40 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
+                  <SessionQRCode value={activeJoinUrl} size={320} className="h-40 w-40 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
                 </div>
               </div>
             ) : null}
@@ -1571,7 +1573,19 @@ function App() {
         </main>
 
         {showSessionPanel ? (
-          <div className="fixed inset-0 z-40 flex justify-end bg-slate-950/45 p-3 backdrop-blur-sm" onClick={() => setShowSessionPanel(false)}>
+          <div
+            className="fixed inset-0 z-40 flex justify-end bg-slate-950/45 p-3 backdrop-blur-sm"
+            onMouseDown={(event) => {
+              sessionPanelBackdropPointerDownRef.current = event.target === event.currentTarget
+            }}
+            onClick={(event) => {
+              const clickOnBackdrop = event.target === event.currentTarget
+              if (clickOnBackdrop && sessionPanelBackdropPointerDownRef.current) {
+                setShowSessionPanel(false)
+              }
+              sessionPanelBackdropPointerDownRef.current = false
+            }}
+          >
             <aside
               className="h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
@@ -1633,7 +1647,7 @@ function App() {
               <label className="mb-1 block text-sm font-medium">Student join URL</label>
               <div className="mb-3 flex gap-2">
                 <input
-                  value={joinUrl}
+                  value={activeJoinUrl}
                   readOnly
                   className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700 shadow-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                   placeholder="Join URL appears when a session code is set"
@@ -1641,7 +1655,7 @@ function App() {
                 <button
                   type="button"
                   onClick={copyJoinLink}
-                  disabled={!joinUrl}
+                  disabled={!activeJoinUrl}
                   className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                   title="Copy student join URL"
                   aria-label="Copy student join URL"
@@ -1650,13 +1664,13 @@ function App() {
                 </button>
               </div>
 
-              {isTeacher && joinUrl ? (
+              {isTeacher && activeJoinUrl ? (
                 <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
                   <div className="mb-2 text-center text-sm font-semibold text-slate-700 dark:text-slate-100">Students: scan to join</div>
                   <div className="flex justify-center">
-                    <SessionQRCode value={joinUrl} size={420} className="h-[300px] w-[300px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
+                    <SessionQRCode value={activeJoinUrl} size={420} className="h-[300px] w-[300px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
                   </div>
-                  <div className="mt-3 text-center text-4xl font-black tracking-widest text-slate-900 dark:text-slate-100">{normalizedCode}</div>
+                  <div className="mt-3 text-center text-4xl font-black tracking-widest text-slate-900 dark:text-slate-100">{activeSessionCode}</div>
                 </div>
               ) : null}
 
@@ -1821,7 +1835,7 @@ function App() {
         {showLibraryPanel ? (
           <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowLibraryPanel(false)}>
             <section
-              className="w-full max-w-4xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
@@ -1859,112 +1873,114 @@ function App() {
                 </button>
               </div>
 
-              {libraryLoading ? (
-                <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">Loading library data...</div>
-              ) : null}
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {libraryLoading ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">Loading library data...</div>
+                ) : null}
 
-              {!libraryLoading && libraryTab === 'sessions' ? (
-                <div className="space-y-2">
-                  {librarySessions.length ? (
-                    librarySessions.map((item) => (
-                      <button
-                        key={`${item.code}-${item.created_at}`}
-                        type="button"
-                        onClick={() => useLibrarySession(item.code)}
-                        className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition dark:bg-slate-800/70 ${activeLibrarySessionCode === String(item.code || '').trim().toUpperCase() ? 'border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20' : 'border-slate-200 bg-white dark:border-slate-700'}`}
-                      >
-                        <div className="font-semibold text-slate-900 dark:text-slate-100">{item.code}</div>
-                        <div className="text-slate-600 dark:text-slate-300">Teacher: {item.teacher_name}</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">{new Date(item.created_at).toLocaleString()}</div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No sessions found for this account yet.</div>
-                  )}
-                </div>
-              ) : null}
-
-              {!libraryLoading && libraryTab === 'files' ? (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
-                    Session context: {activeLibrarySessionCode || 'your personal uploads'}
+                {!libraryLoading && libraryTab === 'sessions' ? (
+                  <div className="space-y-2">
+                    {librarySessions.length ? (
+                      librarySessions.map((item) => (
+                        <button
+                          key={`${item.code}-${item.created_at}`}
+                          type="button"
+                          onClick={() => useLibrarySession(item.code)}
+                          className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition dark:bg-slate-800/70 ${activeLibrarySessionCode === String(item.code || '').trim().toUpperCase() ? 'border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20' : 'border-slate-200 bg-white dark:border-slate-700'}`}
+                        >
+                          <div className="font-semibold text-slate-900 dark:text-slate-100">{item.code}</div>
+                          <div className="text-slate-600 dark:text-slate-300">Teacher: {item.teacher_name}</div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400">{new Date(item.created_at).toLocaleString()}</div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No sessions found for this account yet.</div>
+                    )}
                   </div>
-                  {isTeacher ? (
-                    <div className="flex items-center gap-3">
-                      <label className="inline-flex cursor-pointer items-center rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-600">
-                        {uploadPending ? 'Uploading...' : 'Upload presentation'}
-                        <input type="file" className="hidden" onChange={onUploadPresentation} disabled={uploadPending} />
-                      </label>
-                      {!normalizedCode ? (
-                        <span className="text-xs text-slate-500 dark:text-slate-400">Pick or create a session first.</span>
-                      ) : null}
+                ) : null}
+
+                {!libraryLoading && libraryTab === 'files' ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+                      Session context: {activeLibrarySessionCode || 'your personal uploads'}
                     </div>
-                  ) : (
-                    <div className="text-xs text-slate-500 dark:text-slate-400">Student mode: files are read-only. Join a session code to see teacher uploads.</div>
-                  )}
-                  {libraryFiles.length ? (
-                    libraryFiles.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70">
-                        <div>
-                          <div className="font-semibold text-slate-900 dark:text-slate-100">{item.original_name}</div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400">{Math.round(item.size_bytes / 1024)} KB · {new Date(item.created_at).toLocaleString()}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => generatePresentationNotesPng(item)}
-                            disabled={Boolean(notesPngPendingById[item.id])}
-                            className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/35"
-                          >
-                            {notesPngPendingById[item.id] ? 'Generating PNG...' : 'AI notes PNG'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => downloadPresentation(item)}
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                          >
-                            Download
-                          </button>
-                        </div>
+                    {isTeacher ? (
+                      <div className="flex items-center gap-3">
+                        <label className="inline-flex cursor-pointer items-center rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-600">
+                          {uploadPending ? 'Uploading...' : 'Upload presentation'}
+                          <input type="file" className="hidden" onChange={onUploadPresentation} disabled={uploadPending} />
+                        </label>
+                        {!normalizedCode ? (
+                          <span className="text-xs text-slate-500 dark:text-slate-400">Pick or create a session first.</span>
+                        ) : null}
                       </div>
-                    ))
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No uploaded presentations yet.</div>
-                  )}
-                </div>
-              ) : null}
-
-              {!libraryLoading && libraryTab === 'quizzes' ? (
-                <div className="space-y-2">
-                  {quiz ? (
-                    <button
-                      type="button"
-                      onClick={saveCurrentQuizToLibrary}
-                      className="mb-1 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
-                    >
-                      Save current live quiz
-                    </button>
-                  ) : null}
-
-                  {libraryQuizzes.length ? (
-                    libraryQuizzes.map((item) => (
-                      <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70">
-                        <div className="font-semibold text-slate-900 dark:text-slate-100">{item.question}</div>
-                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Session: {item.session_code || '-'} · {new Date(item.created_at).toLocaleString()}</div>
-                        <div className="mt-2 grid gap-1 text-xs text-slate-600 dark:text-slate-300">
-                          {(item.options || []).map((option) => (
-                            <div key={option.id} className={option.id === item.correct_option_id ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}>
-                              {option.id}. {option.text}
-                            </div>
-                          ))}
+                    ) : (
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Student mode: files are read-only. Join a session code to see teacher uploads.</div>
+                    )}
+                    {libraryFiles.length ? (
+                      libraryFiles.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70">
+                          <div>
+                            <div className="font-semibold text-slate-900 dark:text-slate-100">{item.original_name}</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400">{Math.round(item.size_bytes / 1024)} KB · {new Date(item.created_at).toLocaleString()}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => generatePresentationNotesPng(item)}
+                              disabled={Boolean(notesPngPendingById[item.id])}
+                              className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/35"
+                            >
+                              {notesPngPendingById[item.id] ? 'Generating PNG...' : 'AI notes PNG'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => downloadPresentation(item)}
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                            >
+                              Download
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No saved quizzes yet.</div>
-                  )}
-                </div>
-              ) : null}
+                      ))
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No uploaded presentations yet.</div>
+                    )}
+                  </div>
+                ) : null}
+
+                {!libraryLoading && libraryTab === 'quizzes' ? (
+                  <div className="space-y-2">
+                    {quiz ? (
+                      <button
+                        type="button"
+                        onClick={saveCurrentQuizToLibrary}
+                        className="mb-1 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                      >
+                        Save current live quiz
+                      </button>
+                    ) : null}
+
+                    {libraryQuizzes.length ? (
+                      libraryQuizzes.map((item) => (
+                        <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70">
+                          <div className="font-semibold text-slate-900 dark:text-slate-100">{item.question}</div>
+                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Session: {item.session_code || '-'} · {new Date(item.created_at).toLocaleString()}</div>
+                          <div className="mt-2 grid gap-1 text-xs text-slate-600 dark:text-slate-300">
+                            {(item.options || []).map((option) => (
+                              <div key={option.id} className={option.id === item.correct_option_id ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}>
+                                {option.id}. {option.text}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">No saved quizzes yet.</div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </section>
           </div>
         ) : null}
