@@ -2,6 +2,12 @@
 
 ## 2026-03-21
 
+- Unified overlay close interaction safety in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - applied the same backdrop `mousedown`+`click` guard pattern used by session settings to notes, awards, library, saved-quiz attempt, quiz prompt, teacher question inbox, and student ask-question panels,
+  - this prevents accidental close when text selection starts inside a panel and mouse is released outside.
+- Improved teacher anonymous-question notifications in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - desktop notification now includes a preview of the newest pending anonymous question text (truncated) instead of only pending count.
+
 - Implemented anonymous student question workflow across websocket backend and React frontend:
   - backend in [backend/app/main.py](backend/app/main.py) now stores per-session anonymous questions in runtime state,
   - students can submit `ask_question` events and teachers can resolve them via `resolve_question`,
