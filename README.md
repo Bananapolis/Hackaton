@@ -89,7 +89,8 @@ SQLite stores:
 	- receive teacher stream,
 	- submit confusion signal,
 	- vote for break,
-	- answer quiz.
+	- answer quiz,
+	- open a one-minute visual replay popup built from local screenshots captured on-device (capture/discard pauses while popup is open for that student only).
 
 UX design rationale for this iteration is documented in [frontend/UX-OVERHAUL.md](frontend/UX-OVERHAUL.md).
 
@@ -125,6 +126,7 @@ The backend sends notes to Gemini when configured.
 * **UC-S5: Anonymous Questions:** Send anonymous free-text questions to the host without exposing student identity in the host inbox.
 * **UC-S6: Break Interface:** View the synchronized countdown timer indicating when the session resumes.
 * **UC-S7: Screen Explanation Help:** Click an "Explain the screen" action to receive a concise AI explanation of the current shared screen and what to focus on next.
+* **UC-S8: One-Minute Visual Replay:** Open a local replay popup to inspect screenshots from the previous minute. Capture/pruning is paused while the popup is open and resumes on close.
 
 ## 4. Repository Layout
 

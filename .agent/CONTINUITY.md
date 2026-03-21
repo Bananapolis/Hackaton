@@ -2,6 +2,14 @@
 
 ## 2026-03-21
 
+- Added student-only one-minute visual replay in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - students now capture lightweight local screenshots every 2 seconds and keep only the latest 60 seconds in memory,
+  - added a new history button in the student stage controls to open a replay popup,
+  - replay popup allows previous/next navigation through captured frames,
+  - while replay popup is open, capture and pruning are paused for that specific student client only; capture resumes when closed,
+  - validated with frontend production build and full frontend test suite.
+- Updated documentation in [README.md](README.md) for the new student replay capability (feature list + UC-S8).
+
 - Resolved unresolved merge markers in [frontend/src/App.jsx](frontend/src/App.jsx) that broke frontend stability:
   - removed conflict blocks in icon mapping and student control dock,
   - preserved both student actions after reconciliation: anonymous question button and screenshot-to-PDF button.
