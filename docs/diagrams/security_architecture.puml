@@ -1,0 +1,73 @@
+@startuml SecurityArchitecture
+!theme plain
+skinparam componentStyle uml2
+
+actor "Teacher" as Teacher
+actor "Student" as Student
+actor "Administrator" as Admin
+actor "Attacker" as Attacker
+actor "Attacker (MITM)" as Mitm
+
+node "Cloud Environment (Ubuntu VPS)" {
+	interface "Port 80/443 (Web)" as PortWeb
+	interface "Port 22 (SSH)" as PortSSH
+
+	component "UFW & Fail2ban" as Firewall
+
+	node "Docker Network (Isolated)" {
+		component "Caddy (Proxy & TLS)" as Caddy
+		component "Nginx (Frontend App)" as Nginx
+
+		component "FastAPI (Backend)" as FastAPI
+		interface "/api (REST)" as API
+		interface "/ws (WebSockets)" as WS
+		FastAPI -- API
+		FastAPI -- WS
+	}
+
+	database "SQLite (data.sqlite3)" as SQLite
+}
+
+cloud "AI Provider (Gemini/OpenAI)" as AI
+
+Attacker -.-> PortSSH : "Brute Force"
+Attacker -.-> PortWeb : "App-Level Attacks"
+Mitm -.-> PortWeb : "MITM / TLS stripping attempt"
+Mitm -.-> PortSSH : "MITM on admin SSH path"
+
+Teacher --> PortWeb : "Auth, Sessions"
+Student --> PortWeb : "Join Session"
+Admin --> PortSSH : "Admin SSH"
+Admin --> PortWeb : "Admin Web Access"
+
+PortSSH --> Firewall
+PortWeb --> Firewall
+Firewall --> Caddy
+
+Caddy --> Nginx : "Serves React App"
+Caddy --> API : "Proxy Pass /api"
+Caddy --> WS : "Proxy Pass /ws"
+
+FastAPI --> SQLite : "Persist State/Logs"
+FastAPI --> AI : "Prompt: Notes -> Quiz"
+
+note bottom of FastAPI
+	Security Measures:
+	- Token-Based Auth for Teachers
+	- CORS Policies (ALLOWED_ORIGINS)
+	- Answer Gating (Anti-Cheat)
+	- Cooldowns on Student Events
+end note
+
+note bottom of Firewall
+	Rate limiting,
+	Port Blocking,
+	SSH Protection
+end note
+
+note bottom of Caddy
+	HTTPS/WSS termination blocks
+	passive MITM on transit.
+end note
+
+@enduml

@@ -2,6 +2,13 @@
 
 ## 2026-03-21
 
+- Recovered and improved security architecture documentation artifacts:
+  - recreated [docs/diagrams/security_architecture.puml](docs/diagrams/security_architecture.puml) after it was accidentally emptied,
+  - kept `!theme plain` and added explicit administrator threat paths plus a dedicated MITM actor targeting both web and SSH admin ingress,
+  - adjusted note placement in the diagram to reduce excessive width and clipping risk,
+  - regenerated [docs/diagrams/security_architecture.png](docs/diagrams/security_architecture.png), [docs/diagrams/security_architecture.svg](docs/diagrams/security_architecture.svg), and [docs/diagrams/security_architecture.pdf](docs/diagrams/security_architecture.pdf), with PDF now exported from SVG via Inkscape to avoid EPS crop artifacts,
+  - corrected source reference in [docs/SECURITY.md](docs/SECURITY.md).
+
 - Resolved unresolved merge markers in [frontend/src/App.jsx](frontend/src/App.jsx) that broke frontend stability:
   - removed conflict blocks in icon mapping and student control dock,
   - preserved both student actions after reconciliation: anonymous question button and screenshot-to-PDF button.
