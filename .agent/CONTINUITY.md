@@ -17,6 +17,10 @@
   - added explicit deploy-secret validation with clear missing-secret error messages,
   - added robust SSH private-key normalization to support both multiline and `\\n`-escaped secret formats,
   - kept deploy command as `bash ./scripts/deploy-update.sh` on server for consistency.
+- Fixed backend CI test collection import failures (`ModuleNotFoundError: app`):
+  - added [backend/tests/conftest.py](backend/tests/conftest.py) to prepend backend root to `sys.path` during pytest collection,
+  - updated backend CI test step in [.github/workflows/deploy.yml](.github/workflows/deploy.yml) to set `PYTHONPATH=.`,
+  - installed `pytest-asyncio` in CI so configured asyncio pytest options are recognized.
 
 - Updated deployment documentation for post-compromise recovery:
   - expanded [DEPLOYMENT.md](DEPLOYMENT.md) into a full start-to-finish rebuild runbook,
