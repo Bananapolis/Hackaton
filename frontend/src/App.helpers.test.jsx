@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react'
 import { Icon, apiRequest, loadSessionPreferences, postJson } from './App'
 
-describe('App helper functions', () => {
+describe('App Component Helpers', () => {
   beforeEach(() => {
     window.localStorage.clear()
     vi.restoreAllMocks()
