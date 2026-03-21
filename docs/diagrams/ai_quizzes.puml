@@ -1,0 +1,20 @@
+@startuml
+!theme plain
+
+actor Teacher as T
+participant "Backend (FastAPI)" as B
+participant "OpenAI API" as AI
+actor Student as S
+
+T -> B: WS Send {type: "generate_quiz"}
+B -> AI: POST to LLM API with lecture notes context
+AI --> B: Return Questions & Answers
+B -> B: Save Quiz to Session State
+B -> T: WS Emit {type: "quiz_ready", payload: {questions}}
+B -> S: WS Emit {type: "quiz_ready", payload: {questions}}
+
+S -> B: WS Send {type: "submit_quiz", payload: {answers}}
+B -> B: Grade against generated rubric
+B -> T: WS Emit {type: "participant_quiz_completed", payload: {score}}
+
+@enduml
