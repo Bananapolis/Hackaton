@@ -2,7 +2,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 
-describe('App Massive Coverage', () => {
+describe('App Component - Authentication Flow', () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
@@ -29,7 +29,7 @@ describe('App Massive Coverage', () => {
     expect(getByPlaceholderText(/email/i)).toBeInTheDocument();
   });
 
-  it('login fail', async () => {
+  it('displays an error message when login fails', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: false,
       text: async () => 'Invalid credentials'
@@ -43,7 +43,7 @@ describe('App Massive Coverage', () => {
     await findByText(/Invalid credentials/i);
   });
 
-  it('login success', async () => {
+  it('successfully logs in and navigates to role dashboard', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ token: 'tk', user: { id: 1, email: 't@t.com', display_name: 'T', role: 'teacher' } })
@@ -57,7 +57,7 @@ describe('App Massive Coverage', () => {
     await findByText(/host a new session/i);
   });
   
-  it('register success', async () => {
+  it('successfully registers a user and navigates to the role dashboard', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ token: 'tk', user: { id: 1, email: 't@t.com', display_name: 'T', role: 'teacher' } })
