@@ -1596,6 +1596,22 @@ function App() {
           </aside>
         </main>
 
+        {endingSession ? (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 px-4 backdrop-blur-sm">
+            <div
+              role="status"
+              aria-live="polite"
+              className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white/95 p-6 text-center shadow-2xl dark:border-slate-700/80 dark:bg-slate-900/95"
+            >
+              <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-slate-300 border-t-sky-600 dark:border-slate-700 dark:border-t-sky-400" />
+              <h3 className="mt-4 text-base font-semibold text-slate-900 dark:text-slate-100">Generating analytics report</h3>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                {endSessionProgressMessage || 'Please wait while we finalize your session report.'}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         {showSessionPanel ? (
           <div
             className="fixed inset-0 z-40 flex justify-end bg-slate-950/45 p-3 backdrop-blur-sm"
