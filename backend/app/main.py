@@ -1,4 +1,5 @@
 import json
+import io
 import os
 import random
 import secrets
@@ -15,10 +16,21 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.pdfgen import canvas
+except Exception:  # pragma: no cover
+    A4 = None
+    cm = None
+    stringWidth = None
+    canvas = None
 
 try:
     from openai import OpenAI
@@ -312,6 +324,7 @@ class RuntimeSession:
     active: bool = True
     ended_at_epoch: float | None = None
     final_report: dict[str, Any] | None = None
+    final_report_insights: dict[str, Any] | None = None
 
     @property
     def student_count(self) -> int:
@@ -791,6 +804,340 @@ def build_full_analytics_report(session: RuntimeSession) -> dict[str, Any]:
         "analytics": analytics,
         "students_connected": students_connected,
     }
+
+
+def _normalize_insights_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    def clean_text(value: Any, *, fallback: str, max_len: int = 700) -> str:
+        text = " ".join(str(value or "").split())
+        if not text:
+            text = fallback
+        return text[:max_len]
+
+    def clean_list(values: Any, *, fallback: list[str], max_items: int = 5) -> list[str]:
+        if not isinstance(values, list):
+            values = []
+        cleaned: list[str] = []
+        for item in values:
+            text = " ".join(str(item or "").split())
+            if text:
+                cleaned.append(text[:220])
+            if len(cleaned) >= max_items:
+                break
+        return cleaned or fallback
+
+    return {
+        "title": clean_text(payload.get("title"), fallback="Session Analytics Insights", max_len=120),
+        "executive_summary": clean_text(
+            payload.get("executive_summary"),
+            fallback="Class engagement summary generated from session analytics.",
+        ),
+        "key_findings": clean_list(
+            payload.get("key_findings"),
+            fallback=["Engagement indicators were collected successfully for this session."],
+        ),
+        "risks": clean_list(
+            payload.get("risks"),
+            fallback=["No critical risk was detected from the available analytics."],
+        ),
+        "recommendations": clean_list(
+            payload.get("recommendations"),
+            fallback=["Continue tracking participation and confusion trends across sessions."],
+        ),
+    }
+
+
+def build_analytics_insights_fallback(report: dict[str, Any]) -> dict[str, Any]:
+    analytics = report.get("analytics", {})
+    engagement = analytics.get("engagement", {})
+    quiz = analytics.get("quiz", {})
+
+    score = int(engagement.get("score") or 0)
+    student_count = int(analytics.get("student_count") or 0)
+    confusion_percent = int(analytics.get("confusion_level_percent") or 0)
+    break_votes = int(analytics.get("break_votes") or 0)
+    participation_rate = float(engagement.get("quiz_participation_rate") or 0.0)
+    accuracy = float(quiz.get("accuracy") or 0.0)
+
+    if score >= 75:
+        engagement_label = "high"
+    elif score >= 45:
+        engagement_label = "moderate"
+    else:
+        engagement_label = "low"
+
+    risks: list[str] = []
+    if participation_rate < 0.55:
+        risks.append("Quiz participation was below 55%, indicating uneven student involvement.")
+    if accuracy < 0.5:
+        risks.append("Quiz accuracy was below 50%, suggesting students may need concept reinforcement.")
+    if confusion_percent >= 60:
+        risks.append("High confusion levels were detected, which can reduce learning retention.")
+    if break_votes >= max(2, int(student_count * 0.35)):
+        risks.append("Break demand was elevated, which may indicate cognitive overload or pacing issues.")
+    if not risks:
+        risks.append("No major risk trend was identified from the available analytics.")
+
+    recommendations = [
+        "Start the next class with a short recap of the most difficult concept from this session.",
+        "Add one low-stakes check-in question every 8-12 minutes to improve participation consistency.",
+        "Trigger a micro-break earlier when break-vote and confusion indicators begin rising together.",
+    ]
+
+    return _normalize_insights_payload(
+        {
+            "title": "AI-Assisted Session Insights",
+            "executive_summary": (
+                f"This session shows {engagement_label} engagement (score {score}/100) across {student_count} active students. "
+                f"Quiz participation was {round(participation_rate * 100)}% with {round(accuracy * 100)}% accuracy, "
+                f"while confusion reached {confusion_percent}% and break votes totaled {break_votes}."
+            ),
+            "key_findings": [
+                f"Engagement score reached {score}/100.",
+                f"Quiz participation rate was {round(participation_rate * 100)}%.",
+                f"Quiz accuracy ended at {round(accuracy * 100)}%.",
+                f"Confusion level indicator was {confusion_percent}%.",
+            ],
+            "risks": risks,
+            "recommendations": recommendations,
+        }
+    )
+
+
+def build_analytics_insights_with_ai(report: dict[str, Any]) -> dict[str, Any]:
+    analytics = report.get("analytics", {})
+    prompt = (
+        "You are an educational analytics assistant. "
+        "Generate concise insights from classroom session metrics. "
+        "Return STRICT JSON only with keys: title, executive_summary, key_findings, risks, recommendations. "
+        "key_findings, risks, recommendations must each be arrays of short bullet-style strings. "
+        "Focus on actionable and evidence-based insights."
+    )
+    input_data = {
+        "session_code": analytics.get("session_code"),
+        "teacher_name": analytics.get("teacher_name"),
+        "duration_seconds": analytics.get("duration_seconds"),
+        "student_count": analytics.get("student_count"),
+        "confusion_level_percent": analytics.get("confusion_level_percent"),
+        "break_votes": analytics.get("break_votes"),
+        "quiz": analytics.get("quiz"),
+        "engagement": analytics.get("engagement"),
+    }
+
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    if gemini_api_key:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={gemini_api_key}"
+            body = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": f"Session analytics data:\n{json.dumps(input_data, ensure_ascii=True)}\n\n{prompt}",
+                            }
+                        ],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "responseMimeType": "application/json",
+                },
+            }
+            req = Request(
+                url,
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=20) as resp:
+                response_text = resp.read().decode("utf-8")
+            parsed_response = json.loads(response_text)
+            model_text = (
+                parsed_response.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+                .strip()
+            )
+            if model_text.startswith("```"):
+                model_text = model_text.strip("`")
+                if model_text.lower().startswith("json"):
+                    model_text = model_text[4:].strip()
+            if model_text:
+                return _normalize_insights_payload(json.loads(model_text))
+        except Exception:
+            pass
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+    if api_key and OpenAI is not None:
+        try:
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": "You produce concise educational analytics insights in strict JSON.",
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Session analytics data:\n{json.dumps(input_data, ensure_ascii=True)}\n\n{prompt}"
+                        ),
+                    },
+                ],
+                temperature=0.2,
+            )
+            text_output = (response.output_text or "").strip()
+            if text_output.startswith("```"):
+                text_output = text_output.strip("`")
+                if text_output.lower().startswith("json"):
+                    text_output = text_output[4:].strip()
+            if text_output:
+                return _normalize_insights_payload(json.loads(text_output))
+        except Exception:
+            pass
+
+    return build_analytics_insights_fallback(report)
+
+
+def _wrap_text_lines(text: str, font_name: str, font_size: int, max_width: float) -> list[str]:
+    if not text:
+        return [""]
+
+    if stringWidth is None:
+        return [text]
+
+    words = text.split()
+    if not words:
+        return [""]
+
+    lines: list[str] = []
+    current = words[0]
+    for word in words[1:]:
+        candidate = f"{current} {word}"
+        if stringWidth(candidate, font_name, font_size) <= max_width:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return lines
+
+
+def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]) -> bytes:
+    if canvas is None or A4 is None or cm is None:
+        raise RuntimeError("PDF generation dependency is not available")
+
+    analytics = report.get("analytics", {})
+    engagement = analytics.get("engagement", {})
+    quiz = analytics.get("quiz", {})
+    students = report.get("students_connected", [])
+
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    page_width, page_height = A4
+
+    margin_x = 2 * cm
+    y = page_height - 2 * cm
+    content_width = page_width - (2 * margin_x)
+
+    def draw_heading(text: str, *, size: int = 14, gap_after: int = 8) -> None:
+        nonlocal y
+        if y < 3 * cm:
+            pdf.showPage()
+            y = page_height - 2 * cm
+        pdf.setFont("Helvetica-Bold", size)
+        pdf.drawString(margin_x, y, text)
+        y -= gap_after + size
+
+    def draw_paragraph(text: str, *, font: str = "Helvetica", size: int = 11, leading: int = 14) -> None:
+        nonlocal y
+        for paragraph in (text or "").splitlines() or [""]:
+            lines = _wrap_text_lines(paragraph.strip(), font, size, content_width)
+            for line in lines:
+                if y < 2.5 * cm:
+                    pdf.showPage()
+                    y = page_height - 2 * cm
+                pdf.setFont(font, size)
+                pdf.drawString(margin_x, y, line)
+                y -= leading
+            y -= 2
+
+    def draw_bullets(items: list[str]) -> None:
+        nonlocal y
+        for item in items:
+            bullet_lines = _wrap_text_lines(item, "Helvetica", 11, content_width - 16)
+            if y < 2.5 * cm:
+                pdf.showPage()
+                y = page_height - 2 * cm
+            pdf.setFont("Helvetica", 11)
+            pdf.drawString(margin_x, y, "-")
+            first = True
+            for line in bullet_lines:
+                if y < 2.5 * cm:
+                    pdf.showPage()
+                    y = page_height - 2 * cm
+                pdf.drawString(margin_x + 12, y, line)
+                y -= 14
+                if first:
+                    first = False
+            y -= 2
+
+    draw_heading(insights.get("title", "Session Analytics Report"), size=18, gap_after=10)
+    draw_paragraph(
+        (
+            f"Session code: {analytics.get('session_code', 'N/A')} | "
+            f"Teacher: {analytics.get('teacher_name', 'N/A')} | "
+            f"Generated at: {report.get('generated_at', now_iso())}"
+        ),
+        size=10,
+        leading=13,
+    )
+    y -= 6
+
+    draw_heading("Executive Summary")
+    draw_paragraph(insights.get("executive_summary", "No executive summary available."))
+
+    draw_heading("Core Metrics")
+    draw_paragraph(f"Duration (seconds): {analytics.get('duration_seconds', 0)}")
+    draw_paragraph(f"Students active: {analytics.get('student_count', 0)}")
+    draw_paragraph(f"Engagement score: {engagement.get('score', 0)} / 100")
+    draw_paragraph(f"Confusion level: {analytics.get('confusion_level_percent', 0)}%")
+    draw_paragraph(f"Break votes: {analytics.get('break_votes', 0)}")
+    draw_paragraph(
+        f"Quiz answers: {quiz.get('total_answers', 0)} total, {quiz.get('correct_answers', 0)} correct, "
+        f"accuracy {round(float(quiz.get('accuracy', 0.0)) * 100)}%"
+    )
+
+    draw_heading("Key Findings")
+    draw_bullets(insights.get("key_findings", []))
+
+    draw_heading("Risks")
+    draw_bullets(insights.get("risks", []))
+
+    draw_heading("Recommendations")
+    draw_bullets(insights.get("recommendations", []))
+
+    draw_heading("Connected Students")
+    if students:
+        for student in students[:25]:
+            draw_paragraph(
+                f"{student.get('name', 'Unknown')} (id: {student.get('client_id', 'n/a')}) - "
+                f"time in session: {student.get('time_in_session_seconds', 0)}s",
+                size=10,
+                leading=13,
+            )
+    else:
+        draw_paragraph("No student connection records were captured for this report.")
+
+    pdf.showPage()
+    pdf.save()
+    return buffer.getvalue()
 
 
 app = FastAPI(title="Edu Engagement MVP API", version="1.0.0")
@@ -1302,6 +1649,26 @@ async def end_session(code: str) -> dict[str, Any]:
     session.clients.clear()
 
     return report
+
+
+@app.get("/api/sessions/{code}/report.pdf")
+def download_session_report_pdf(code: str) -> Response:
+    code = code.upper()
+    session = SESSIONS.get(code)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    report = session.final_report if session.final_report is not None else build_full_analytics_report(session)
+    if session.final_report_insights is None:
+        session.final_report_insights = build_analytics_insights_with_ai(report)
+
+    pdf_bytes = generate_session_report_pdf(report, session.final_report_insights)
+    filename = f"session-{code}-analytics-report.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.websocket("/ws/{code}")

@@ -144,3 +144,12 @@
   - session settings now frame role choice as mode selection (`Host a new session` vs `Join existing session`),
   - library upload/download behavior in [frontend/src/App.jsx](frontend/src/App.jsx) now follows current session mode instead of persisted account role,
   - presentation access control in [backend/app/main.py](backend/app/main.py) now derives host permissions from session ownership (`teacher_name`) rather than user role, so both hosting and joining work from one account flow.
+- Replaced session-end JSON download with PDF analytics export:
+  - backend in [backend/app/main.py](backend/app/main.py) now exposes `GET /api/sessions/{code}/report.pdf`,
+  - PDF includes core metrics, participation details, and recommendation sections.
+- Added AI-assisted insights for report generation in [backend/app/main.py](backend/app/main.py):
+  - uses Gemini when configured (`GEMINI_API_KEY`),
+  - falls back to OpenAI-compatible provider when available,
+  - uses deterministic local heuristic insights when AI providers are unavailable.
+- Updated frontend end-session flow in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - after `POST /api/sessions/{code}/end`, app now downloads the generated PDF report instead of creating a JSON blob client-side.

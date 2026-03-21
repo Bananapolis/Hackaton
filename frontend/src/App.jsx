@@ -899,12 +899,23 @@ function App() {
     send('break_control', { action: 'cancel' })
   }
 
-  function downloadJsonReport(report, sessionCodeForFile) {
-    const reportBlob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
+  async function downloadPdfReport(sessionCodeForFile) {
+    const response = await fetch(
+      `${config.apiBase}/api/sessions/${encodeURIComponent(sessionCodeForFile)}/report.pdf`
+    )
+
+    if (!response.ok) {
+      const message = await response.text()
+      throw new Error(message || 'Failed to download PDF report')
+    }
+
+    const reportBlob = await response.blob()
     const blobUrl = URL.createObjectURL(reportBlob)
     const link = document.createElement('a')
+    const contentDisposition = response.headers.get('Content-Disposition') || ''
+    const fileNameMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
     link.href = blobUrl
-    link.download = `session-${sessionCodeForFile}-analytics-report.json`
+    link.download = fileNameMatch?.[1] || `session-${sessionCodeForFile}-analytics-report.pdf`
     document.body.appendChild(link)
     link.click()
     link.remove()
@@ -919,9 +930,9 @@ function App() {
     try {
       const report = await postJson(`/api/sessions/${encodeURIComponent(normalizedCode)}/end`, {})
       setAnalytics(report.analytics || null)
-      setStatus('Session ended. Full analytics report downloaded.')
+      await downloadPdfReport(normalizedCode)
+      setStatus('Session ended. Full analytics PDF report downloaded.')
       setShowAwardsPanel(true)
-      downloadJsonReport(report, normalizedCode)
     } catch (err) {
       setError(err.message)
     } finally {
