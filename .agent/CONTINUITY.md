@@ -8,6 +8,13 @@
   - adjusted note placement in the diagram to reduce excessive width and clipping risk,
   - regenerated [docs/diagrams/security_architecture.png](docs/diagrams/security_architecture.png), [docs/diagrams/security_architecture.svg](docs/diagrams/security_architecture.svg), and [docs/diagrams/security_architecture.pdf](docs/diagrams/security_architecture.pdf), with PDF now exported from SVG via Inkscape to avoid EPS crop artifacts,
   - corrected source reference in [docs/SECURITY.md](docs/SECURITY.md).
+- Added student-only one-minute visual replay in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - students now capture lightweight local screenshots every 2 seconds and keep only the latest 60 seconds in memory,
+  - added a new history button in the student stage controls to open a replay popup,
+  - replay popup allows previous/next navigation through captured frames,
+  - while replay popup is open, capture and pruning are paused for that specific student client only; capture resumes when closed,
+  - validated with frontend production build and full frontend test suite.
+- Updated documentation in [README.md](README.md) for the new student replay capability (feature list + UC-S8).
 
 - Resolved unresolved merge markers in [frontend/src/App.jsx](frontend/src/App.jsx) that broke frontend stability:
   - removed conflict blocks in icon mapping and student control dock,
