@@ -7,14 +7,14 @@ describe('App helper functions', () => {
     vi.restoreAllMocks()
   })
 
-  it('loads sanitized session preferences from localStorage', () => {
+  it('loads role and name from localStorage without restoring session code', () => {
     window.localStorage.setItem(
       'session-preferences-v1',
       JSON.stringify({ role: 'teacher', name: 'Ana', sessionCode: 'abc123' }),
     )
 
     const prefs = loadSessionPreferences()
-    expect(prefs).toEqual({ role: 'teacher', name: 'Ana', sessionCode: 'ABC123' })
+    expect(prefs).toEqual({ role: 'teacher', name: 'Ana', sessionCode: '' })
   })
 
   it('falls back to defaults on malformed preferences', () => {

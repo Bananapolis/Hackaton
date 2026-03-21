@@ -467,7 +467,13 @@ function App() {
       const sessionsList = Array.isArray(sessionsData?.sessions) ? sessionsData.sessions : []
       setLibrarySessions(sessionsList)
 
-      let codeForFiles = (targetSessionCode || librarySessionCode || normalizedCode || '').trim().toUpperCase()
+      const requestedCode =
+        typeof targetSessionCode === 'string'
+          ? targetSessionCode
+          : targetSessionCode && typeof targetSessionCode === 'object' && 'target' in targetSessionCode
+            ? ''
+            : String(targetSessionCode || '')
+      let codeForFiles = (requestedCode || librarySessionCode || normalizedCode || '').trim().toUpperCase()
       if (!codeForFiles && sessionsList.length > 0) {
         codeForFiles = String(sessionsList[0]?.code || '').trim().toUpperCase()
       }
@@ -1866,7 +1872,7 @@ function App() {
                 </div>
                 <button
                   type="button"
-                  onClick={refreshLibraryData}
+                  onClick={() => refreshLibraryData()}
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                 >
                   Refresh
