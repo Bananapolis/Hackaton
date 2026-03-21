@@ -2,6 +2,14 @@
 
 ## 2026-03-21
 
+- Hardened GitHub Actions deployment reliability in [.github/workflows/deploy.yml](.github/workflows/deploy.yml):
+  - upgraded `actions/checkout` to `v5` and `actions/setup-node` to `v5` to avoid Node 20 deprecation warnings,
+  - upgraded `actions/setup-python` to `v6` for newer runtime compatibility,
+  - replaced third-party SSH deploy step with native `ssh` command execution,
+  - added explicit deploy-secret validation with clear missing-secret error messages,
+  - added robust SSH private-key normalization to support both multiline and `\\n`-escaped secret formats,
+  - kept deploy command as `bash ./scripts/deploy-update.sh` on server for consistency.
+
 - Updated deployment documentation for post-compromise recovery:
   - expanded [DEPLOYMENT.md](DEPLOYMENT.md) into a full start-to-finish rebuild runbook,
   - added explicit server bootstrap (`ssh`, `adduser`, `mkdir`, `cd`), swap setup/tuning, Docker install, and deploy-user workflow,
