@@ -196,6 +196,22 @@ function exitStageFullscreen() {
   return result instanceof Promise ? result : Promise.resolve()
 }
 
+function isLikelyIOSDevice() {
+  if (typeof navigator === 'undefined') return false
+
+  const ua = navigator.userAgent || ''
+  const platform = navigator.platform || ''
+  return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+}
+
+function getVideoFullscreenState(videoElement) {
+  if (!videoElement) return false
+  return Boolean(
+    videoElement.webkitDisplayingFullscreen
+    || videoElement.webkitPresentationMode === 'fullscreen',
+  )
+}
+
 export function Icon({ name, className = 'h-5 w-5' }) {
   const icons = {
     settings: Settings,
@@ -401,16 +417,31 @@ function App() {
   useEffect(() => {
     const syncFullscreenState = () => {
       const fullscreenElement = getFullscreenElement()
-      setIsScreenMaximized(fullscreenElement === stageContainerRef.current)
+      const activeVideo = isTeacher ? localVideoRef.current : remoteVideoRef.current
+      const videoFullscreen = getVideoFullscreenState(activeVideo)
+      setIsScreenMaximized(fullscreenElement === stageContainerRef.current || videoFullscreen)
     }
 
     document.addEventListener('fullscreenchange', syncFullscreenState)
     document.addEventListener('webkitfullscreenchange', syncFullscreenState)
+
+    const videos = [localVideoRef.current, remoteVideoRef.current].filter(Boolean)
+    videos.forEach((videoElement) => {
+      videoElement.addEventListener('webkitbeginfullscreen', syncFullscreenState)
+      videoElement.addEventListener('webkitendfullscreen', syncFullscreenState)
+      videoElement.addEventListener('webkitpresentationmodechanged', syncFullscreenState)
+    })
+
     return () => {
       document.removeEventListener('fullscreenchange', syncFullscreenState)
       document.removeEventListener('webkitfullscreenchange', syncFullscreenState)
+      videos.forEach((videoElement) => {
+        videoElement.removeEventListener('webkitbeginfullscreen', syncFullscreenState)
+        videoElement.removeEventListener('webkitendfullscreen', syncFullscreenState)
+        videoElement.removeEventListener('webkitpresentationmodechanged', syncFullscreenState)
+      })
     }
-  }, [])
+  }, [isTeacher])
 
   useEffect(() => {
     if (!joined) return undefined
@@ -1300,6 +1331,38 @@ function App() {
     if (!container) return
 
     try {
+      const activeVideo = isTeacher ? localVideoRef.current : remoteVideoRef.current
+      const enterVideoFullscreen =
+        activeVideo?.requestFullscreen
+        || activeVideo?.webkitRequestFullscreen
+        || activeVideo?.webkitEnterFullscreen
+        || activeVideo?.webkitEnterFullScreen
+      const exitVideoFullscreen =
+        activeVideo?.webkitExitFullscreen
+        || activeVideo?.webkitExitFullScreen
+
+      const canUseIOSVideoFullscreen = isLikelyIOSDevice() && activeVideo && typeof enterVideoFullscreen === 'function'
+
+      if (canUseIOSVideoFullscreen) {
+        if (getVideoFullscreenState(activeVideo)) {
+          if (typeof exitVideoFullscreen === 'function') {
+            exitVideoFullscreen.call(activeVideo)
+          } else {
+            await exitStageFullscreen()
+          }
+          setIsScreenMaximized(false)
+        } else {
+          // iOS requires fullscreen requests from direct user gestures; ensure playback is active first.
+          await activeVideo.play().catch(() => {})
+          const result = enterVideoFullscreen.call(activeVideo)
+          if (result instanceof Promise) {
+            await result
+          }
+          setIsScreenMaximized(true)
+        }
+        return
+      }
+
       if (getFullscreenElement() === container) {
         await exitStageFullscreen()
       } else if (!getFullscreenElement()) {
