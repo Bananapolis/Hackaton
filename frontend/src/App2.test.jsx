@@ -2,7 +2,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 
-describe('App Massive Coverage 2', () => {
+describe('App Component - Role Dashboards', () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();

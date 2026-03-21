@@ -1,6 +1,9 @@
 FROM node:20-bookworm-slim AS build
 WORKDIR /app
 
+ARG VITE_RTC_ICE_SERVERS=""
+ENV VITE_RTC_ICE_SERVERS=${VITE_RTC_ICE_SERVERS}
+
 COPY package*.json ./
 RUN npm ci
 

@@ -278,6 +278,40 @@ If Caddy logs show ACME errors like:
 
 then inbound validation from Let's Encrypt cannot reach this server on `:80` and/or `:443`.
 
+### 5.1) WebRTC cross-device reliability (TURN/ICE)
+
+If screen sharing works only on the same device or same local network but fails across different networks/devices, configure TURN relay servers for the frontend build.
+
+Set `VITE_RTC_ICE_SERVERS` before `docker compose up -d --build` (JSON array):
+
+```bash
+export VITE_RTC_ICE_SERVERS='[
+  {"urls":"stun:stun.l.google.com:19302"},
+  {"urls":"turn:turn.your-domain.com:3478","username":"turn-user","credential":"turn-password"},
+  {"urls":"turns:turn.your-domain.com:5349","username":"turn-user","credential":"turn-password"}
+]'
+```
+
+Then rebuild web image:
+
+```bash
+docker compose up -d --build web
+```
+
+Persistent option for server deploy script:
+
+- Put the same key in `backend/.env` as a single-line value so `scripts/deploy-update.sh` can reuse it on each deploy:
+
+```bash
+VITE_RTC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:turn.your-domain.com:3478","username":"turn-user","credential":"turn-password"},{"urls":"turns:turn.your-domain.com:5349","username":"turn-user","credential":"turn-password"}]'
+```
+
+Notes:
+
+- TURN credentials are injected at frontend build time (Vite `VITE_*` variable).
+- Keep TURN credentials out of git; set them only in shell/CI secrets.
+- Keep HTTPS enabled in production for stable screen-capture/browser permissions.
+
 Use this checklist:
 
 1. Confirm DNS points to this exact server (check both `A` and `AAAA` records).
