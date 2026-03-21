@@ -33,7 +33,6 @@ import { QuizOverlay } from './components/QuizOverlay'
 import { SessionQRCode } from './components/SessionQRCode'
 import { StatCard } from './components/StatCard'
 
-const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
 const sessionPreferencesStorageKey = 'session-preferences-v1'
 const authTokenStorageKey = 'auth-token-v1'
 const authUserStorageKey = 'auth-user-v1'
@@ -1156,7 +1155,7 @@ function App() {
     let pc = peerConnectionsRef.current.get(targetId)
     if (pc) return pc
 
-    pc = new RTCPeerConnection(rtcConfig)
+    pc = new RTCPeerConnection(config.rtcConfig)
     peerConnectionsRef.current.set(targetId, pc)
 
     pc.onicecandidate = (event) => {

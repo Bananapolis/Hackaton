@@ -113,6 +113,12 @@
 
 ## 2026-03-20
 
+- Fixed deployed cross-device screen-share reliability (same-device worked, remote devices failed):
+  - removed hardcoded STUN-only config from [frontend/src/App.jsx](frontend/src/App.jsx) and switched to runtime config from [frontend/src/config.js](frontend/src/config.js),
+  - added `VITE_RTC_ICE_SERVERS` parsing/normalization in [frontend/src/config.js](frontend/src/config.js) with safe STUN fallback,
+  - wired frontend container build-time ICE configuration in [frontend/Dockerfile](frontend/Dockerfile) and [docker-compose.yml](docker-compose.yml),
+  - documented TURN setup for production in [README.md](README.md) and [DEPLOYMENT.md](DEPLOYMENT.md).
+
 - Fixed frontend white-screen regression caused by missing build config:
   - restored [frontend/vite.config.js](frontend/vite.config.js) with `@vitejs/plugin-react` so JSX compiles with the correct React runtime,
   - restored dev proxy routes (`/api`, `/ws`, `/health`) to backend `:9000`, which also re-enables local realtime flows such as screen-sharing signaling,

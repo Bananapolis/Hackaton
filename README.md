@@ -278,6 +278,23 @@ CI now blocks deploy unless both backend and frontend pass automated tests with 
 
 For production demos, HTTPS is mandatory for reliable WebRTC behavior and is now handled directly by Docker Compose.
 
+### Screen Share Across Different Devices/Networks
+
+If host and student can see screen share on the same device but not across different devices/networks, this is usually NAT traversal and relay configuration (WebRTC ICE/TURN).
+
+Configure frontend ICE servers at build time with `VITE_RTC_ICE_SERVERS` (JSON array), for example:
+
+```bash
+export VITE_RTC_ICE_SERVERS='[
+	{"urls":"stun:stun.l.google.com:19302"},
+	{"urls":"turn:turn.your-domain.com:3478","username":"turn-user","credential":"turn-password"},
+	{"urls":"turns:turn.your-domain.com:5349","username":"turn-user","credential":"turn-password"}
+]'
+docker compose up -d --build web
+```
+
+Without TURN relay candidates, some cross-network/device pairs will fail even when signaling works.
+
 ### AI Provider Setup
 
 Create `backend/.env` from `backend/.env.example` and set:

@@ -11,6 +11,8 @@ services:
   web:
     build:
       context: ./frontend
+      args:
+        VITE_RTC_ICE_SERVERS: ${VITE_RTC_ICE_SERVERS-}
     depends_on:
       - backend
     restart: unless-stopped
