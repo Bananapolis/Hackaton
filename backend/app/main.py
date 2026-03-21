@@ -1147,9 +1147,16 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
         if y - height_needed < bottom_limit:
             new_page()
 
-    def draw_heading(text: str, *, size: int = 14, gap_after: int = 8) -> None:
+    def draw_heading(
+        text: str,
+        *,
+        size: int = 14,
+        gap_before: int = 10,
+        gap_after: int = 12,
+    ) -> None:
         nonlocal y
-        ensure_space(size + gap_after + 4)
+        y -= gap_before
+        ensure_space(size + gap_after + 6)
         pdf.setFont("Helvetica-Bold", size)
         pdf.setFillColorRGB(*c_text)
         pdf.drawString(margin_x, y, text)
@@ -1216,10 +1223,10 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
     )
     y = header_bottom - 14
 
-    draw_heading("Executive Summary")
+    draw_heading("Executive Summary", gap_before=2, gap_after=12)
     draw_paragraph(insights.get("executive_summary", "No executive summary available."))
 
-    draw_heading("Core Metrics")
+    draw_heading("Core Metrics", gap_before=10, gap_after=12)
     card_x, card_bottom, card_width, card_top = draw_info_card(104)
     card_pad = 12
     col_w = (card_width - (card_pad * 2)) / 2
@@ -1246,7 +1253,7 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
         pdf.setFillColorRGB(*c_text)
         pdf.drawString(x, row_y - 12, value)
 
-    draw_heading("Student Engagement Trend")
+    draw_heading("Student Engagement Trend", gap_before=10, gap_after=12)
     chart_block_h = 188
     block_x, block_bottom, block_w, block_top = draw_info_card(chart_block_h)
 
@@ -1308,7 +1315,7 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
     pdf.drawString(chart_left, chart_bottom - 14, "Session timeline (seconds)")
     pdf.drawRightString(chart_right, chart_bottom - 14, f"{int(round(x_max))}s")
 
-    draw_heading("Quiz Performance Visualization")
+    draw_heading("Quiz Performance Visualization", gap_before=10, gap_after=12)
     quiz_block_h = 120
     q_x, q_bottom, q_w, q_top = draw_info_card(quiz_block_h)
     q_chart_left = q_x + 14
@@ -1349,16 +1356,16 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
     pdf.drawString(q_chart_left, q_bottom + 10, f"Accuracy: {accuracy_pct}%")
     pdf.drawString(q_chart_left + 112, q_bottom + 10, f"Participation: {participation_pct}%")
 
-    draw_heading("Key Findings")
+    draw_heading("Key Findings", gap_before=12, gap_after=12)
     draw_bullets(insights.get("key_findings", []))
 
-    draw_heading("Risks")
+    draw_heading("Risks", gap_before=12, gap_after=12)
     draw_bullets(insights.get("risks", []))
 
-    draw_heading("Recommendations")
+    draw_heading("Recommendations", gap_before=12, gap_after=12)
     draw_bullets(insights.get("recommendations", []))
 
-    draw_heading("Connected Students")
+    draw_heading("Connected Students", gap_before=12, gap_after=12)
     if students:
         for student in students[:25]:
             draw_paragraph(
