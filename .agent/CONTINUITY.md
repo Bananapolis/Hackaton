@@ -2,6 +2,27 @@
 
 ## 2026-03-21
 
+- Added three high-impact hackathon presentation improvements in [backend/app/main.py](backend/app/main.py) and [frontend/src/App.jsx](frontend/src/App.jsx):
+  - **Quiz Answer Reveal:** teacher can now reveal the correct answer and per-option vote distribution to all students mid-session via a green checkmark button in the quiz controls; correct option highlighted green, wrong choices red, each option shows animated % bar; voting auto-locks on reveal; backend broadcasts `correct_option_id` and `per_option` in `quiz_state`; `quiz_answer_revealed` field added to `RuntimeSession` and included in session-state snapshots for late joiners.
+  - **AI Quiz Generation Timeout + Non-blocking:** moved synchronous `build_quiz_with_ai` to `asyncio.to_thread` so WebSocket event loop is no longer blocked during AI calls; added `asyncio.wait_for(..., timeout=AI_QUIZ_GENERATION_TIMEOUT_SECONDS)` (45s) with clear error message on timeout.
+  - **Teacher Keyboard Shortcuts:** `Q` opens quiz prompt panel, `N` opens notes panel, `B` starts a 5-minute break; shortcuts suppressed when focus is inside input/textarea.
+- Restored missing [frontend/vite.config.js](frontend/vite.config.js) with Vitest globals/jsdom config and cobertura reporter; this file was never committed but required by the test suite — all 25 frontend tests now pass in CI.
+- Updated [frontend/src/components/QuizOverlay.jsx](frontend/src/components/QuizOverlay.jsx) to accept and render `answerRevealed`, `correctOptionId`, and `perOption` props with color-coded options and percentage bars.
+
+- Recovered and improved security architecture documentation artifacts:
+  - recreated [docs/diagrams/security_architecture.puml](docs/diagrams/security_architecture.puml) after it was accidentally emptied,
+  - kept `!theme plain` and added explicit administrator threat paths plus a dedicated MITM actor targeting both web and SSH admin ingress,
+  - adjusted note placement in the diagram to reduce excessive width and clipping risk,
+  - regenerated [docs/diagrams/security_architecture.png](docs/diagrams/security_architecture.png), [docs/diagrams/security_architecture.svg](docs/diagrams/security_architecture.svg), and [docs/diagrams/security_architecture.pdf](docs/diagrams/security_architecture.pdf), with PDF now exported from SVG via Inkscape to avoid EPS crop artifacts,
+  - corrected source reference in [docs/SECURITY.md](docs/SECURITY.md).
+- Added student-only one-minute visual replay in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - students now capture lightweight local screenshots every 2 seconds and keep only the latest 60 seconds in memory,
+  - added a new history button in the student stage controls to open a replay popup,
+  - replay popup allows previous/next navigation through captured frames,
+  - while replay popup is open, capture and pruning are paused for that specific student client only; capture resumes when closed,
+  - validated with frontend production build and full frontend test suite.
+- Updated documentation in [README.md](README.md) for the new student replay capability (feature list + UC-S8).
+
 - Resolved unresolved merge markers in [frontend/src/App.jsx](frontend/src/App.jsx) that broke frontend stability:
   - removed conflict blocks in icon mapping and student control dock,
   - preserved both student actions after reconciliation: anonymous question button and screenshot-to-PDF button.

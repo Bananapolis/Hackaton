@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Camera,
+  CheckCircle,
   Coffee,
   Copy,
   Eye,
@@ -9,6 +10,7 @@ import {
   FileText,
   FolderOpen,
   HelpCircle,
+  History,
   Lock,
   LockOpen,
   LogOut,
@@ -38,6 +40,10 @@ const authUserStorageKey = 'auth-user-v1'
 const CONFUSION_NOTIFICATION_THRESHOLD_PERCENT = 65
 const CONFUSION_NOTIFICATION_RESET_PERCENT = 45
 const BREAK_NOTIFICATION_COOLDOWN_MS = 45_000
+const STUDENT_REPLAY_WINDOW_MS = 60_000
+const STUDENT_REPLAY_CAPTURE_INTERVAL_MS = 2_000
+const STUDENT_REPLAY_MAX_WIDTH = 960
+const STUDENT_REPLAY_JPEG_QUALITY = 0.62
 const quizPromptPresets = [
   {
     id: 'default',
@@ -215,6 +221,8 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     lockOpen: LockOpen,
     question: MessageSquare,
     camera: Camera,
+    history: History,
+    checkCircle: CheckCircle,
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -276,6 +284,9 @@ function App() {
   const [showAskQuestionPanel, setShowAskQuestionPanel] = useState(false)
   const [anonymousQuestionDraft, setAnonymousQuestionDraft] = useState('')
   const [anonymousQuestionSubmitting, setAnonymousQuestionSubmitting] = useState(false)
+  const [showStudentReplayPanel, setShowStudentReplayPanel] = useState(false)
+  const [studentReplayFrames, setStudentReplayFrames] = useState([])
+  const [selectedReplayFrameIndex, setSelectedReplayFrameIndex] = useState(0)
 
   const [metrics, setMetrics] = useState({
     confusion_count: 0,
@@ -286,7 +297,7 @@ function App() {
   const [notes, setNotes] = useState('')
   const [breakEndTime, setBreakEndTime] = useState(null)
   const [quiz, setQuiz] = useState(null)
-  const [quizState, setQuizState] = useState({ hidden: false, cover_mode: true, voting_closed: false })
+  const [quizState, setQuizState] = useState({ hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null })
   const [quizProgress, setQuizProgress] = useState(null)
   const [analytics, setAnalytics] = useState(null)
   const [endingSession, setEndingSession] = useState(false)
@@ -318,9 +329,11 @@ function App() {
   const lastBreakNotificationAtRef = useRef(0)
   const lastAnonymousQuestionPendingRef = useRef(0)
   const screenShareStopNotifiedRef = useRef(false)
+  const replayCaptureCanvasRef = useRef(null)
 
   const isTeacher = role === 'teacher'
   const normalizedCode = sessionCode.trim().toUpperCase()
+  const replayCapturePaused = showStudentReplayPanel && studentReplayFrames.length > 0
   const activeLibrarySessionCode = (librarySessionCode || normalizedCode).trim().toUpperCase()
   const activeSessionCode = joined ? normalizedCode : ''
   const themeToggleLabel = theme === 'dark' ? 'Switch to light' : 'Switch to dark'
@@ -378,6 +391,14 @@ function App() {
   }, [joined])
 
   useEffect(() => {
+    if (!joined || isTeacher) {
+      setShowStudentReplayPanel(false)
+      setStudentReplayFrames([])
+      setSelectedReplayFrameIndex(0)
+    }
+  }, [isTeacher, joined])
+
+  useEffect(() => {
     const syncFullscreenState = () => {
       const fullscreenElement = getFullscreenElement()
       setIsScreenMaximized(fullscreenElement === stageContainerRef.current)
@@ -400,6 +421,20 @@ function App() {
 
     return () => window.clearInterval(timer)
   }, [joined])
+
+  useEffect(() => {
+    if (!joined || isTeacher || replayCapturePaused) return undefined
+
+    const captureReplayFrame = () => {
+      tryCaptureReplayFrame()
+    }
+
+    captureReplayFrame()
+    const timerId = window.setInterval(captureReplayFrame, STUDENT_REPLAY_CAPTURE_INTERVAL_MS)
+    return () => {
+      window.clearInterval(timerId)
+    }
+  }, [isTeacher, joined, replayCapturePaused])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -509,6 +544,33 @@ function App() {
 
     lastAnonymousQuestionPendingRef.current = pendingQuestionCount
   }, [anonymousQuestions, isTeacher, joined, pendingQuestionCount])
+
+  useEffect(() => {
+    if (!isTeacher || !joined) return
+
+    function handleKeyDown(event) {
+      // Ignore shortcuts when focus is inside an input, textarea, or contentEditable
+      const tag = document.activeElement?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) return
+
+      switch (event.key.toLowerCase()) {
+        case 'q':
+          if (!showQuizPromptPanel) setShowQuizPromptPanel(true)
+          break
+        case 'n':
+          if (!showNotesPanel) setShowNotesPanel(true)
+          break
+        case 'b':
+          startBreak(300)
+          break
+        default:
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isTeacher, joined, showQuizPromptPanel, showNotesPanel])
 
   async function ensureTeacherNotificationPermission(nextRole) {
     if (typeof window === 'undefined') return
@@ -805,7 +867,7 @@ function App() {
           },
         )
         setQuizState(
-          message.payload.quiz_state || { hidden: false, cover_mode: true, voting_closed: false },
+          message.payload.quiz_state || { hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null },
         )
         if (message.payload.break_active_until) {
           setBreakEndTime(message.payload.break_active_until)
@@ -826,7 +888,7 @@ function App() {
             student_count: 0,
           },
         )
-        setQuizState(nextState.quiz_state || { hidden: false, cover_mode: true, voting_closed: false })
+        setQuizState(nextState.quiz_state || { hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null })
         if (nextState.break_active_until) {
           setBreakEndTime(nextState.break_active_until)
         } else {
@@ -854,7 +916,7 @@ function App() {
 
       if (message.type === 'quiz') {
         setQuiz(message.payload)
-        setQuizState({ hidden: false, cover_mode: true, voting_closed: false })
+        setQuizState({ hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null })
         setSelectedQuizOptionId('')
         setQuizGenerationPending(false)
       }
@@ -1348,6 +1410,79 @@ function App() {
     }
   }
 
+  function tryCaptureReplayFrame() {
+    const videoElement = remoteVideoRef.current
+    if (
+      !videoElement
+      || videoElement.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+      || videoElement.videoWidth <= 0
+      || videoElement.videoHeight <= 0
+    ) {
+      return false
+    }
+
+    try {
+      const scale = Math.min(1, STUDENT_REPLAY_MAX_WIDTH / videoElement.videoWidth)
+      const targetWidth = Math.max(1, Math.round(videoElement.videoWidth * scale))
+      const targetHeight = Math.max(1, Math.round(videoElement.videoHeight * scale))
+
+      let canvas = replayCaptureCanvasRef.current
+      if (!canvas) {
+        canvas = document.createElement('canvas')
+        replayCaptureCanvasRef.current = canvas
+      }
+
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        canvas.width = targetWidth
+        canvas.height = targetHeight
+      }
+
+      const context = canvas.getContext('2d', { willReadFrequently: false })
+      if (!context) return false
+
+      context.drawImage(videoElement, 0, 0, targetWidth, targetHeight)
+
+      const frameDataUrl = canvas.toDataURL('image/jpeg', STUDENT_REPLAY_JPEG_QUALITY)
+      const capturedAt = Date.now()
+
+      setStudentReplayFrames((currentFrames) => {
+        const cutoff = capturedAt - STUDENT_REPLAY_WINDOW_MS
+        const recentFrames = currentFrames.filter((frame) => frame.capturedAt >= cutoff)
+        return [
+          ...recentFrames,
+          {
+            id: `${capturedAt}-${recentFrames.length}`,
+            capturedAt,
+            dataUrl: frameDataUrl,
+          },
+        ]
+      })
+
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  function openStudentReplayPanel() {
+    if (isTeacher || !joined) return
+    const capturedNow = tryCaptureReplayFrame()
+
+    setError('')
+    setSelectedReplayFrameIndex(Math.max(0, studentReplayFrames.length - 1))
+    setShowStudentReplayPanel(true)
+    if (studentReplayFrames.length || capturedNow) {
+      setStatus('Replay paused for your device. Browse the last minute of frames.')
+    } else {
+      setStatus('Opening replay. Waiting for the first live frame...')
+    }
+  }
+
+  function closeStudentReplayPanel() {
+    setShowStudentReplayPanel(false)
+    setStatus('Replay closed. Live frame buffer resumed.')
+  }
+
   async function downloadPresentation(item) {
     if (!authToken) return
     try {
@@ -1667,6 +1802,9 @@ function App() {
                     onAnswer={submitQuizAnswer}
                     large={quizState.cover_mode}
                     votingClosed={quizState.voting_closed}
+                    answerRevealed={quizState.answer_revealed}
+                    correctOptionId={quizState.correct_option_id}
+                    perOption={quizState.per_option}
                   />
                 </div>
               ) : null}
@@ -1693,6 +1831,16 @@ function App() {
                       aria-label={quizState.voting_closed ? 'Resume voting' : 'Close voting'}
                     >
                       <Icon name={quizState.voting_closed ? 'lockOpen' : 'lock'} className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!joined || quizState.answer_revealed}
+                      onClick={() => send('quiz_control', { answer_revealed: true })}
+                      className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-600 text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={quizState.answer_revealed ? 'Answer revealed' : 'Reveal correct answer'}
+                      aria-label={quizState.answer_revealed ? 'Answer revealed' : 'Reveal correct answer'}
+                    >
+                      <Icon name="checkCircle" className="h-5 w-5" />
                     </button>
                     <button
                       type="button"
@@ -1847,6 +1995,16 @@ function App() {
                         aria-label="Take screenshot (PDF)"
                       >
                         <Icon name="camera" className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!joined}
+                        onClick={openStudentReplayPanel}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-violet-700 text-lg text-white transition hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="View last minute"
+                        aria-label="View last minute"
+                      >
+                        <Icon name="history" className="h-5 w-5" />
                       </button>
                       <button
                         type="button"
@@ -2687,6 +2845,84 @@ function App() {
                   {anonymousQuestionSubmitting ? 'Sending...' : 'Send anonymously'}
                 </button>
               </div>
+            </section>
+          </div>
+        ) : null}
+
+        {showStudentReplayPanel && !isTeacher ? (
+          <div
+            className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm"
+            onMouseDown={handlePanelBackdropMouseDown}
+            onClick={(event) => handlePanelBackdropClick(event, closeStudentReplayPanel)}
+          >
+            <section
+              className="flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Last minute replay</h2>
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                    Frame capture is paused for your session while this window is open.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeStudentReplayPanel}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+
+              {studentReplayFrames.length ? (
+                <>
+                  <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 dark:border-slate-700">
+                    <img
+                      src={studentReplayFrames[selectedReplayFrameIndex]?.dataUrl}
+                      alt={`Replay frame ${selectedReplayFrameIndex + 1}`}
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedReplayFrameIndex((currentIndex) => Math.max(0, currentIndex - 1))}
+                      disabled={selectedReplayFrameIndex <= 0}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                    >
+                      Previous
+                    </button>
+
+                    <div className="text-center text-xs text-slate-600 dark:text-slate-300">
+                      Frame {selectedReplayFrameIndex + 1} of {studentReplayFrames.length}
+                      <div>
+                        {new Date(studentReplayFrames[selectedReplayFrameIndex]?.capturedAt || Date.now()).toLocaleTimeString()}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedReplayFrameIndex((currentIndex) =>
+                          Math.min(studentReplayFrames.length - 1, currentIndex + 1),
+                        )
+                      }
+                      disabled={selectedReplayFrameIndex >= studentReplayFrames.length - 1}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                  No live frame available yet. Ask the host to start/continue screen sharing.
+                </div>
+              )}
             </section>
           </div>
         ) : null}
