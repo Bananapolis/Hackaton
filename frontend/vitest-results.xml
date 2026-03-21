@@ -1,69 +1,69 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<testsuites name="vitest tests" tests="25" failures="0" errors="0" time="4.106">
-    <testsuite name="src/App.helpers.test.jsx" timestamp="2026-03-21T09:34:35.715Z" hostname="LenovoYogaPJ" tests="6" failures="0" errors="0" skipped="0" time="0.0294276">
-        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; loads role and name from localStorage without restoring session code" time="0.0014431">
+<testsuites name="vitest tests" tests="25" failures="0" errors="0" time="4.735">
+    <testsuite name="src/App.helpers.test.jsx" timestamp="2026-03-21T10:17:36.295Z" hostname="runnervm46oaq" tests="6" failures="0" errors="0" skipped="0" time="0.058637219">
+        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; loads role and name from localStorage without restoring session code" time="0.00376897">
         </testcase>
-        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; falls back to defaults on malformed preferences" time="0.0002742">
+        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; falls back to defaults on malformed preferences" time="0.000584074">
         </testcase>
-        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; postJson sends JSON body and returns parsed result" time="0.0024718">
+        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; postJson sends JSON body and returns parsed result" time="0.006236562">
         </testcase>
-        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; postJson throws on non-ok responses" time="0.0011557">
+        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; postJson throws on non-ok responses" time="0.002657427">
         </testcase>
-        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; apiRequest supports auth, form data and 204 responses" time="0.0008819">
+        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; apiRequest supports auth, form data and 204 responses" time="0.002070759">
         </testcase>
-        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; renders known icon and ignores unknown one" time="0.0221972">
-        </testcase>
-    </testsuite>
-    <testsuite name="src/App.test.jsx" timestamp="2026-03-21T09:34:35.719Z" hostname="LenovoYogaPJ" tests="5" failures="0" errors="0" skipped="0" time="1.2937879">
-        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; renders auth and toggles" time="0.2450978">
-        </testcase>
-        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; login fail" time="0.3269447">
-        </testcase>
-        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; login success" time="0.2423423">
-        </testcase>
-        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; register success" time="0.3808971">
-        </testcase>
-        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; logs out and clears localStorage" time="0.0972111">
+        <testcase classname="src/App.helpers.test.jsx" name="App helper functions &gt; renders known icon and ignores unknown one" time="0.040846043">
         </testcase>
     </testsuite>
-    <testsuite name="src/App2.test.jsx" timestamp="2026-03-21T09:34:35.721Z" hostname="LenovoYogaPJ" tests="2" failures="0" errors="0" skipped="0" time="1.4250846">
-        <testcase classname="src/App2.test.jsx" name="App Massive Coverage 2 &gt; renders Teacher Dashboard and handles session creation" time="0.7970537">
+    <testsuite name="src/App.test.jsx" timestamp="2026-03-21T10:17:36.297Z" hostname="runnervm46oaq" tests="5" failures="0" errors="0" skipped="0" time="0.894914702">
+        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; renders auth and toggles" time="0.237681328">
         </testcase>
-        <testcase classname="src/App2.test.jsx" name="App Massive Coverage 2 &gt; renders Student Flow and handles joining" time="0.6269307">
+        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; login fail" time="0.17827935">
         </testcase>
-    </testsuite>
-    <testsuite name="src/config.test.js" timestamp="2026-03-21T09:34:35.723Z" hostname="LenovoYogaPJ" tests="2" failures="0" errors="0" skipped="0" time="0.0055404">
-        <testcase classname="src/config.test.js" name="config &gt; exposes apiBase and wsBase strings" time="0.0028417">
+        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; login success" time="0.141239242">
         </testcase>
-        <testcase classname="src/config.test.js" name="config &gt; uses explicit API base when VITE_API_BASE is provided" time="0.0016717">
+        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; register success" time="0.21386522">
         </testcase>
-    </testsuite>
-    <testsuite name="src/components/CountdownBanner.test.jsx" timestamp="2026-03-21T09:34:35.724Z" hostname="LenovoYogaPJ" tests="2" failures="0" errors="0" skipped="0" time="0.0482271">
-        <testcase classname="src/components/CountdownBanner.test.jsx" name="CountdownBanner &gt; renders nothing when break is inactive" time="0.0115395">
-        </testcase>
-        <testcase classname="src/components/CountdownBanner.test.jsx" name="CountdownBanner &gt; shows countdown and return time for active break" time="0.0355829">
+        <testcase classname="src/App.test.jsx" name="App Massive Coverage &gt; logs out and clears localStorage" time="0.119226716">
         </testcase>
     </testsuite>
-    <testsuite name="src/components/QuizOverlay.test.jsx" timestamp="2026-03-21T09:34:35.726Z" hostname="LenovoYogaPJ" tests="3" failures="0" errors="0" skipped="0" time="0.1578388">
-        <testcase classname="src/components/QuizOverlay.test.jsx" name="QuizOverlay &gt; returns null when quiz is missing" time="0.014296">
+    <testsuite name="src/App2.test.jsx" timestamp="2026-03-21T10:17:36.298Z" hostname="runnervm46oaq" tests="2" failures="0" errors="0" skipped="0" time="1.493558746">
+        <testcase classname="src/App2.test.jsx" name="App Massive Coverage 2 &gt; renders Teacher Dashboard and handles session creation" time="0.829305043">
         </testcase>
-        <testcase classname="src/components/QuizOverlay.test.jsx" name="QuizOverlay &gt; calls onAnswer when clicking an option" time="0.1272822">
-        </testcase>
-        <testcase classname="src/components/QuizOverlay.test.jsx" name="QuizOverlay &gt; locks answers when readonly or already selected" time="0.0148576">
+        <testcase classname="src/App2.test.jsx" name="App Massive Coverage 2 &gt; renders Student Flow and handles joining" time="0.661772476">
         </testcase>
     </testsuite>
-    <testsuite name="src/components/SessionQRCode.test.jsx" timestamp="2026-03-21T09:34:35.728Z" hostname="LenovoYogaPJ" tests="3" failures="0" errors="0" skipped="0" time="0.0385104">
-        <testcase classname="src/components/SessionQRCode.test.jsx" name="SessionQRCode &gt; renders nothing without value" time="0.0108067">
+    <testsuite name="src/config.test.js" timestamp="2026-03-21T10:17:36.298Z" hostname="runnervm46oaq" tests="2" failures="0" errors="0" skipped="0" time="0.004738004">
+        <testcase classname="src/config.test.js" name="config &gt; exposes apiBase and wsBase strings" time="0.002436935">
         </testcase>
-        <testcase classname="src/components/SessionQRCode.test.jsx" name="SessionQRCode &gt; renders generated qr image on success" time="0.0233261">
-        </testcase>
-        <testcase classname="src/components/SessionQRCode.test.jsx" name="SessionQRCode &gt; stays hidden when generation fails" time="0.003084">
+        <testcase classname="src/config.test.js" name="config &gt; uses explicit API base when VITE_API_BASE is provided" time="0.001005072">
         </testcase>
     </testsuite>
-    <testsuite name="src/components/StatCard.test.jsx" timestamp="2026-03-21T09:34:35.729Z" hostname="LenovoYogaPJ" tests="2" failures="0" errors="0" skipped="0" time="0.0336174">
-        <testcase classname="src/components/StatCard.test.jsx" name="StatCard &gt; renders label, value and optional help text" time="0.0271625">
+    <testsuite name="src/components/CountdownBanner.test.jsx" timestamp="2026-03-21T10:17:36.299Z" hostname="runnervm46oaq" tests="2" failures="0" errors="0" skipped="0" time="0.07491113">
+        <testcase classname="src/components/CountdownBanner.test.jsx" name="CountdownBanner &gt; renders nothing when break is inactive" time="0.026393977">
         </testcase>
-        <testcase classname="src/components/StatCard.test.jsx" name="StatCard &gt; hides help block when help is missing" time="0.0051612">
+        <testcase classname="src/components/CountdownBanner.test.jsx" name="CountdownBanner &gt; shows countdown and return time for active break" time="0.046499883">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/QuizOverlay.test.jsx" timestamp="2026-03-21T10:17:36.299Z" hostname="runnervm46oaq" tests="3" failures="0" errors="0" skipped="0" time="0.190214357">
+        <testcase classname="src/components/QuizOverlay.test.jsx" name="QuizOverlay &gt; returns null when quiz is missing" time="0.019952796">
+        </testcase>
+        <testcase classname="src/components/QuizOverlay.test.jsx" name="QuizOverlay &gt; calls onAnswer when clicking an option" time="0.14445519">
+        </testcase>
+        <testcase classname="src/components/QuizOverlay.test.jsx" name="QuizOverlay &gt; locks answers when readonly or already selected" time="0.02360671">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/SessionQRCode.test.jsx" timestamp="2026-03-21T10:17:36.300Z" hostname="runnervm46oaq" tests="3" failures="0" errors="0" skipped="0" time="0.05884557">
+        <testcase classname="src/components/SessionQRCode.test.jsx" name="SessionQRCode &gt; renders nothing without value" time="0.025586983">
+        </testcase>
+        <testcase classname="src/components/SessionQRCode.test.jsx" name="SessionQRCode &gt; renders generated qr image on success" time="0.027338127">
+        </testcase>
+        <testcase classname="src/components/SessionQRCode.test.jsx" name="SessionQRCode &gt; stays hidden when generation fails" time="0.003695311">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/StatCard.test.jsx" timestamp="2026-03-21T10:17:36.301Z" hostname="runnervm46oaq" tests="2" failures="0" errors="0" skipped="0" time="0.040662232">
+        <testcase classname="src/components/StatCard.test.jsx" name="StatCard &gt; renders label, value and optional help text" time="0.03505489">
+        </testcase>
+        <testcase classname="src/components/StatCard.test.jsx" name="StatCard &gt; hides help block when help is missing" time="0.003911216">
         </testcase>
     </testsuite>
 </testsuites>

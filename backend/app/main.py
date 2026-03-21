@@ -1,3 +1,4 @@
+import asyncio
 import json
 import io
 import os
@@ -46,6 +47,9 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(BASE_DIR / ".env")
 DB_PATH = BASE_DIR / "data.sqlite3"
 UPLOADS_DIR = BASE_DIR / "uploads"
+
+# Timeout for AI quiz generation calls (seconds). Long enough for slow providers.
+AI_QUIZ_GENERATION_TIMEOUT_SECONDS = 45.0
 
 
 def parse_bearer_token(authorization: str | None) -> str | None:
@@ -350,6 +354,7 @@ class RuntimeSession:
     quiz_hidden: bool = False
     quiz_cover_mode: bool = True
     quiz_voting_closed: bool = False
+    quiz_answer_revealed: bool = False
     anonymous_questions: list[AnonymousQuestion] = field(default_factory=list)
     active: bool = True
     ended_at_epoch: float | None = None
@@ -414,15 +419,28 @@ def metrics_payload(session: RuntimeSession) -> dict[str, Any]:
 
 
 def session_state_payload(session: RuntimeSession) -> dict[str, Any]:
+    quiz_state_dict: dict[str, Any] = {
+        "hidden": session.quiz_hidden,
+        "cover_mode": session.quiz_cover_mode,
+        "voting_closed": session.quiz_voting_closed,
+        "answer_revealed": session.quiz_answer_revealed,
+    }
+    if session.quiz_answer_revealed and session.current_quiz:
+        quiz_state_dict["correct_option_id"] = session.current_quiz.correct_option_id
+        total = len(session.quiz_answers)
+        per_option: dict[str, dict[str, Any]] = {}
+        for opt in session.current_quiz.options:
+            count = sum(1 for v in session.quiz_answers.values() if v == opt.id)
+            per_option[opt.id] = {
+                "count": count,
+                "pct": round(count / total, 3) if total else 0.0,
+            }
+        quiz_state_dict["per_option"] = per_option
     return {
         "notes": session.notes,
         "break_active_until": session.break_active_until,
         "quiz": session.current_quiz.model_dump() if session.current_quiz else None,
-        "quiz_state": {
-            "hidden": session.quiz_hidden,
-            "cover_mode": session.quiz_cover_mode,
-            "voting_closed": session.quiz_voting_closed,
-        },
+        "quiz_state": quiz_state_dict,
         "metrics": metrics_payload(session),
     }
 
@@ -1239,6 +1257,7 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
             "hidden": session.quiz_hidden,
             "cover_mode": session.quiz_cover_mode,
             "voting_closed": session.quiz_voting_closed,
+            "answer_revealed": session.quiz_answer_revealed,
         },
         "engagement": {
             "score": engagement_score,
@@ -2871,11 +2890,26 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 style_preset = str(payload.get("quiz_preset", "default")).strip().lower() or "default"
                 custom_prompt = str(payload.get("quiz_custom_prompt", "")).strip()
                 try:
-                    quiz = build_quiz_with_ai(
-                        notes_input,
-                        style_preset=style_preset,
-                        custom_prompt=custom_prompt,
+                    quiz = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            build_quiz_with_ai,
+                            notes_input,
+                            style_preset,
+                            custom_prompt,
+                        ),
+                        timeout=AI_QUIZ_GENERATION_TIMEOUT_SECONDS,
                     )
+                except asyncio.TimeoutError:
+                    reason = f"Quiz generation timed out after {AI_QUIZ_GENERATION_TIMEOUT_SECONDS:.0f} seconds"
+                    insert_event(code, "quiz_generation_failed", {"reason": reason})
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "error",
+                            "payload": {"message": f"Quiz generation failed: {reason}"},
+                        },
+                    )
+                    continue
                 except Exception as exc:
                     reason = str(exc)[:500]
                     insert_event(code, "quiz_generation_failed", {"reason": reason})
@@ -2895,6 +2929,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 session.quiz_hidden = False
                 session.quiz_cover_mode = True
                 session.quiz_voting_closed = False
+                session.quiz_answer_revealed = False
                 conn = sqlite3.connect(DB_PATH)
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
@@ -2932,6 +2967,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                             "hidden": session.quiz_hidden,
                             "cover_mode": session.quiz_cover_mode,
                             "voting_closed": session.quiz_voting_closed,
+                            "answer_revealed": session.quiz_answer_revealed,
                         },
                     },
                 )
@@ -2948,6 +2984,23 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     session.quiz_cover_mode = bool(payload.get("cover_mode"))
                 if "voting_closed" in payload:
                     session.quiz_voting_closed = bool(payload.get("voting_closed"))
+                if "answer_revealed" in payload:
+                    session.quiz_answer_revealed = bool(payload.get("answer_revealed"))
+                    # Auto-close voting when answer is revealed
+                    if session.quiz_answer_revealed:
+                        session.quiz_voting_closed = True
+
+                # Compute per-option distribution for reveal broadcasts
+                per_option: dict[str, dict[str, Any]] | None = None
+                if session.quiz_answer_revealed and session.current_quiz:
+                    total = len(session.quiz_answers)
+                    per_option = {}
+                    for opt in session.current_quiz.options:
+                        count = sum(1 for v in session.quiz_answers.values() if v == opt.id)
+                        per_option[opt.id] = {
+                            "count": count,
+                            "pct": round(count / total, 3) if total else 0.0,
+                        }
 
                 insert_event(
                     code,
@@ -2956,19 +3009,25 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                         "hidden": session.quiz_hidden,
                         "cover_mode": session.quiz_cover_mode,
                         "voting_closed": session.quiz_voting_closed,
+                        "answer_revealed": session.quiz_answer_revealed,
                     },
                 )
                 record_engagement_point(session, "quiz_control")
 
+                broadcast_payload: dict[str, Any] = {
+                    "hidden": session.quiz_hidden,
+                    "cover_mode": session.quiz_cover_mode,
+                    "voting_closed": session.quiz_voting_closed,
+                    "answer_revealed": session.quiz_answer_revealed,
+                }
+                if session.quiz_answer_revealed and session.current_quiz:
+                    broadcast_payload["correct_option_id"] = session.current_quiz.correct_option_id
+                    broadcast_payload["per_option"] = per_option
                 await broadcast(
                     session,
                     {
                         "type": "quiz_state",
-                        "payload": {
-                            "hidden": session.quiz_hidden,
-                            "cover_mode": session.quiz_cover_mode,
-                            "voting_closed": session.quiz_voting_closed,
-                        },
+                        "payload": broadcast_payload,
                     },
                 )
 
