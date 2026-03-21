@@ -113,6 +113,11 @@
 
 ## 2026-03-20
 
+- Fixed frontend white-screen regression caused by missing build config:
+  - restored [frontend/vite.config.js](frontend/vite.config.js) with `@vitejs/plugin-react` so JSX compiles with the correct React runtime,
+  - restored dev proxy routes (`/api`, `/ws`, `/health`) to backend `:9000`, which also re-enables local realtime flows such as screen-sharing signaling,
+  - revalidated with frontend tests and production build.
+
 - Bootstrapped the full MVP system from scratch in this repository.
 - Added backend service in [backend/app/main.py](backend/app/main.py) with:
   - session creation,
