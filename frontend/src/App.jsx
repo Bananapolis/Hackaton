@@ -245,6 +245,7 @@ function App() {
   const [quizCustomPrompt, setQuizCustomPrompt] = useState('')
   const [quizGenerationPending, setQuizGenerationPending] = useState(false)
   const [isScreenMaximized, setIsScreenMaximized] = useState(false)
+  const [isScreenSharing, setIsScreenSharing] = useState(false)
 
   const wsRef = useRef(null)
   const endingSessionRef = useRef(false)
@@ -258,6 +259,7 @@ function App() {
   const confusionNotificationArmedRef = useRef(true)
   const lastBreakNotificationAtRef = useRef(0)
   const lastAnonymousQuestionPendingRef = useRef(0)
+  const screenShareStopNotifiedRef = useRef(false)
 
   const isTeacher = role === 'teacher'
   const normalizedCode = sessionCode.trim().toUpperCase()
@@ -714,6 +716,7 @@ function App() {
       setExplainLoading(false)
       setQuizGenerationPending(false)
       setAnonymousQuestionSubmitting(false)
+      cleanupLocalScreenShare()
       for (const pc of peerConnectionsRef.current.values()) {
         pc.close()
       }
@@ -871,6 +874,13 @@ function App() {
       if (message.type === 'signal') {
         await handleSignal(message.payload)
       }
+
+      if (message.type === 'screen_share_stopped') {
+        if (!isTeacher && remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = null
+        }
+        setStatus('Screen sharing stopped by host')
+      }
     }
   }
 
@@ -937,6 +947,38 @@ function App() {
     wsRef.current.send(JSON.stringify({ type, payload }))
   }
 
+  function notifyScreenShareStoppedOnce() {
+    if (screenShareStopNotifiedRef.current) return
+    send('screen_share_stopped')
+    screenShareStopNotifiedRef.current = true
+  }
+
+  function cleanupLocalScreenShare() {
+    const stream = localStreamRef.current
+    if (stream) {
+      for (const track of stream.getTracks()) {
+        track.onended = null
+        if (track.readyState !== 'ended') {
+          track.stop()
+        }
+      }
+    }
+    localStreamRef.current = null
+
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null
+    }
+
+    setIsScreenSharing(false)
+  }
+
+  function stopShare() {
+    if (!isTeacher) return
+    notifyScreenShareStoppedOnce()
+    cleanupLocalScreenShare()
+    setStatus('Screen sharing stopped')
+  }
+
   async function startShare() {
     if (!isTeacher) return
 
@@ -949,10 +991,14 @@ function App() {
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
       }
+      screenShareStopNotifiedRef.current = false
+      setIsScreenSharing(true)
       setStatus('Screen sharing started')
 
       for (const track of stream.getTracks()) {
         track.onended = () => {
+          notifyScreenShareStoppedOnce()
+          cleanupLocalScreenShare()
           setStatus('Screen sharing stopped')
         }
       }
@@ -1033,6 +1079,7 @@ function App() {
     setJoined(false)
     setExplainLoading(false)
     setSessionCode('')
+    cleanupLocalScreenShare()
     setAnonymousQuestions([])
     setPendingQuestionCount(0)
     setShowQuestionsPanel(false)
@@ -1594,10 +1641,10 @@ function App() {
                       <button
                         type="button"
                         disabled={!joined}
-                        onClick={startShare}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-slate-900 text-lg text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200"
-                        title="Start screen share"
-                        aria-label="Start screen share"
+                        onClick={() => (isScreenSharing ? stopShare() : startShare())}
+                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isScreenSharing ? 'bg-rose-600 hover:bg-rose-500' : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200'}`}
+                        title={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
+                        aria-label={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
                       >
                         <Icon name="screen" className="h-5 w-5" />
                       </button>
