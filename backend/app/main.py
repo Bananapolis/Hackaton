@@ -224,7 +224,8 @@ def set_session_active(code: str, active: bool) -> None:
 def session_exists(code: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT code FROM sessions WHERE code = ? AND active = 1", (code,))
+    # Code must be globally unique because sessions.code is a primary key.
+    cursor.execute("SELECT code FROM sessions WHERE code = ?", (code,))
     row = cursor.fetchone()
     conn.close()
     return row is not None
@@ -791,11 +792,24 @@ def build_student_notes_with_ai(presentation_text: str, presentation_name: str) 
         raise RuntimeError("No readable text was found in the presentation.")
 
     source_excerpt = source[:24000]
+    topic = Path(presentation_name).stem.replace("-", " ").replace("_", " ").strip() or "Science Topic"
     prompt = (
-        "Create concise, student-friendly study notes from the presentation content. "
-        "Use this structure exactly: 1) Title, 2) Key ideas (5-8 bullets), 3) Simple explanations, "
-        "4) What to remember for exam, 5) Quick recap in 3 bullets. "
-        "Use clear language for students and avoid jargon when possible."
+        "A hyper-realistic, top-down photograph of a single page of handwritten notes on clean white dotted journal paper, "
+        "representing a \"modern minimalist\" aesthetic. "
+        f"The subject is {topic}. "
+        "The title is neatly lettered in fine black ink. "
+        "The content is organized with thin black fineliner pen, featuring extremely precise, small print handwriting, "
+        "simple bullet points, and neat numbered lists. "
+        "Key terms are subtly highlighted with a single, very light pastel color (e.g., pale mint green). "
+        "The notes are sparse, utilizing significant negative space. "
+        "There is one simple, flawlessly executed black ink diagram with elegant, thin arrows. "
+        "A single black fineliner pen rests diagonally beside the paper. "
+        "The background is a plain, light wood grain desk surface. Natural, soft daylight. "
+        "8k, macro detail, perfect legibility, high resolution. "
+        "\n\nNow generate ONLY the note content text that should be written on that page. "
+        "Do not describe camera, paper, desk, lighting, or photo style. "
+        "Output plain text only (no markdown, no code fences). "
+        "Keep it concise and student-friendly so it fits one page."
     )
 
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -2175,20 +2189,10 @@ def generate_presentation_notes_png(
             row["mime_type"],
         )
         notes_text = build_student_notes_with_ai(extracted_text, row["original_name"])
-        allow_text_fallback = os.getenv("NOTES_PNG_ALLOW_TEXT_FALLBACK", "0").strip() == "1"
-        try:
-            png_bytes = generate_notes_png_with_ai(notes_text)
-        except RuntimeError as image_exc:
-            if not allow_text_fallback:
-                raise RuntimeError(
-                    "Handwritten-style image generation failed. "
-                    "Set GEMINI_IMAGE_MODEL or enable NOTES_PNG_ALLOW_TEXT_FALLBACK=1 if you want text-rendered fallback. "
-                    f"Details: {str(image_exc)}"
-                ) from image_exc
-            png_bytes = render_notes_png(
-                title=f"Student Notes: {Path(row['original_name']).stem}",
-                notes_text=notes_text,
-            )
+        png_bytes = render_notes_png(
+            title=f"Student Notes: {Path(row['original_name']).stem}",
+            notes_text=notes_text,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2292,7 +2296,6 @@ def create_session(payload: SessionCreateRequest, authorization: str | None = He
     code = generate_session_code()
     SESSIONS[code] = RuntimeSession(code=code, teacher_name=teacher_name)
     record_engagement_point(SESSIONS[code], "session_created")
-    insert_session(code, teacher_name)
     insert_session(code, teacher_name, owner_user_id=owner_user_id)
     return SessionCreateResponse(code=code)
 
