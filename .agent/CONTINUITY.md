@@ -166,6 +166,37 @@
   - session settings now frame role choice as mode selection (`Host a new session` vs `Join existing session`),
   - library upload/download behavior in [frontend/src/App.jsx](frontend/src/App.jsx) now follows current session mode instead of persisted account role,
   - presentation access control in [backend/app/main.py](backend/app/main.py) now derives host permissions from session ownership (`teacher_name`) rather than user role, so both hosting and joining work from one account flow.
+- Replaced session-end JSON download with PDF analytics export:
+  - backend in [backend/app/main.py](backend/app/main.py) now exposes `GET /api/sessions/{code}/report.pdf`,
+  - PDF includes core metrics, participation details, and recommendation sections.
+- Added AI-assisted insights for report generation in [backend/app/main.py](backend/app/main.py):
+  - uses Gemini when configured (`GEMINI_API_KEY`),
+  - falls back to OpenAI-compatible provider when available,
+  - uses deterministic local heuristic insights when AI providers are unavailable.
+- Updated frontend end-session flow in [frontend/src/App.jsx](frontend/src/App.jsx):
+  - after `POST /api/sessions/{code}/end`, app now downloads the generated PDF report instead of creating a JSON blob client-side.
+- Added engagement timeline graphing in session reports:
+  - backend now records engagement timeline points across session lifecycle/events,
+  - report payload includes `engagement_timeline`,
+  - generated PDF now contains a line chart of student engagement score over session duration.
+- Improved PDF report layout and data visualization quality:
+  - refactored PDF section flow with explicit space checks to prevent chart/text overlap,
+  - upgraded styling with header band, metric cards, and clearer typography,
+  - engagement trend chart now plots two color-coded series (engagement + confusion) with mini legend,
+  - added quiz performance bar visualization (correct/incorrect/unanswered) plus accuracy/participation labels.
+- Added AI presentation-to-notes PNG feature:
+  - new endpoint `POST /api/presentations/{id}/notes-png` in [backend/app/main.py](backend/app/main.py) extracts text from supported presentation files (`.pptx`, `.pdf`, text formats),
+  - backend generates student-friendly study notes with configured AI provider and renders them to a downloadable PNG,
+  - files tab in [frontend/src/App.jsx](frontend/src/App.jsx) now shows `AI notes PNG` action next to each presentation.
+- Fixed false `403 You can only upload files for your own sessions` for real hosts:
+  - sessions in [backend/app/main.py](backend/app/main.py) now store `owner_user_id` (with migration for existing DBs),
+  - upload/list/download ownership checks now use `owner_user_id` first with fallback to legacy `teacher_name`,
+  - frontend session creation in [frontend/src/App.jsx](frontend/src/App.jsx) now sends auth token so backend can persist owner identity for future file actions.
+- Fixed presentation visibility and past-session access UX:
+  - owner-side file listing in [backend/app/main.py](backend/app/main.py) now uses direct `user_id + session_code` filtering (no brittle name join),
+  - participant-side list/download/notes queries now validate presenter ownership using `sessions.owner_user_id` with legacy fallback,
+  - sessions list in [frontend/src/App.jsx](frontend/src/App.jsx) is now clickable and sets a library session context,
+  - file downloads and `AI notes PNG` actions now use the selected library session context for join mode so historical session assets are accessible.
 - Added one-command server redeploy automation:
   - new script [scripts/deploy-update.sh](scripts/deploy-update.sh) for `git pull --ff-only` + `docker compose up -d --build` + status check,
   - Make alias target `deploy-update` in [Makefile](Makefile),

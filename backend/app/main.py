@@ -1,11 +1,15 @@
 import json
+import io
 import os
 import random
 import secrets
 import sqlite3
 import string
+import textwrap
 import time
 import uuid
+from base64 import b64decode
+from io import BytesIO
 from hashlib import pbkdf2_hmac
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,10 +19,21 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.pdfgen import canvas
+except Exception:  # pragma: no cover
+    A4 = None
+    cm = None
+    stringWidth = None
+    canvas = None
 
 try:
     from openai import OpenAI
@@ -67,10 +82,15 @@ def init_db() -> None:
             code TEXT PRIMARY KEY,
             created_at TEXT NOT NULL,
             teacher_name TEXT NOT NULL,
+            owner_user_id INTEGER,
             active INTEGER NOT NULL DEFAULT 1
         )
         """
     )
+    cursor.execute("PRAGMA table_info(sessions)")
+    session_columns = {row[1] for row in cursor.fetchall()}
+    if "owner_user_id" not in session_columns:
+        cursor.execute("ALTER TABLE sessions ADD COLUMN owner_user_id INTEGER")
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS events (
@@ -143,12 +163,12 @@ def init_db() -> None:
     conn.close()
 
 
-def insert_session(code: str, teacher_name: str) -> None:
+def insert_session(code: str, teacher_name: str, owner_user_id: int | None = None) -> None:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO sessions(code, created_at, teacher_name, active) VALUES (?, ?, ?, 1)",
-        (code, now_iso(), teacher_name),
+        "INSERT INTO sessions(code, created_at, teacher_name, owner_user_id, active) VALUES (?, ?, ?, ?, 1)",
+        (code, now_iso(), teacher_name, owner_user_id),
     )
     conn.commit()
     conn.close()
@@ -204,7 +224,8 @@ def set_session_active(code: str, active: bool) -> None:
 def session_exists(code: str) -> bool:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT code FROM sessions WHERE code = ? AND active = 1", (code,))
+    # Code must be globally unique because sessions.code is a primary key.
+    cursor.execute("SELECT code FROM sessions WHERE code = ?", (code,))
     row = cursor.fetchone()
     conn.close()
     return row is not None
@@ -312,6 +333,8 @@ class RuntimeSession:
     active: bool = True
     ended_at_epoch: float | None = None
     final_report: dict[str, Any] | None = None
+    final_report_insights: dict[str, Any] | None = None
+    engagement_timeline: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def student_count(self) -> int:
@@ -716,6 +739,425 @@ def build_screen_explanation_with_ai(notes: str) -> str:
     raise RuntimeError("Screen explanation failed with unknown AI error")
 
 
+def extract_text_from_presentation(file_path: Path, original_name: str, mime_type: str | None) -> str:
+    suffix = file_path.suffix.lower()
+
+    if suffix in {".txt", ".md", ".csv", ".json"}:
+        return file_path.read_text(encoding="utf-8", errors="ignore")[:50000]
+
+    if suffix == ".pdf" or (mime_type or "").lower() == "application/pdf":
+        try:
+            from pypdf import PdfReader
+        except Exception as exc:
+            raise RuntimeError("PDF parsing is unavailable. Install pypdf.") from exc
+
+        reader = PdfReader(str(file_path))
+        chunks: list[str] = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text.strip():
+                chunks.append(text)
+            if sum(len(item) for item in chunks) > 50000:
+                break
+        return "\n\n".join(chunks)[:50000]
+
+    if suffix == ".pptx" or "presentation" in (mime_type or "").lower():
+        try:
+            from pptx import Presentation
+        except Exception as exc:
+            raise RuntimeError("PPTX parsing is unavailable. Install python-pptx.") from exc
+
+        prs = Presentation(str(file_path))
+        chunks: list[str] = []
+        for idx, slide in enumerate(prs.slides, start=1):
+            slide_lines: list[str] = []
+            for shape in slide.shapes:
+                text = getattr(shape, "text", "")
+                if text and text.strip():
+                    slide_lines.append(text.strip())
+            if slide_lines:
+                chunks.append(f"Slide {idx}:\n" + "\n".join(slide_lines))
+            if sum(len(item) for item in chunks) > 50000:
+                break
+        return "\n\n".join(chunks)[:50000]
+
+    raise RuntimeError(
+        f"Unsupported presentation format for AI notes: {original_name}. Supported: .pptx, .pdf, .txt, .md, .csv, .json"
+    )
+
+
+def build_student_notes_with_ai(presentation_text: str, presentation_name: str) -> str:
+    source = (presentation_text or "").strip()
+    if not source:
+        raise RuntimeError("No readable text was found in the presentation.")
+
+    source_excerpt = source[:24000]
+    topic = Path(presentation_name).stem.replace("-", " ").replace("_", " ").strip() or "Science Topic"
+    prompt = (
+        "A hyper-realistic, top-down photograph of a single page of handwritten notes on clean white dotted journal paper, "
+        "representing a \"modern minimalist\" aesthetic. "
+        f"The subject is {topic}. "
+        "The title is neatly lettered in fine black ink. "
+        "The content is organized with thin black fineliner pen, featuring extremely precise, small print handwriting, "
+        "simple bullet points, and neat numbered lists. "
+        "Key terms are subtly highlighted with a single, very light pastel color (e.g., pale mint green). "
+        "The notes are sparse, utilizing significant negative space. "
+        "There is one simple, flawlessly executed black ink diagram with elegant, thin arrows. "
+        "A single black fineliner pen rests diagonally beside the paper. "
+        "The background is a plain, light wood grain desk surface. Natural, soft daylight. "
+        "8k, macro detail, perfect legibility, high resolution. "
+        "\n\nNow generate ONLY the note content text that should be written on that page. "
+        "Do not describe camera, paper, desk, lighting, or photo style. "
+        "Output plain text only (no markdown, no code fences). "
+        "Keep it concise and student-friendly so it fits one page."
+    )
+
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    errors: list[str] = []
+
+    if gemini_api_key:
+        parts: list[dict[str, Any]] = [
+            {
+                "text": f"Presentation file: {presentation_name}\n\nContent:\n{source_excerpt}\n\n{prompt}",
+            }
+        ]
+
+        models_to_try = [gemini_model]
+        if gemini_model != "gemini-2.5-flash":
+            models_to_try.append("gemini-2.5-flash")
+
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_api_key}"
+            body = {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {
+                    "temperature": 0.2,
+                },
+            }
+            try:
+                req = Request(
+                    url,
+                    data=json.dumps(body).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(req, timeout=30) as resp:
+                    response_text = resp.read().decode("utf-8")
+                response_json = json.loads(response_text)
+                text_output = (
+                    response_json.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "")
+                    .strip()
+                )
+                if text_output:
+                    return text_output[:6000]
+                raise ValueError("Gemini returned empty notes")
+            except HTTPError as exc:
+                details = ""
+                try:
+                    details = exc.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    details = ""
+                details = (details or exc.reason or "request failed")
+                errors.append(f"Gemini model {model_name} HTTP {exc.code}: {details[:300]}")
+            except (URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                errors.append(f"Gemini model {model_name} error: {str(exc)[:300]}")
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+
+    if api_key and OpenAI is not None:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        try:
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": "You write clear, student-friendly study notes.",
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": f"Presentation file: {presentation_name}\n\nContent:\n{source_excerpt}\n\n{prompt}",
+                            }
+                        ],
+                    },
+                ],
+                temperature=0.2,
+            )
+            text_output = response.output_text.strip()
+            if text_output:
+                return text_output[:6000]
+            raise ValueError("OpenAI-compatible provider returned empty notes")
+        except Exception as exc:
+            errors.append(f"OpenAI-compatible error: {str(exc)[:300]}")
+    elif api_key and OpenAI is None:
+        errors.append("OpenAI-compatible API key is set but OpenAI SDK is unavailable")
+
+    if not gemini_api_key and not api_key:
+        raise RuntimeError("No AI provider configured. Set GEMINI_API_KEY (recommended).")
+
+    if errors:
+        raise RuntimeError("; ".join(errors))
+
+    raise RuntimeError("Student-notes generation failed with unknown AI error")
+
+
+STUDENT_NOTES_IMAGE_PROMPT_TEMPLATE = (
+    "A high-resolution, top-down flat lay of a single page of handwritten student notes on white "
+    "[lined/grid] paper, isolated on a plain background for easy PNG conversion. The style is \"Gen Z studygram\": "
+    "neat but organic handwriting using a black 0.5mm gel pen, with key terms highlighted in mild pastel colors "
+    "(lemon yellow and mint green). Includes hand-drawn arrows, small aesthetic doodles in the margins "
+    "(like tiny stars or chemistry beakers), and a \"header\" title in simple faux-calligraphy. "
+    "The paper has slight natural crinkles. Lighting is bright, even, and clinical. Soft shadows only. "
+    "8k resolution, macro photography style, extremely legible text."
+)
+
+
+def build_notes_image_prompt(notes_text: str) -> str:
+    normalized_notes = (notes_text or "").strip()
+    return (
+        f"{STUDENT_NOTES_IMAGE_PROMPT_TEMPLATE}\n\n"
+        "Write exactly this study-notes content on the page and keep it fully legible:\n"
+        "---\n"
+        f"{normalized_notes[:5000]}\n"
+        "---\n"
+        "Do not add logos, watermarks, or extra pages. Keep one page only."
+    )
+
+
+def generate_notes_png_with_ai(notes_text: str) -> bytes:
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    configured_model = os.getenv("GEMINI_IMAGE_MODEL", "").strip()
+
+    if not gemini_api_key:
+        raise RuntimeError("Gemini image generation is unavailable. Set GEMINI_API_KEY.")
+
+    prompt = build_notes_image_prompt(notes_text)
+
+    models_to_try: list[str] = []
+
+    if configured_model:
+        models_to_try.append(configured_model)
+
+    # Try likely image-capable model aliases first.
+    for candidate in [
+        "gemini-2.5-flash-image",
+        "gemini-2.5-flash-image-preview",
+        "gemini-2.0-flash-preview-image-generation",
+        "gemini-2.0-flash-exp-image-generation",
+    ]:
+        if candidate not in models_to_try:
+            models_to_try.append(candidate)
+
+    # Discover account-available models and prioritize image-related ones.
+    try:
+        list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_api_key}"
+        list_req = Request(list_url, headers={"Content-Type": "application/json"}, method="GET")
+        with urlopen(list_req, timeout=20) as list_resp:
+            list_text = list_resp.read().decode("utf-8")
+        list_json = json.loads(list_text)
+        discovered = list_json.get("models", [])
+        for model_entry in discovered:
+            name = str(model_entry.get("name", ""))
+            if not name:
+                continue
+            short_name = name.split("models/", 1)[-1]
+            generation_methods = [str(item) for item in model_entry.get("supportedGenerationMethods", [])]
+            if "generateContent" not in generation_methods:
+                continue
+
+            lower = short_name.lower()
+            # Heuristic: image/vision/preview variants are more likely to return inline images.
+            if any(token in lower for token in ["image", "vision", "imagen", "preview"]):
+                if short_name not in models_to_try:
+                    models_to_try.append(short_name)
+    except Exception:
+        # Model discovery is best-effort; keep static fallback list.
+        pass
+
+    errors: list[str] = []
+
+    def decode_image_from_response(response_json: dict[str, Any]) -> bytes | None:
+        candidates = response_json.get("candidates", [])
+        for candidate in candidates:
+            parts = candidate.get("content", {}).get("parts", [])
+            for part in parts:
+                inline = part.get("inlineData") or part.get("inline_data")
+                if not inline:
+                    continue
+                mime_type = (inline.get("mimeType") or inline.get("mime_type") or "").lower()
+                if mime_type not in {"image/png", "image/jpeg", "image/webp"}:
+                    continue
+                data = inline.get("data")
+                if data:
+                    return b64decode(data)
+        return None
+
+    for image_model in models_to_try:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{image_model}:generateContent?key={gemini_api_key}"
+            body = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": prompt}],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.35,
+                    "responseModalities": ["IMAGE", "TEXT"],
+                },
+            }
+
+            req = Request(
+                url,
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=80) as resp:
+                response_text = resp.read().decode("utf-8")
+
+            response_json = json.loads(response_text)
+            image_bytes = decode_image_from_response(response_json)
+            if image_bytes:
+                return image_bytes
+            errors.append(f"{image_model}: response had no inline image bytes")
+        except HTTPError as exc:
+            details = ""
+            try:
+                details = exc.read().decode("utf-8", errors="ignore")
+            except Exception:
+                details = ""
+            details = details or exc.reason or "request failed"
+            errors.append(f"{image_model} HTTP {exc.code}: {details[:240]}")
+        except Exception as exc:
+            errors.append(f"{image_model}: {str(exc)[:240]}")
+
+    raise RuntimeError("Gemini image generation failed: " + " | ".join(errors[:3]))
+
+
+def render_notes_png(title: str, notes_text: str) -> bytes:
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception as exc:
+        raise RuntimeError("PNG rendering is unavailable. Install Pillow.") from exc
+
+    width = 1600
+    height = 2200
+    margin = 90
+
+    image = Image.new("RGB", (width, height), color=(251, 252, 255))
+    draw = ImageDraw.Draw(image)
+
+    try:
+        title_font = ImageFont.truetype("arial.ttf", 54)
+        body_font = ImageFont.truetype("arial.ttf", 30)
+    except Exception:
+        title_font = ImageFont.load_default()
+        body_font = ImageFont.load_default()
+
+    current_y = margin
+    draw.text((margin, current_y), title, fill=(20, 34, 62), font=title_font)
+    current_y += 90
+    draw.line((margin, current_y, width - margin, current_y), fill=(186, 200, 230), width=3)
+    current_y += 40
+
+    usable_width = width - (2 * margin)
+    paragraphs = [line.strip() for line in notes_text.splitlines() if line.strip()]
+    if not paragraphs:
+        paragraphs = ["No notes could be generated for this presentation."]
+
+    rendered_lines: list[str] = []
+    for paragraph in paragraphs:
+        wrapped = textwrap.wrap(paragraph, width=78) or [paragraph]
+        rendered_lines.extend(wrapped)
+        rendered_lines.append("")
+
+    max_lines = 58
+    if len(rendered_lines) > max_lines:
+        rendered_lines = rendered_lines[: max_lines - 1] + ["... (content truncated)"]
+
+    for line in rendered_lines:
+        if line == "":
+            current_y += 16
+            continue
+
+        while draw.textlength(line, font=body_font) > usable_width and len(line) > 4:
+            line = line[:-2]
+        draw.text((margin, current_y), line, fill=(38, 46, 66), font=body_font)
+        current_y += 42
+        if current_y > height - margin:
+            break
+
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def get_accessible_presentation_row(
+    cursor: sqlite3.Cursor,
+    *,
+    user: dict[str, Any],
+    presentation_id: int,
+    normalized_session_code: str | None,
+) -> sqlite3.Row | None:
+    if normalized_session_code:
+        cursor.execute("SELECT teacher_name, owner_user_id FROM sessions WHERE code = ?", (normalized_session_code,))
+        session_row = cursor.fetchone()
+        if not session_row:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        session_owner_id = session_row["owner_user_id"]
+        is_session_owner = (
+            (session_owner_id is not None and session_owner_id == user["id"])
+            or (session_owner_id is None and session_row["teacher_name"] == user["display_name"])
+        )
+        if is_session_owner:
+            cursor.execute(
+                """
+                SELECT id, session_code, original_name, stored_name, mime_type
+                FROM presentations
+                WHERE id = ? AND user_id = ?
+                """,
+                (presentation_id, user["id"]),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT p.id, p.session_code, p.original_name, p.stored_name, p.mime_type
+                FROM presentations p
+                JOIN sessions s ON s.code = p.session_code
+                JOIN users u ON u.id = p.user_id
+                WHERE p.id = ?
+                  AND p.session_code = ?
+                                    AND (
+                                        (s.owner_user_id IS NOT NULL AND s.owner_user_id = u.id)
+                                        OR (s.owner_user_id IS NULL AND s.teacher_name = u.display_name)
+                                    )
+                """,
+                (presentation_id, normalized_session_code),
+            )
+    else:
+        cursor.execute(
+            """
+            SELECT id, session_code, original_name, stored_name, mime_type
+            FROM presentations
+            WHERE id = ? AND user_id = ?
+            """,
+            (presentation_id, user["id"]),
+        )
+    return cursor.fetchone()
+
+
 def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
     confusion = confusion_snapshot(session)
     answers = session.quiz_answers.values()
@@ -769,6 +1211,31 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
     }
 
 
+def record_engagement_point(session: RuntimeSession, source: str) -> None:
+    analytics = analytics_for_session(session)
+    point = {
+        "recorded_at_epoch": round(time.time(), 3),
+        "source": source,
+        "engagement_score": int(analytics.get("engagement", {}).get("score", 0)),
+        "confusion_level_percent": int(analytics.get("confusion_level_percent", 0)),
+        "break_votes": int(analytics.get("break_votes", 0)),
+    }
+
+    timeline = session.engagement_timeline
+    if timeline:
+        last = timeline[-1]
+        if (
+            last.get("engagement_score") == point["engagement_score"]
+            and last.get("confusion_level_percent") == point["confusion_level_percent"]
+            and last.get("break_votes") == point["break_votes"]
+            and last.get("source") == point["source"]
+            and (point["recorded_at_epoch"] - float(last.get("recorded_at_epoch", 0))) < 5
+        ):
+            return
+
+    timeline.append(point)
+
+
 def build_full_analytics_report(session: RuntimeSession) -> dict[str, Any]:
     analytics = analytics_for_session(session)
     students_connected = []
@@ -785,15 +1252,564 @@ def build_full_analytics_report(session: RuntimeSession) -> dict[str, Any]:
             }
         )
 
+    timeline = sorted(
+        session.engagement_timeline,
+        key=lambda item: float(item.get("recorded_at_epoch", 0)),
+    )
+    if not timeline:
+        record_engagement_point(session, "report_generated")
+        timeline = sorted(
+            session.engagement_timeline,
+            key=lambda item: float(item.get("recorded_at_epoch", 0)),
+        )
+
     return {
         "report_type": "session_engagement",
         "generated_at": now_iso(),
         "analytics": analytics,
         "students_connected": students_connected,
+        "engagement_timeline": timeline,
     }
 
 
-app = FastAPI(title="Edu Engagement MVP API", version="1.0.0")
+def _normalize_insights_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    def clean_text(value: Any, *, fallback: str, max_len: int = 700) -> str:
+        text = " ".join(str(value or "").split())
+        if not text:
+            text = fallback
+        return text[:max_len]
+
+    def clean_list(values: Any, *, fallback: list[str], max_items: int = 5) -> list[str]:
+        if not isinstance(values, list):
+            values = []
+        cleaned: list[str] = []
+        for item in values:
+            text = " ".join(str(item or "").split())
+            if text:
+                cleaned.append(text[:220])
+            if len(cleaned) >= max_items:
+                break
+        return cleaned or fallback
+
+    return {
+        "title": clean_text(payload.get("title"), fallback="Session Analytics Insights", max_len=120),
+        "executive_summary": clean_text(
+            payload.get("executive_summary"),
+            fallback="Class engagement summary generated from session analytics.",
+        ),
+        "key_findings": clean_list(
+            payload.get("key_findings"),
+            fallback=["Engagement indicators were collected successfully for this session."],
+        ),
+        "risks": clean_list(
+            payload.get("risks"),
+            fallback=["No critical risk was detected from the available analytics."],
+        ),
+        "recommendations": clean_list(
+            payload.get("recommendations"),
+            fallback=["Continue tracking participation and confusion trends across sessions."],
+        ),
+    }
+
+
+def build_analytics_insights_fallback(report: dict[str, Any]) -> dict[str, Any]:
+    analytics = report.get("analytics", {})
+    engagement = analytics.get("engagement", {})
+    quiz = analytics.get("quiz", {})
+
+    score = int(engagement.get("score") or 0)
+    student_count = int(analytics.get("student_count") or 0)
+    confusion_percent = int(analytics.get("confusion_level_percent") or 0)
+    break_votes = int(analytics.get("break_votes") or 0)
+    participation_rate = float(engagement.get("quiz_participation_rate") or 0.0)
+    accuracy = float(quiz.get("accuracy") or 0.0)
+
+    if score >= 75:
+        engagement_label = "high"
+    elif score >= 45:
+        engagement_label = "moderate"
+    else:
+        engagement_label = "low"
+
+    risks: list[str] = []
+    if participation_rate < 0.55:
+        risks.append("Quiz participation was below 55%, indicating uneven student involvement.")
+    if accuracy < 0.5:
+        risks.append("Quiz accuracy was below 50%, suggesting students may need concept reinforcement.")
+    if confusion_percent >= 60:
+        risks.append("High confusion levels were detected, which can reduce learning retention.")
+    if break_votes >= max(2, int(student_count * 0.35)):
+        risks.append("Break demand was elevated, which may indicate cognitive overload or pacing issues.")
+    if not risks:
+        risks.append("No major risk trend was identified from the available analytics.")
+
+    recommendations = [
+        "Start the next class with a short recap of the most difficult concept from this session.",
+        "Add one low-stakes check-in question every 8-12 minutes to improve participation consistency.",
+        "Trigger a micro-break earlier when break-vote and confusion indicators begin rising together.",
+    ]
+
+    return _normalize_insights_payload(
+        {
+            "title": "AI-Assisted Session Insights",
+            "executive_summary": (
+                f"This session shows {engagement_label} engagement (score {score}/100) across {student_count} active students. "
+                f"Quiz participation was {round(participation_rate * 100)}% with {round(accuracy * 100)}% accuracy, "
+                f"while confusion reached {confusion_percent}% and break votes totaled {break_votes}."
+            ),
+            "key_findings": [
+                f"Engagement score reached {score}/100.",
+                f"Quiz participation rate was {round(participation_rate * 100)}%.",
+                f"Quiz accuracy ended at {round(accuracy * 100)}%.",
+                f"Confusion level indicator was {confusion_percent}%.",
+            ],
+            "risks": risks,
+            "recommendations": recommendations,
+        }
+    )
+
+
+def build_analytics_insights_with_ai(report: dict[str, Any]) -> dict[str, Any]:
+    analytics = report.get("analytics", {})
+    prompt = (
+        "You are an educational analytics assistant. "
+        "Generate concise insights from classroom session metrics. "
+        "Return STRICT JSON only with keys: title, executive_summary, key_findings, risks, recommendations. "
+        "key_findings, risks, recommendations must each be arrays of short bullet-style strings. "
+        "Focus on actionable and evidence-based insights."
+    )
+    input_data = {
+        "session_code": analytics.get("session_code"),
+        "teacher_name": analytics.get("teacher_name"),
+        "duration_seconds": analytics.get("duration_seconds"),
+        "student_count": analytics.get("student_count"),
+        "confusion_level_percent": analytics.get("confusion_level_percent"),
+        "break_votes": analytics.get("break_votes"),
+        "quiz": analytics.get("quiz"),
+        "engagement": analytics.get("engagement"),
+    }
+
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    if gemini_api_key:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={gemini_api_key}"
+            body = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": f"Session analytics data:\n{json.dumps(input_data, ensure_ascii=True)}\n\n{prompt}",
+                            }
+                        ],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "responseMimeType": "application/json",
+                },
+            }
+            req = Request(
+                url,
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=20) as resp:
+                response_text = resp.read().decode("utf-8")
+            parsed_response = json.loads(response_text)
+            model_text = (
+                parsed_response.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+                .strip()
+            )
+            if model_text.startswith("```"):
+                model_text = model_text.strip("`")
+                if model_text.lower().startswith("json"):
+                    model_text = model_text[4:].strip()
+            if model_text:
+                return _normalize_insights_payload(json.loads(model_text))
+        except Exception:
+            pass
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+    if api_key and OpenAI is not None:
+        try:
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": "You produce concise educational analytics insights in strict JSON.",
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Session analytics data:\n{json.dumps(input_data, ensure_ascii=True)}\n\n{prompt}"
+                        ),
+                    },
+                ],
+                temperature=0.2,
+            )
+            text_output = (response.output_text or "").strip()
+            if text_output.startswith("```"):
+                text_output = text_output.strip("`")
+                if text_output.lower().startswith("json"):
+                    text_output = text_output[4:].strip()
+            if text_output:
+                return _normalize_insights_payload(json.loads(text_output))
+        except Exception:
+            pass
+
+    return build_analytics_insights_fallback(report)
+
+
+def _wrap_text_lines(text: str, font_name: str, font_size: int, max_width: float) -> list[str]:
+    if not text:
+        return [""]
+
+    if stringWidth is None:
+        return [text]
+
+    words = text.split()
+    if not words:
+        return [""]
+
+    lines: list[str] = []
+    current = words[0]
+    for word in words[1:]:
+        candidate = f"{current} {word}"
+        if stringWidth(candidate, font_name, font_size) <= max_width:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return lines
+
+
+def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]) -> bytes:
+    if canvas is None or A4 is None or cm is None:
+        raise RuntimeError("PDF generation dependency is not available")
+
+    analytics = report.get("analytics", {})
+    engagement = analytics.get("engagement", {})
+    quiz = analytics.get("quiz", {})
+    students = report.get("students_connected", [])
+    timeline = report.get("engagement_timeline", [])
+
+    duration_seconds = int(analytics.get("duration_seconds") or 0)
+    if not timeline:
+        timeline = [
+            {
+                "recorded_at_epoch": 0,
+                "engagement_score": int(engagement.get("score", 0)),
+                "confusion_level_percent": int(analytics.get("confusion_level_percent", 0)),
+            },
+            {
+                "recorded_at_epoch": max(duration_seconds, 1),
+                "engagement_score": int(engagement.get("score", 0)),
+                "confusion_level_percent": int(analytics.get("confusion_level_percent", 0)),
+            },
+        ]
+
+    first_epoch = float(timeline[0].get("recorded_at_epoch", 0)) if timeline else 0.0
+    line_points: list[dict[str, float]] = []
+    for item in timeline:
+        raw_epoch = float(item.get("recorded_at_epoch", first_epoch))
+        elapsed = raw_epoch - first_epoch
+        if duration_seconds > 0:
+            elapsed = min(max(elapsed, 0.0), float(duration_seconds))
+        line_points.append(
+            {
+                "elapsed": elapsed,
+                "engagement": min(max(float(item.get("engagement_score", 0)), 0.0), 100.0),
+                "confusion": min(max(float(item.get("confusion_level_percent", 0)), 0.0), 100.0),
+            }
+        )
+
+    if len(line_points) == 1:
+        line_points.append(
+            {
+                "elapsed": max(float(duration_seconds), 1.0),
+                "engagement": line_points[0]["engagement"],
+                "confusion": line_points[0]["confusion"],
+            }
+        )
+
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    page_width, page_height = A4
+
+    margin_x = 2 * cm
+    y = page_height - 2 * cm
+    content_width = page_width - (2 * margin_x)
+    bottom_limit = 2.1 * cm
+
+    c_text = (0.15, 0.18, 0.24)
+    c_muted = (0.46, 0.51, 0.60)
+    c_header_bg = (0.92, 0.96, 1.0)
+    c_card_bg = (0.97, 0.98, 1.0)
+    c_card_border = (0.85, 0.89, 0.95)
+    c_grid = (0.90, 0.93, 0.97)
+    c_engagement = (0.07, 0.42, 0.73)
+    c_confusion = (0.88, 0.45, 0.20)
+    c_quiz_correct = (0.16, 0.62, 0.37)
+    c_quiz_incorrect = (0.84, 0.33, 0.31)
+    c_quiz_unanswered = (0.64, 0.66, 0.70)
+
+    def new_page() -> None:
+        nonlocal y
+        pdf.showPage()
+        y = page_height - 2 * cm
+
+    def ensure_space(height_needed: float) -> None:
+        nonlocal y
+        if y - height_needed < bottom_limit:
+            new_page()
+
+    def draw_heading(
+        text: str,
+        *,
+        size: int = 14,
+        gap_before: int = 10,
+        gap_after: int = 12,
+    ) -> None:
+        nonlocal y
+        y -= gap_before
+        ensure_space(size + gap_after + 6)
+        pdf.setFont("Helvetica-Bold", size)
+        pdf.setFillColorRGB(*c_text)
+        pdf.drawString(margin_x, y, text)
+        y -= gap_after + size
+
+    def draw_paragraph(text: str, *, font: str = "Helvetica", size: int = 11, leading: int = 14) -> None:
+        nonlocal y
+        for paragraph in (text or "").splitlines() or [""]:
+            lines = _wrap_text_lines(paragraph.strip(), font, size, content_width)
+            for line in lines:
+                ensure_space(leading + 2)
+                pdf.setFont(font, size)
+                pdf.setFillColorRGB(*c_text)
+                pdf.drawString(margin_x, y, line)
+                y -= leading
+            y -= 2
+
+    def draw_bullets(items: list[str]) -> None:
+        nonlocal y
+        for item in items:
+            bullet_lines = _wrap_text_lines(item, "Helvetica", 11, content_width - 16)
+            ensure_space((len(bullet_lines) + 1) * 14 + 4)
+            pdf.setFont("Helvetica", 11)
+            pdf.setFillColorRGB(*c_text)
+            pdf.drawString(margin_x, y, "-")
+            for line in bullet_lines:
+                ensure_space(14)
+                pdf.drawString(margin_x + 12, y, line)
+                y -= 14
+            y -= 2
+
+    def draw_info_card(height: float) -> tuple[float, float, float, float]:
+        nonlocal y
+        ensure_space(height)
+        top = y
+        bottom = y - height
+        pdf.setFillColorRGB(*c_card_bg)
+        pdf.setStrokeColorRGB(*c_card_border)
+        pdf.setLineWidth(1)
+        pdf.roundRect(margin_x, bottom, content_width, height, 8, stroke=1, fill=1)
+        y = bottom - 12
+        return (margin_x, bottom, content_width, top)
+
+    # Header band.
+    header_height = 2.9 * cm
+    ensure_space(header_height + 12)
+    header_bottom = y - header_height
+    pdf.setFillColorRGB(*c_header_bg)
+    pdf.setStrokeColorRGB(*c_card_border)
+    pdf.roundRect(margin_x, header_bottom, content_width, header_height, 10, stroke=1, fill=1)
+    pdf.setFillColorRGB(*c_text)
+    pdf.setFont("Helvetica-Bold", 18)
+    pdf.drawString(margin_x + 12, y - 24, insights.get("title", "Session Analytics Report"))
+    pdf.setFont("Helvetica", 9)
+    pdf.setFillColorRGB(*c_muted)
+    pdf.drawString(
+        margin_x + 12,
+        y - 40,
+        (
+            f"Session {analytics.get('session_code', 'N/A')} | "
+            f"Teacher {analytics.get('teacher_name', 'N/A')} | "
+            f"Generated {report.get('generated_at', now_iso())}"
+        ),
+    )
+    y = header_bottom - 14
+
+    draw_heading("Executive Summary", gap_before=2, gap_after=12)
+    draw_paragraph(insights.get("executive_summary", "No executive summary available."))
+
+    draw_heading("Core Metrics", gap_before=10, gap_after=12)
+    card_x, card_bottom, card_width, card_top = draw_info_card(104)
+    card_pad = 12
+    col_w = (card_width - (card_pad * 2)) / 2
+    metric_rows = [
+        ("Duration", f"{analytics.get('duration_seconds', 0)}s"),
+        ("Students", str(analytics.get("student_count", 0))),
+        ("Engagement", f"{engagement.get('score', 0)} / 100"),
+        ("Confusion", f"{analytics.get('confusion_level_percent', 0)}%"),
+        ("Break votes", str(analytics.get("break_votes", 0))),
+        (
+            "Quiz accuracy",
+            f"{round(float(quiz.get('accuracy', 0.0)) * 100)}% ({quiz.get('correct_answers', 0)}/{quiz.get('total_answers', 0)})",
+        ),
+    ]
+    for idx, (label, value) in enumerate(metric_rows):
+        col = idx % 2
+        row = idx // 2
+        x = card_x + card_pad + (col * col_w)
+        row_y = card_top - 20 - (row * 28)
+        pdf.setFont("Helvetica", 9)
+        pdf.setFillColorRGB(*c_muted)
+        pdf.drawString(x, row_y, label)
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.setFillColorRGB(*c_text)
+        pdf.drawString(x, row_y - 12, value)
+
+    draw_heading("Student Engagement Trend", gap_before=10, gap_after=12)
+    chart_block_h = 188
+    block_x, block_bottom, block_w, block_top = draw_info_card(chart_block_h)
+
+    legend_y = block_top - 16
+    pdf.setFillColorRGB(*c_engagement)
+    pdf.rect(block_x + 12, legend_y - 4, 10, 6, stroke=0, fill=1)
+    pdf.setFillColorRGB(*c_text)
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(block_x + 26, legend_y - 3, "Engagement")
+    pdf.setFillColorRGB(*c_confusion)
+    pdf.rect(block_x + 96, legend_y - 4, 10, 6, stroke=0, fill=1)
+    pdf.setFillColorRGB(*c_text)
+    pdf.drawString(block_x + 110, legend_y - 3, "Confusion")
+
+    chart_left = block_x + 18
+    chart_right = block_x + block_w - 14
+    chart_width = chart_right - chart_left
+    chart_bottom = block_bottom + 26
+    chart_height = chart_block_h - 52
+
+    pdf.setStrokeColorRGB(*c_grid)
+    pdf.setLineWidth(0.6)
+    for value in [0, 25, 50, 75, 100]:
+        y_tick = chart_bottom + (chart_height * (value / 100.0))
+        pdf.line(chart_left, y_tick, chart_right, y_tick)
+        pdf.setFillColorRGB(*c_muted)
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(chart_left - 16, y_tick - 2, str(value))
+
+    pdf.setStrokeColorRGB(0.72, 0.77, 0.84)
+    pdf.setLineWidth(1)
+    pdf.line(chart_left, chart_bottom, chart_left, chart_bottom + chart_height)
+    pdf.line(chart_left, chart_bottom, chart_right, chart_bottom)
+
+    x_max = max(float(duration_seconds), max((point["elapsed"] for point in line_points), default=1.0), 1.0)
+
+    def draw_series(key: str, color: tuple[float, float, float]) -> None:
+        pdf.setStrokeColorRGB(*color)
+        pdf.setFillColorRGB(*color)
+        pdf.setLineWidth(1.8)
+        for idx in range(1, len(line_points)):
+            p1 = line_points[idx - 1]
+            p2 = line_points[idx]
+            x1 = chart_left + (p1["elapsed"] / x_max) * chart_width
+            y1 = chart_bottom + (p1[key] / 100.0) * chart_height
+            x2 = chart_left + (p2["elapsed"] / x_max) * chart_width
+            y2 = chart_bottom + (p2[key] / 100.0) * chart_height
+            pdf.line(x1, y1, x2, y2)
+        for point in line_points:
+            x = chart_left + (point["elapsed"] / x_max) * chart_width
+            y_point = chart_bottom + (point[key] / 100.0) * chart_height
+            pdf.circle(x, y_point, 1.5, stroke=0, fill=1)
+
+    draw_series("engagement", c_engagement)
+    draw_series("confusion", c_confusion)
+
+    pdf.setFillColorRGB(*c_muted)
+    pdf.setFont("Helvetica", 8)
+    pdf.drawString(chart_left, chart_bottom - 14, "Session timeline (seconds)")
+    pdf.drawRightString(chart_right, chart_bottom - 14, f"{int(round(x_max))}s")
+
+    draw_heading("Quiz Performance Visualization", gap_before=10, gap_after=12)
+    quiz_block_h = 120
+    q_x, q_bottom, q_w, q_top = draw_info_card(quiz_block_h)
+    q_chart_left = q_x + 14
+    q_chart_right = q_x + q_w - 14
+    q_chart_w = q_chart_right - q_chart_left
+
+    total_answers = int(quiz.get("total_answers", 0))
+    correct_answers = int(quiz.get("correct_answers", 0))
+    incorrect_answers = max(total_answers - correct_answers, 0)
+    student_count = int(analytics.get("student_count", 0))
+    unanswered = max(student_count - total_answers, 0)
+    max_bar = max(student_count, total_answers, 1)
+
+    quiz_bars = [
+        ("Correct", correct_answers, c_quiz_correct),
+        ("Incorrect", incorrect_answers, c_quiz_incorrect),
+        ("Unanswered", unanswered, c_quiz_unanswered),
+    ]
+
+    for idx, (label, value, color) in enumerate(quiz_bars):
+        row_y = q_top - 24 - (idx * 30)
+        bar_w = (value / max_bar) * (q_chart_w - 88)
+        pdf.setFillColorRGB(*c_muted)
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(q_chart_left, row_y, label)
+        pdf.setFillColorRGB(0.92, 0.94, 0.97)
+        pdf.roundRect(q_chart_left + 56, row_y - 7, q_chart_w - 88, 10, 3, stroke=0, fill=1)
+        pdf.setFillColorRGB(*color)
+        pdf.roundRect(q_chart_left + 56, row_y - 7, max(bar_w, 0.5), 10, 3, stroke=0, fill=1)
+        pdf.setFillColorRGB(*c_text)
+        pdf.setFont("Helvetica-Bold", 9)
+        pdf.drawRightString(q_chart_right, row_y, str(value))
+
+    accuracy_pct = round(float(quiz.get("accuracy", 0.0)) * 100)
+    participation_pct = round((total_answers / max(student_count, 1)) * 100) if student_count else 0
+    pdf.setFont("Helvetica", 9)
+    pdf.setFillColorRGB(*c_muted)
+    pdf.drawString(q_chart_left, q_bottom + 10, f"Accuracy: {accuracy_pct}%")
+    pdf.drawString(q_chart_left + 112, q_bottom + 10, f"Participation: {participation_pct}%")
+
+    draw_heading("Key Findings", gap_before=12, gap_after=12)
+    draw_bullets(insights.get("key_findings", []))
+
+    draw_heading("Risks", gap_before=12, gap_after=12)
+    draw_bullets(insights.get("risks", []))
+
+    draw_heading("Recommendations", gap_before=12, gap_after=12)
+    draw_bullets(insights.get("recommendations", []))
+
+    draw_heading("Connected Students", gap_before=12, gap_after=12)
+    if students:
+        for student in students[:25]:
+            draw_paragraph(
+                f"{student.get('name', 'Unknown')} (id: {student.get('client_id', 'n/a')}) - "
+                f"time in session: {student.get('time_in_session_seconds', 0)}s",
+                size=10,
+                leading=13,
+            )
+    else:
+        draw_paragraph("No student connection records were captured for this report.")
+
+    pdf.save()
+    return buffer.getvalue()
+
+
+app = FastAPI(title="VIA LIVE", version="1.0.0")
 
 
 def parse_allowed_origins(raw: str) -> list[str]:
@@ -933,11 +1949,11 @@ def list_library_sessions(authorization: str | None = Header(default=None)) -> d
         """
         SELECT code, created_at, teacher_name, active
         FROM sessions
-        WHERE teacher_name = ?
+        WHERE owner_user_id = ? OR (owner_user_id IS NULL AND teacher_name = ?)
         ORDER BY datetime(created_at) DESC
         LIMIT 100
         """,
-        (user["display_name"],),
+        (user["id"], user["display_name"]),
     )
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
@@ -960,14 +1976,19 @@ async def upload_presentation(
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT code, teacher_name FROM sessions WHERE code = ?",
+        "SELECT code, teacher_name, owner_user_id FROM sessions WHERE code = ?",
         (normalized_session_code,),
     )
     session_row = cursor.fetchone()
     conn.close()
     if not session_row:
         raise HTTPException(status_code=404, detail="Session not found")
-    if session_row["teacher_name"] != user["display_name"]:
+    session_owner_id = session_row["owner_user_id"]
+    is_owner = (
+        (session_owner_id is not None and session_owner_id == user["id"])
+        or (session_owner_id is None and session_row["teacher_name"] == user["display_name"])
+    )
+    if not is_owner:
         raise HTTPException(status_code=403, detail="You can only upload files for your own sessions")
 
     original_name = (file.filename or "presentation").strip() or "presentation"
@@ -1032,7 +2053,7 @@ def list_presentations(
 
     if normalized_session_code:
         cursor.execute(
-            "SELECT teacher_name FROM sessions WHERE code = ?",
+            "SELECT teacher_name, owner_user_id FROM sessions WHERE code = ?",
             (normalized_session_code,),
         )
         session_row = cursor.fetchone()
@@ -1040,19 +2061,21 @@ def list_presentations(
             conn.close()
             raise HTTPException(status_code=404, detail="Session not found")
 
-        is_session_owner = session_row["teacher_name"] == user["display_name"]
+        session_owner_id = session_row["owner_user_id"]
+        is_session_owner = (
+            (session_owner_id is not None and session_owner_id == user["id"])
+            or (session_owner_id is None and session_row["teacher_name"] == user["display_name"])
+        )
         if is_session_owner:
             cursor.execute(
                 """
-                SELECT p.id, p.session_code, p.original_name, p.mime_type, p.size_bytes, p.created_at
-                FROM presentations p
-                JOIN sessions s ON s.code = p.session_code
+                                SELECT p.id, p.session_code, p.original_name, p.mime_type, p.size_bytes, p.created_at
+                                FROM presentations p
                 WHERE p.user_id = ?
                   AND p.session_code = ?
-                  AND s.teacher_name = ?
                 ORDER BY datetime(p.created_at) DESC
                 """,
-                (user["id"], normalized_session_code, user["display_name"]),
+                                (user["id"], normalized_session_code),
             )
         else:
             cursor.execute(
@@ -1062,7 +2085,10 @@ def list_presentations(
                 JOIN sessions s ON s.code = p.session_code
                 JOIN users u ON u.id = p.user_id
                 WHERE p.session_code = ?
-                  AND s.teacher_name = u.display_name
+                                    AND (
+                                        (s.owner_user_id IS NOT NULL AND s.owner_user_id = u.id)
+                                        OR (s.owner_user_id IS NULL AND s.teacher_name = u.display_name)
+                                    )
                 ORDER BY datetime(p.created_at) DESC
                 """,
                 (normalized_session_code,),
@@ -1106,48 +2132,12 @@ def download_presentation(
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-
-    if normalized_session_code:
-        cursor.execute("SELECT teacher_name FROM sessions WHERE code = ?", (normalized_session_code,))
-        session_row = cursor.fetchone()
-        if not session_row:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        is_session_owner = session_row["teacher_name"] == user["display_name"]
-        if is_session_owner:
-            cursor.execute(
-                """
-                SELECT id, session_code, original_name, stored_name, mime_type
-                FROM presentations
-                WHERE id = ? AND user_id = ?
-                """,
-                (presentation_id, user["id"]),
-            )
-        else:
-            cursor.execute(
-                """
-                SELECT p.id, p.session_code, p.original_name, p.stored_name, p.mime_type
-                FROM presentations p
-                JOIN sessions s ON s.code = p.session_code
-                JOIN users u ON u.id = p.user_id
-                WHERE p.id = ?
-                  AND p.session_code = ?
-                  AND s.teacher_name = u.display_name
-                """,
-                (presentation_id, normalized_session_code),
-            )
-    else:
-        cursor.execute(
-            """
-            SELECT id, session_code, original_name, stored_name, mime_type
-            FROM presentations
-            WHERE id = ? AND user_id = ?
-            """,
-            (presentation_id, user["id"]),
-        )
-
-    row = cursor.fetchone()
+    row = get_accessible_presentation_row(
+        cursor,
+        user=user,
+        presentation_id=presentation_id,
+        normalized_session_code=normalized_session_code,
+    )
     conn.close()
 
     if not row:
@@ -1161,6 +2151,59 @@ def download_presentation(
         path=file_path,
         filename=row["original_name"],
         media_type=row["mime_type"] or "application/octet-stream",
+    )
+
+
+@app.post("/api/presentations/{presentation_id}/notes-png")
+def generate_presentation_notes_png(
+    presentation_id: int,
+    session_code: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+) -> Response:
+    user = require_user(authorization)
+    normalized_session_code = (session_code or "").strip().upper() or None
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    row = get_accessible_presentation_row(
+        cursor,
+        user=user,
+        presentation_id=presentation_id,
+        normalized_session_code=normalized_session_code,
+    )
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+
+    file_path = UPLOADS_DIR / row["stored_name"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Stored file is missing")
+
+    try:
+        extracted_text = extract_text_from_presentation(
+            file_path,
+            row["original_name"],
+            row["mime_type"],
+        )
+        notes_text = build_student_notes_with_ai(extracted_text, row["original_name"])
+        png_bytes = render_notes_png(
+            title=f"Student Notes: {Path(row['original_name']).stem}",
+            notes_text=notes_text,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    safe_stem = Path(row["original_name"]).stem.replace('"', "").strip()[:70] or "presentation"
+    download_name = f"{safe_stem}-student-notes.png"
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_name}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -1241,14 +2284,18 @@ def list_saved_quizzes(authorization: str | None = Header(default=None)) -> dict
 
 
 @app.post("/api/sessions", response_model=SessionCreateResponse)
-def create_session(payload: SessionCreateRequest) -> SessionCreateResponse:
+def create_session(payload: SessionCreateRequest, authorization: str | None = Header(default=None)) -> SessionCreateResponse:
     teacher_name = payload.teacher_name.strip()
     if not teacher_name:
         raise HTTPException(status_code=400, detail="teacher_name is required")
 
+    user = get_user_by_token(parse_bearer_token(authorization))
+    owner_user_id = user["id"] if user else None
+
     code = generate_session_code()
     SESSIONS[code] = RuntimeSession(code=code, teacher_name=teacher_name)
-    insert_session(code, teacher_name)
+    record_engagement_point(SESSIONS[code], "session_created")
+    insert_session(code, teacher_name, owner_user_id=owner_user_id)
     return SessionCreateResponse(code=code)
 
 
@@ -1272,6 +2319,7 @@ async def end_session(code: str) -> dict[str, Any]:
 
     session.active = False
     session.ended_at_epoch = time.time()
+    record_engagement_point(session, "session_ended")
     set_session_active(code, False)
 
     report = build_full_analytics_report(session)
@@ -1304,6 +2352,26 @@ async def end_session(code: str) -> dict[str, Any]:
     return report
 
 
+@app.get("/api/sessions/{code}/report.pdf")
+def download_session_report_pdf(code: str) -> Response:
+    code = code.upper()
+    session = SESSIONS.get(code)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    report = session.final_report if session.final_report is not None else build_full_analytics_report(session)
+    if session.final_report_insights is None:
+        session.final_report_insights = build_analytics_insights_with_ai(report)
+
+    pdf_bytes = generate_session_report_pdf(report, session.final_report_insights)
+    filename = f"session-{code}-analytics-report.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.websocket("/ws/{code}")
 async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) -> None:
     code = code.upper()
@@ -1328,6 +2396,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
     client_id = str(uuid.uuid4())
     state = ClientState(client_id=client_id, websocket=websocket, role=role, name=name)
     session.clients[client_id] = state
+    record_engagement_point(session, "participant_joined")
 
     insert_event(code, "join", {"client_id": client_id, "role": role, "name": name})
 
@@ -1409,6 +2478,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 state.confusion_signals_sent += 1
                 state.last_active_at = now_epoch
                 insert_event(code, "confusion", {"client_id": client_id, "level": 1.0})
+                record_engagement_point(session, "confusion")
                 await broadcast(
                     session,
                     {
@@ -1439,6 +2509,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 state.last_active_at = now
                 session.break_votes.add(client_id)
                 insert_event(code, "break_vote", {"client_id": client_id})
+                record_engagement_point(session, "break_vote")
 
                 student_count = max(session.student_count, 1)
                 ratio = len(session.break_votes) / student_count
@@ -1471,6 +2542,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 session.break_active_until = time.time() + duration
                 session.break_votes.clear()
                 insert_event(code, "break_start", {"duration_seconds": duration})
+                record_engagement_point(session, "break_start")
 
                 await broadcast(
                     session,
@@ -1492,6 +2564,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     session.break_active_until = None
                     session.break_votes.clear()
                     insert_event(code, "break_cancelled", {"by": client_id})
+                    record_engagement_point(session, "break_cancelled")
                     await broadcast(session, {"type": "break_ended", "payload": {"reason": "cancelled"}})
                     await broadcast(
                         session,
@@ -1523,6 +2596,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                         session.break_active_until = None
                         session.break_votes.clear()
                         insert_event(code, "break_adjusted", {"delta_seconds": delta_seconds, "ended": True})
+                        record_engagement_point(session, "break_adjusted_end")
                         await broadcast(session, {"type": "break_ended", "payload": {"reason": "adjusted_to_zero"}})
                         await broadcast(
                             session,
@@ -1541,6 +2615,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                                 "end_time_epoch": session.break_active_until,
                             },
                         )
+                        record_engagement_point(session, "break_adjusted")
                         await broadcast(
                             session,
                             {
@@ -1588,6 +2663,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 session.quiz_hidden = False
                 session.quiz_cover_mode = True
                 session.quiz_voting_closed = False
+                record_engagement_point(session, "quiz_generated")
                 insert_event(
                     code,
                     "quiz_generated",
@@ -1632,6 +2708,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                         "voting_closed": session.quiz_voting_closed,
                     },
                 )
+                record_engagement_point(session, "quiz_control")
 
                 await broadcast(
                     session,
@@ -1662,6 +2739,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     state.quiz_correct_answers += 1
                 state.last_active_at = time.time()
                 insert_event(code, "quiz_answer", {"client_id": client_id, "option_id": option_id})
+                record_engagement_point(session, "quiz_answer")
 
                 summary = analytics_for_session(session)["quiz"]
                 await broadcast(
@@ -1732,6 +2810,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
         pass
     finally:
         session.clients.pop(client_id, None)
+        record_engagement_point(session, "participant_left")
         insert_event(code, "leave", {"client_id": client_id, "role": role, "name": name})
         await broadcast(
             session,

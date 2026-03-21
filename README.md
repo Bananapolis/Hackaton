@@ -39,6 +39,7 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 - `GET /api/auth/me` returns the authenticated profile.
 - `GET /api/library/sessions` returns historical sessions for the authenticated teacher name.
 - `POST /api/presentations`, `GET /api/presentations`, and `GET /api/presentations/{id}/download` manage uploaded presentation files per account.
+- `POST /api/presentations/{id}/notes-png` generates student-friendly AI notes from a presentation and returns a downloadable PNG.
 - `POST /api/quizzes/save` and `GET /api/quizzes` manage a per-account quiz library.
 - `GET /health` provides health status.
 - `WS /ws/{code}?role=teacher|student&name=...` handles:
@@ -80,6 +81,7 @@ SQLite stores:
 	- open a trophy-based class awards modal with rankings like most active student and most correct answers.
 	- open a sessions/files/quizzes library panel,
 	- upload and download presentation files,
+	- generate student-friendly notes PNG from uploaded presentation files via AI,
 	- save live generated quizzes into a persistent account-level quiz library.
 - Student can:
 	- join via session code,
@@ -111,7 +113,7 @@ The backend sends notes to Gemini when configured.
 * **UC-T5: Note Distribution:** Create and push shared text notes to the student interface during the live session.
 * **UC-T6: Analytics & Awards Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, class awards (e.g. most active student / most correct answers), and exported notes.
 * **UC-T6: Analytics Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, and exported notes.
-* **UC-T7: Session Closure & Report Export:** End the live session from settings and download a full analytics report (JSON) with engagement score, participation rates, and quiz outcomes.
+* **UC-T7: Session Closure & Report Export:** End the live session from settings and download a full analytics PDF report with engagement score, participation rates, quiz outcomes, AI-generated insight recommendations, a dual-series engagement/confusion trend graph over session duration, and quiz performance visualization.
 
 ### Actor 2: Student (Client)
 
