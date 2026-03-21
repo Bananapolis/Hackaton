@@ -1809,7 +1809,6 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
     return buffer.getvalue()
 
 
-app = FastAPI(title="Edu Engagement MVP API", version="1.0.0")
 app = FastAPI(title="VIA LIVE", version="1.0.0")
 
 
