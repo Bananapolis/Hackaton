@@ -63,7 +63,7 @@ const quizPromptPresets = [
   },
 ]
 
-function loadSessionPreferences() {
+export function loadSessionPreferences() {
   if (typeof window === 'undefined') {
     return { role: 'student', name: '', sessionCode: '' }
   }
@@ -84,7 +84,7 @@ function loadSessionPreferences() {
   }
 }
 
-async function postJson(path, body) {
+export async function postJson(path, body) {
   const response = await fetch(`${config.apiBase}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -99,7 +99,7 @@ async function postJson(path, body) {
   return response.json()
 }
 
-async function apiRequest(path, { method = 'GET', body, token, isFormData = false } = {}) {
+export async function apiRequest(path, { method = 'GET', body, token, isFormData = false } = {}) {
   const headers = {}
   if (!isFormData) {
     headers['Content-Type'] = 'application/json'
@@ -129,7 +129,7 @@ async function apiRequest(path, { method = 'GET', body, token, isFormData = fals
   return response.json()
 }
 
-function Icon({ name, className = 'h-5 w-5' }) {
+export function Icon({ name, className = 'h-5 w-5' }) {
   const icons = {
     settings: Settings,
     notes: FileText,

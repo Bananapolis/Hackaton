@@ -203,10 +203,24 @@ If backend is not on `http://localhost:9000`, set `VITE_API_BASE` in frontend en
 make backend-check
 ```
 
+- Backend test suite + coverage gate (fails below 85%):
+
+```bash
+cd backend
+./.venv/bin/python -m pytest
+```
+
 - Frontend production build:
 
 ```bash
 make frontend-build
+```
+
+- Frontend test suite + coverage gate:
+
+```bash
+cd frontend
+npm run test:coverage
 ```
 
 ### 5.5 Desktop client (Windows/macOS/Linux)
@@ -254,6 +268,8 @@ If the server was compromised or rebuilt, use the hardened recovery runbook in [
 - HTTPS termination: [deploy/Caddyfile](deploy/Caddyfile) (automatic Let's Encrypt on `vialive.libreuni.com`)
 - Full step-by-step runbook: [DEPLOYMENT.md](DEPLOYMENT.md)
 - Starter CI/CD pipeline: [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
+
+CI now blocks deploy unless both backend and frontend pass automated tests with coverage thresholds.
 
 For production demos, HTTPS is mandatory for reliable WebRTC behavior and is now handled directly by Docker Compose.
 

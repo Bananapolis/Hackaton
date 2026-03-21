@@ -2,6 +2,14 @@
 
 ## 2026-03-21
 
+- Added broad automated test coverage across backend and frontend, and enforced coverage in CI:
+  - backend: introduced `pytest` + `pytest-cov` and new suite in [backend/tests/test_main.py](backend/tests/test_main.py),
+  - backend: added [backend/pytest.ini](backend/pytest.ini) with coverage fail-under gate,
+  - frontend: introduced Vitest + Testing Library stack and component/helper tests in [frontend/src/components/CountdownBanner.test.jsx](frontend/src/components/CountdownBanner.test.jsx), [frontend/src/components/QuizOverlay.test.jsx](frontend/src/components/QuizOverlay.test.jsx), [frontend/src/components/SessionQRCode.test.jsx](frontend/src/components/SessionQRCode.test.jsx), [frontend/src/components/StatCard.test.jsx](frontend/src/components/StatCard.test.jsx), [frontend/src/App.helpers.test.jsx](frontend/src/App.helpers.test.jsx), and [frontend/src/config.test.js](frontend/src/config.test.js),
+  - frontend: added test scripts/dependencies in [frontend/package.json](frontend/package.json) and Vitest coverage thresholds in [frontend/vite.config.js](frontend/vite.config.js),
+  - CI: updated [.github/workflows/deploy.yml](.github/workflows/deploy.yml) so deploy depends on backend tests+coverage and frontend tests+coverage + build,
+  - docs: added local test/coverage commands and CI quality-gate note in [README.md](README.md).
+
 - Hardened GitHub Actions deployment reliability in [.github/workflows/deploy.yml](.github/workflows/deploy.yml):
   - upgraded `actions/checkout` to `v5` and `actions/setup-node` to `v5` to avoid Node 20 deprecation warnings,
   - upgraded `actions/setup-python` to `v6` for newer runtime compatibility,
@@ -9,6 +17,10 @@
   - added explicit deploy-secret validation with clear missing-secret error messages,
   - added robust SSH private-key normalization to support both multiline and `\\n`-escaped secret formats,
   - kept deploy command as `bash ./scripts/deploy-update.sh` on server for consistency.
+- Fixed backend CI test collection import failures (`ModuleNotFoundError: app`):
+  - added [backend/tests/conftest.py](backend/tests/conftest.py) to prepend backend root to `sys.path` during pytest collection,
+  - updated backend CI test step in [.github/workflows/deploy.yml](.github/workflows/deploy.yml) to set `PYTHONPATH=.`,
+  - installed `pytest-asyncio` in CI so configured asyncio pytest options are recognized.
 
 - Updated deployment documentation for post-compromise recovery:
   - expanded [DEPLOYMENT.md](DEPLOYMENT.md) into a full start-to-finish rebuild runbook,
