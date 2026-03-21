@@ -1,4 +1,12 @@
-name: CI/CD Pipeline
+import re
+
+with open('.github/workflows/deploy.yml', 'r') as f:
+    content = f.read()
+
+deploy_job_index = content.find('  deploy:')
+deploy_job = content[deploy_job_index:]
+
+new_header = """name: CI/CD Pipeline
 
 on:
   push:
@@ -112,54 +120,9 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: [test-backend, test-frontend]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    steps:
-      - name: Validate deploy secrets
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "$SSH_HOST" ]; then
-            echo "Missing required repository secret: SSH_HOST" >&2
-            exit 1
-          fi
-          if [ -z "$SSH_USER" ]; then
-            echo "Missing required repository secret: SSH_USER" >&2
-            exit 1
-          fi
-          if [ -z "$SSH_PRIVATE_KEY" ]; then
-            echo "Missing required repository secret: SSH_PRIVATE_KEY" >&2
-            exit 1
-          fi
+"""
 
-      - name: Prepare SSH key
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          python - <<'PY'
-          import os
-          key = os.environ["SSH_PRIVATE_KEY"].replace("\r", "")
-          if "\\n" in key:
-              key = key.replace("\\n", "\n")
-          with open(os.path.expanduser("~/.ssh/deploy_key"), "w", encoding="utf-8") as f:
-              f.write(key)
-              if not key.endswith("\n"):
-                  f.write("\n")
-          PY
-          chmod 600 ~/.ssh/deploy_key
+with open('.github/workflows/deploy.yml', 'w') as f:
+    f.write(new_header + deploy_job)
 
-      - name: Deploy over SSH
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-        run: |
-          set -euo pipefail
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
-            'cd /home/deploy/apps/app && bash ./scripts/deploy-update.sh'
+print("Workflow updated successfully")

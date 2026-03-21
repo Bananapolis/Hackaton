@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">
-<coverage lines-valid="1921" lines-covered="860" line-rate="0.4476" branches-valid="239" branches-covered="150" branch-rate="0.6275999999999999" timestamp="1774081110378" complexity="0" version="0.1">
+<coverage lines-valid="1921" lines-covered="860" line-rate="0.4476" branches-valid="239" branches-covered="150" branch-rate="0.6275999999999999" timestamp="1774081366909" complexity="0" version="0.1">
   <sources>
     <source>/home/edf/Documents/GitSynced/Hackaton/frontend</source>
   </sources>

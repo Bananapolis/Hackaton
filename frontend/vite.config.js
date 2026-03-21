@@ -7,6 +7,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.js',
+    reporters: ['default', 'junit'],
+    outputFile: {
+      junit: 'vitest-results.xml',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'lcov', 'cobertura'],
