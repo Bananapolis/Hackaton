@@ -1,0 +1,64 @@
+{
+  "name": "vialive-desktop-client",
+  "version": "1.0.0",
+  "private": true,
+  "author": {
+    "name": "Bananapolis",
+    "email": "bananapolis@libreuni.com"
+  },
+  "license": "UNLICENSED",
+  "homepage": "https://vialive.libreuni.com",
+  "description": "Minimal desktop wrapper for vialive.libreuni.com",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack:linux": "electron-builder --linux dir --publish never",
+    "dist": "electron-builder --publish never",
+    "dist:linux:appimage": "electron-builder --linux AppImage --publish never",
+    "dist:linux:deb": "electron-builder --linux deb --publish never",
+    "dist:linux:rpm": "electron-builder --linux rpm --publish never",
+    "dist:linux": "electron-builder --linux AppImage deb --publish never",
+    "dist:linux:all": "electron-builder --linux AppImage deb rpm --publish never",
+    "dist:win": "electron-builder --win nsis --publish never",
+    "dist:mac": "electron-builder --mac dmg --publish never"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.libreuni.vialive.client",
+    "productName": "VIALiveClient",
+    "asar": true,
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.education"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "executableName": "vialive-client",
+      "category": "Education",
+      "maintainer": "Bananapolis <bananapolis@libreuni.com>"
+    },
+    "publish": null
+  }
+}

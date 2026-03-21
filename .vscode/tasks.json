@@ -107,6 +107,135 @@
       "problemMatcher": []
     },
     {
+      "label": "Desktop: Install deps",
+      "type": "shell",
+      "command": "npm install",
+      "windows": {
+        "command": "npm install"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Run app",
+      "type": "shell",
+      "command": "npm run start",
+      "windows": {
+        "command": "npm run start"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Pack Linux (dir)",
+      "type": "shell",
+      "command": "npm run pack:linux",
+      "windows": {
+        "command": "npm run pack:linux"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Dist Linux (AppImage+deb)",
+      "type": "shell",
+      "command": "npm run dist:linux",
+      "windows": {
+        "command": "npm run dist:linux"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Dist Linux (AppImage+deb+rpm)",
+      "type": "shell",
+      "command": "npm run dist:linux:all",
+      "windows": {
+        "command": "npm run dist:linux:all"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Dist Linux (AppImage)",
+      "type": "shell",
+      "command": "npm run dist:linux:appimage",
+      "windows": {
+        "command": "npm run dist:linux:appimage"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Dist Linux (deb)",
+      "type": "shell",
+      "command": "npm run dist:linux:deb",
+      "windows": {
+        "command": "npm run dist:linux:deb"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Dist Linux (rpm)",
+      "type": "shell",
+      "command": "npm run dist:linux:rpm",
+      "windows": {
+        "command": "npm run dist:linux:rpm"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Dist Windows (NSIS)",
+      "type": "shell",
+      "command": "npm run dist:win",
+      "windows": {
+        "command": "npm run dist:win"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Dist macOS (DMG)",
+      "type": "shell",
+      "command": "npm run dist:mac",
+      "windows": {
+        "command": "npm run dist:mac"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/desktop"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: Install + Dist Linux",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Desktop: Install deps",
+        "Desktop: Dist Linux (AppImage+deb)"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "Run Full Stack (dev)",
       "dependsOrder": "sequence",
       "dependsOn": [

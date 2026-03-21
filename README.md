@@ -143,6 +143,10 @@ The backend sends notes to Gemini when configured.
 │   ├── postcss.config.js
 │   ├── tailwind.config.js
 │   └── vite.config.js
+├── desktop/
+│   ├── main.cjs
+│   ├── preload.cjs
+│   └── package.json
 ├── .agent/CONTINUITY.md
 ├── .gitignore
 ├── Makefile
@@ -202,6 +206,34 @@ make backend-check
 ```bash
 make frontend-build
 ```
+
+### 5.5 Desktop client (Windows/macOS/Linux)
+
+A minimal Electron wrapper is included in [desktop/](desktop/). It opens only `https://vialive.libreuni.com` and does not bundle backend/frontend runtime code.
+
+Install dependencies:
+
+```bash
+make desktop-install
+```
+
+Package check (Linux unpacked app):
+
+```bash
+make desktop-pack-linux
+```
+
+Build installable packages (platform dependent):
+
+```bash
+cd desktop
+npm run dist:linux        # AppImage + .deb
+npm run dist:linux:rpm    # .rpm (run separately)
+npm run dist:win     # NSIS installer (requires Windows toolchain)
+npm run dist:mac     # DMG (requires macOS)
+```
+
+Generated artifacts are written to `desktop/dist/`.
 
 ## 6. Deployment Protocol
 

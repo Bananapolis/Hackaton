@@ -1,5 +1,27 @@
 # Continuity Log
 
+## 2026-03-21
+
+- Added a cross-platform desktop client wrapper in [desktop/package.json](desktop/package.json), [desktop/main.cjs](desktop/main.cjs), and [desktop/preload.cjs](desktop/preload.cjs):
+  - Electron shell opens only `https://vialive.libreuni.com`,
+  - secure defaults (`sandbox`, `contextIsolation`, no Node integration),
+  - external popups are opened in the OS browser,
+  - packaging targets configured for Windows (NSIS), macOS (DMG), and Linux (AppImage, `.deb`, `.rpm`).
+- Added desktop build convenience targets in [Makefile](Makefile).
+- Added desktop-focused VS Code tasks in [.vscode/tasks.json](.vscode/tasks.json) for dependency install, local run, and packaging (`pack:linux`, `dist:linux`, `dist:win`, `dist:mac`).
+- Updated desktop packaging metadata in [desktop/package.json](desktop/package.json) to Bananapolis ownership (`author` + `maintainer` email `bananapolis@libreuni.com`) and added homepage for package generation.
+- Added per-target Linux packaging scripts in [desktop/package.json](desktop/package.json): `dist:linux:appimage`, `dist:linux:deb`, `dist:linux:rpm`.
+- Added matching VS Code tasks in [.vscode/tasks.json](.vscode/tasks.json) so Linux artifacts can be built separately.
+- Verified AppImage and `.deb` generation successfully in `desktop/dist/`.
+- Fixed Electron desktop screen-share denial in [desktop/main.cjs](desktop/main.cjs) by adding trusted-origin permission handlers and display-media request handling (`session.setPermission*` + `setDisplayMediaRequestHandler`), including Linux PipeWire capture feature flag.
+- Investigated Linux RPM packaging failure on Nobara/Fedora (`rpmbuild` file-not-found during `%files` stage despite staged files). To keep developer flow green:
+  - changed default Linux dist script in [desktop/package.json](desktop/package.json) to build AppImage + `.deb` only,
+  - kept RPM generation as an explicit separate command (`dist:linux:rpm`) and optional all-target command (`dist:linux:all`),
+  - updated desktop task labels/depends in [.vscode/tasks.json](.vscode/tasks.json),
+  - updated packaging docs in [README.md](README.md).
+- Updated [README.md](README.md) with desktop packaging instructions.
+- Updated [.gitignore](.gitignore) to exclude desktop dependencies and packaging artifacts.
+
 ## 2026-03-20
 
 - Bootstrapped the full MVP system from scratch in this repository.
