@@ -298,6 +298,14 @@ Then rebuild web image:
 docker compose up -d --build web
 ```
 
+Persistent option for server deploy script:
+
+- Put the same key in `backend/.env` as a single-line value so `scripts/deploy-update.sh` can reuse it on each deploy:
+
+```bash
+VITE_RTC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:turn.your-domain.com:3478","username":"turn-user","credential":"turn-password"},{"urls":"turns:turn.your-domain.com:5349","username":"turn-user","credential":"turn-password"}]'
+```
+
 Notes:
 
 - TURN credentials are injected at frontend build time (Vite `VITE_*` variable).

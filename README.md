@@ -293,6 +293,12 @@ export VITE_RTC_ICE_SERVERS='[
 docker compose up -d --build web
 ```
 
+Verify TURN config reached the built frontend bundle:
+
+```bash
+docker compose exec web sh -lc "grep -R \"turn:\" -n /usr/share/nginx/html/assets || true"
+```
+
 Without TURN relay candidates, some cross-network/device pairs will fail even when signaling works.
 
 ### AI Provider Setup
