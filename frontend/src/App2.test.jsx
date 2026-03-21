@@ -25,12 +25,16 @@ describe('App Massive Coverage 2', () => {
       json: async () => ({ session_id: '123', code: 'ABC123' })
     });
 
-    const { getByPlaceholderText, getAllByRole, getByText, findByText } = render(<App />);
+    const { getByPlaceholderText, getAllByRole, queryAllByRole, getByText, findByText } = render(<App />);
     const user = userEvent.setup();
     
     // Switch to Host Mode just in case
-    const hostModeBtns = getAllByRole('button', { name: /Host mode/i });
+    const hostModeBtns = queryAllByRole('button', { name: /Host mode/i });
     if(hostModeBtns.length) await user.click(hostModeBtns[0]);
+    else {
+      const select = document.querySelector('select');
+      if (select) await user.selectOptions(select, 'teacher');
+    }
 
     // Just wait for it
     await new Promise((r) => setTimeout(r, 200));
@@ -40,7 +44,7 @@ describe('App Massive Coverage 2', () => {
     await user.clear(input);
     await user.type(input, 'Teacher Bob');
 
-    const startBtns = getAllByRole('button', { name: /Start Session/i });
+    const startBtns = queryAllByRole('button', { name: /(Host|Start) Session/i });
     if (startBtns.length > 0) {
         await user.click(startBtns[0]);
     }
@@ -55,11 +59,15 @@ describe('App Massive Coverage 2', () => {
       json: async () => ({ student_id: '456', message: 'Joined' })
     });
 
-    const { getByPlaceholderText, getAllByRole, getByText, findByText } = render(<App />);
+    const { getByPlaceholderText, getAllByRole, queryAllByRole, getByText, findByText } = render(<App />);
     const user = userEvent.setup();
     
-    const joinBtns = getAllByRole('button', { name: /Join mode/i });
+    const joinBtns = queryAllByRole('button', { name: /Join mode/i });
     if(joinBtns.length) await user.click(joinBtns[0]);
+    else {
+      const select = document.querySelector('select');
+      if (select) await user.selectOptions(select, 'student');
+    }
 
     await new Promise((r) => setTimeout(r, 200));
 
@@ -67,7 +75,7 @@ describe('App Massive Coverage 2', () => {
     await user.type(getByPlaceholderText(/Student name/i), 'Student Alice');
     await user.type(getByPlaceholderText(/ABC123/i), 'ABC123');
     
-    const startBtns = getAllByRole('button', { name: /Join Session/i });
+    const startBtns = queryAllByRole('button', { name: /Join Session/i });
     if (startBtns.length > 0) {
         await user.click(startBtns[0]);
     }
