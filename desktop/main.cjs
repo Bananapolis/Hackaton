@@ -91,7 +91,7 @@ function createWindow() {
   win.loadURL(APP_URL).catch(() => {
     win.loadURL(
       `data:text/html;charset=utf-8,${encodeURIComponent(
-        '<h2>Unable to open VIALive</h2><p>Please check your internet connection and try again.</p>'
+        '<h2>Unable to open VIA Live</h2><p>Please check your internet connection and try again.</p>'
       )}`
     );
   });

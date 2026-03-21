@@ -28,7 +28,7 @@
   },
   "build": {
     "appId": "com.libreuni.vialive.client",
-    "productName": "VIALiveClient",
+    "productName": "VIA Live",
     "asar": true,
     "files": [
       "main.cjs",

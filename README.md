@@ -1,4 +1,4 @@
-# Project Documentation: Real-Time Educational Engagement Platform (MVP)
+# Project Documentation: VIA Live (MVP)
 
 ## 1. Executive Summary
 

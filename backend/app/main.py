@@ -1809,7 +1809,7 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
     return buffer.getvalue()
 
 
-app = FastAPI(title="VIA LIVE", version="1.0.0")
+app = FastAPI(title="VIA Live", version="1.0.0")
 
 
 def parse_allowed_origins(raw: str) -> list[str]:
