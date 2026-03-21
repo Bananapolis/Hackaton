@@ -2,6 +2,8 @@
 
 ## 2026-03-21
 
+- Restored missing [frontend/vitest.config.js](frontend/vitest.config.js) so Vitest runs with global APIs (`describe`/`it`/`vi`), jsdom, JUnit output, and Cobertura coverage output; this unblocked frontend test execution and CI test artifact generation.
+
 - Added three high-impact hackathon presentation improvements in [backend/app/main.py](backend/app/main.py) and [frontend/src/App.jsx](frontend/src/App.jsx):
   - **Quiz Answer Reveal:** teacher can now reveal the correct answer and per-option vote distribution to all students mid-session via a green checkmark button in the quiz controls; correct option highlighted green, wrong choices red, each option shows animated % bar; voting auto-locks on reveal; backend broadcasts `correct_option_id` and `per_option` in `quiz_state`; `quiz_answer_revealed` field added to `RuntimeSession` and included in session-state snapshots for late joiners.
   - **AI Quiz Generation Timeout + Non-blocking:** moved synchronous `build_quiz_with_ai` to `asyncio.to_thread` so WebSocket event loop is no longer blocked during AI calls; added `asyncio.wait_for(..., timeout=AI_QUIZ_GENERATION_TIMEOUT_SECONDS)` (45s) with clear error message on timeout.
