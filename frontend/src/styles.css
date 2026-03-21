@@ -203,6 +203,76 @@ select {
   }
 }
 
+.mobile-topbar-scroll {
+  scrollbar-width: none;
+}
+
+.mobile-topbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 6.25rem);
+  }
+
+  .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 35;
+    margin: -0.15rem -0.15rem 0.65rem;
+    padding: 0.35rem;
+    background: rgba(244, 247, 251, 0.78);
+    backdrop-filter: blur(8px);
+    border-radius: 1rem;
+  }
+
+  .dark .app-header {
+    background: rgba(2, 6, 23, 0.7);
+  }
+
+  .app-main {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 0.75rem;
+  }
+
+  .app-stage {
+    min-height: 68vh !important;
+    border-radius: 1.25rem !important;
+  }
+
+  .app-aside {
+    border-radius: 1.25rem;
+  }
+
+  .mobile-stage-controls-wrap {
+    position: fixed !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    bottom: calc(env(safe-area-inset-bottom) + 0.5rem) !important;
+    z-index: 50;
+  }
+
+  .mobile-stage-controls {
+    gap: 0.35rem;
+    padding: 0.5rem 0.6rem;
+    max-width: calc(100vw - 0.8rem);
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    border-radius: 999px;
+    scrollbar-width: none;
+  }
+
+  .mobile-stage-controls::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-stage-controls button {
+    height: 2.75rem;
+    min-width: 2.75rem;
+  }
+}
+
 /* Startup presentation pages */
 .startup-site-shell {
   --startup-bg: #f7f3e8;

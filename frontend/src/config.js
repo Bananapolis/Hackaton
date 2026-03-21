@@ -2,7 +2,25 @@ const explicitApiBase = (import.meta.env.VITE_API_BASE || '').trim()
 const devApiTarget = (import.meta.env.VITE_DEV_API_TARGET || '').trim()
 const explicitRtcIceServers = (import.meta.env.VITE_RTC_ICE_SERVERS || '').trim()
 
-const fallbackIceServers = [{ urls: 'stun:stun.l.google.com:19302' }]
+const fallbackIceServers = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:global.stun.twilio.com:3478' },
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  }
+]
 
 function inferApiBase() {
   if (explicitApiBase) return explicitApiBase

@@ -33,6 +33,7 @@ import { QuizOverlay } from './components/QuizOverlay'
 import { SessionQRCode } from './components/SessionQRCode'
 import { StatCard } from './components/StatCard'
 
+const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
 const sessionPreferencesStorageKey = 'session-preferences-v1'
 const authTokenStorageKey = 'auth-token-v1'
 const authUserStorageKey = 'auth-user-v1'
@@ -211,28 +212,6 @@ function getVideoFullscreenState(videoElement) {
   )
 }
 
-function preferH264CodecForVideo(pc) {
-  if (!pc || typeof RTCRtpSender === 'undefined' || typeof RTCRtpSender.getCapabilities !== 'function') {
-    return
-  }
-
-  const capabilities = RTCRtpSender.getCapabilities('video')
-  const codecs = capabilities?.codecs || []
-  if (!codecs.length) return
-
-  const h264Codecs = codecs.filter((codec) => (codec.mimeType || '').toLowerCase() === 'video/h264')
-  if (!h264Codecs.length) return
-
-  const preferred = [...h264Codecs, ...codecs.filter((codec) => (codec.mimeType || '').toLowerCase() !== 'video/h264')]
-  const videoTransceiver = pc
-    .getTransceivers()
-    .find((transceiver) => transceiver?.sender?.track?.kind === 'video' && typeof transceiver.setCodecPreferences === 'function')
-
-  if (videoTransceiver) {
-    videoTransceiver.setCodecPreferences(preferred)
-  }
-}
-
 export function Icon({ name, className = 'h-5 w-5' }) {
   const icons = {
     settings: Settings,
@@ -271,7 +250,7 @@ function shuffleOptions(options) {
   const items = Array.isArray(options) ? [...options] : []
   for (let idx = items.length - 1; idx > 0; idx -= 1) {
     const swapIdx = Math.floor(Math.random() * (idx + 1))
-    ;[items[idx], items[swapIdx]] = [items[swapIdx], items[idx]]
+      ;[items[idx], items[swapIdx]] = [items[swapIdx], items[idx]]
   }
   return items
 }
@@ -420,7 +399,7 @@ function App() {
       setShowSessionPanel(true)
 
       if (getFullscreenElement() === stageContainerRef.current) {
-        exitStageFullscreen().catch(() => {})
+        exitStageFullscreen().catch(() => { })
       }
 
       setIsScreenMaximized(false)
@@ -439,8 +418,7 @@ function App() {
     const syncFullscreenState = () => {
       const fullscreenElement = getFullscreenElement()
       const activeVideo = isTeacher ? localVideoRef.current : remoteVideoRef.current
-      const videoFullscreen = getVideoFullscreenState(activeVideo)
-      setIsScreenMaximized(fullscreenElement === stageContainerRef.current || videoFullscreen)
+      setIsScreenMaximized(fullscreenElement === stageContainerRef.current || getVideoFullscreenState(activeVideo))
     }
 
     document.addEventListener('fullscreenchange', syncFullscreenState)
@@ -674,15 +652,15 @@ function App() {
       const payload =
         authMode === 'register'
           ? {
-              email: authEmail,
-              display_name: authDisplayName,
-              password: authPassword,
-              role: 'teacher',
-            }
+            email: authEmail,
+            display_name: authDisplayName,
+            password: authPassword,
+            role: 'teacher',
+          }
           : {
-              email: authEmail,
-              password: authPassword,
-            }
+            email: authEmail,
+            password: authPassword,
+          }
 
       const data = await apiRequest(path, {
         method: 'POST',
@@ -1194,7 +1172,6 @@ function App() {
         for (const track of stream.getTracks()) {
           pc.addTrack(track, stream)
         }
-        preferH264CodecForVideo(pc)
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
         send('signal', { target_id: studentId, description: offer })
@@ -1209,7 +1186,7 @@ function App() {
     let pc = peerConnectionsRef.current.get(targetId)
     if (pc) return pc
 
-    pc = new RTCPeerConnection(config.rtcConfig)
+    pc = new RTCPeerConnection(rtcConfig)
     peerConnectionsRef.current.set(targetId, pc)
 
     pc.onicecandidate = (event) => {
@@ -1223,25 +1200,7 @@ function App() {
 
     pc.ontrack = (event) => {
       if (!isTeacher && remoteVideoRef.current) {
-        const videoElement = remoteVideoRef.current
-        videoElement.srcObject = event.streams[0] || new MediaStream([event.track])
-
-        // iOS Safari may block autoplay when audio is present; fallback to muted playback.
-        const ensurePlayback = async () => {
-          videoElement.playsInline = true
-          videoElement.autoplay = true
-          try {
-            await videoElement.play()
-          } catch {
-            videoElement.muted = true
-            await videoElement.play().catch(() => {})
-          }
-        }
-
-        void ensurePlayback()
-        videoElement.onloadedmetadata = () => {
-          void ensurePlayback()
-        }
+        remoteVideoRef.current.srcObject = event.streams[0]
       }
     }
 
@@ -1249,7 +1208,6 @@ function App() {
       for (const track of localStreamRef.current.getTracks()) {
         pc.addTrack(track, localStreamRef.current)
       }
-      preferH264CodecForVideo(pc)
     }
 
     return pc
@@ -1257,7 +1215,6 @@ function App() {
 
   async function createOfferForStudent(studentId) {
     const pc = await createPeerConnection(studentId)
-    preferH264CodecForVideo(pc)
     const offer = await pc.createOffer()
     await pc.setLocalDescription(offer)
     send('signal', { target_id: studentId, description: offer })
@@ -1271,6 +1228,14 @@ function App() {
       const description = new RTCSessionDescription(payload.description)
       await pc.setRemoteDescription(description)
 
+      // 1. Process any candidates that arrived early and were queued
+      if (pc.candidateQueue) {
+        for (const queuedCandidate of pc.candidateQueue) {
+          await pc.addIceCandidate(queuedCandidate).catch(console.error)
+        }
+        pc.candidateQueue = []
+      }
+
       if (description.type === 'offer') {
         const answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
@@ -1279,10 +1244,20 @@ function App() {
     }
 
     if (payload.candidate) {
-      await pc.addIceCandidate(new RTCIceCandidate(payload.candidate))
+      try {
+        const candidate = new RTCIceCandidate(payload.candidate)
+        // 2. If remoteDescription is set, add normally. Otherwise, queue it!
+        if (pc.remoteDescription) {
+          await pc.addIceCandidate(candidate)
+        } else {
+          pc.candidateQueue = pc.candidateQueue || []
+          pc.candidateQueue.push(candidate)
+        }
+      } catch (err) {
+        console.error('Failed to add ICE candidate', err)
+      }
     }
   }
-
   function disconnect() {
     wsRef.current?.close()
     setJoined(false)
@@ -1394,8 +1369,7 @@ function App() {
           }
           setIsScreenMaximized(false)
         } else {
-          // iOS requires fullscreen requests from direct user gestures; ensure playback is active first.
-          await activeVideo.play().catch(() => {})
+          await activeVideo.play().catch(() => { })
           const result = enterVideoFullscreen.call(activeVideo)
           if (result instanceof Promise) {
             await result
@@ -1588,19 +1562,6 @@ function App() {
     setStatus('Replay closed. Live frame buffer resumed.')
   }
 
-  function handleStudentVideoTap() {
-    if (isTeacher) return
-    const videoElement = remoteVideoRef.current
-    if (!videoElement) return
-
-    if (videoElement.muted) {
-      videoElement.muted = false
-      void videoElement.play().catch(() => {
-        videoElement.muted = true
-      })
-    }
-  }
-
   async function downloadPresentation(item) {
     if (!authToken) return
     try {
@@ -1768,13 +1729,13 @@ function App() {
     )
   }
   const stageControlsVisibilityClass = isScreenMaximized
-    ? 'opacity-0 pointer-events-none transition-opacity duration-200 group-hover/stage:opacity-100 group-hover/stage:pointer-events-auto group-focus-within/stage:opacity-100 group-focus-within/stage:pointer-events-auto'
+    ? 'sm:opacity-0 sm:pointer-events-none sm:transition-opacity sm:duration-200 sm:group-hover/stage:opacity-100 sm:group-hover/stage:pointer-events-auto sm:group-focus-within/stage:opacity-100 sm:group-focus-within/stage:pointer-events-auto'
     : ''
 
   return (
-    <div className="min-h-screen text-slate-900 transition-colors dark:text-slate-100">
+    <div className="app-shell min-h-screen text-slate-900 transition-colors dark:text-slate-100">
       <div className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col px-3 py-3 lg:px-6 lg:py-5">
-        <header className="mb-4 flex flex-wrap items-center justify-between gap-3 ui-fade-up">
+        <header className="app-header mb-4 flex flex-wrap items-center justify-between gap-3 ui-fade-up">
           <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-2.5 shadow-[0_18px_35px_-24px_rgba(15,23,42,0.65)] backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/75">
             <div className="hero-subtext text-[11px] uppercase tracking-[0.08em]">VIA Live</div>
             <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -1782,7 +1743,7 @@ function App() {
               {roleLabel}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-white/90 p-1.5 shadow-[0_16px_32px_-24px_rgba(15,23,42,0.9)] backdrop-blur-xl dark:border-slate-700 dark:bg-slate-900/75">
+          <div className="mobile-topbar-scroll flex w-full items-center gap-1.5 overflow-x-auto rounded-2xl border border-slate-200/90 bg-white/90 p-1.5 shadow-[0_16px_32px_-24px_rgba(15,23,42,0.9)] backdrop-blur-xl sm:w-auto dark:border-slate-700 dark:bg-slate-900/75">
             <button
               type="button"
               onClick={() => setShowSessionPanel(true)}
@@ -1860,14 +1821,13 @@ function App() {
 
         <CountdownBanner endTimeEpoch={breakEndTime} />
 
-        <main className="grid min-h-0 flex-1 gap-4 ui-fade-up lg:grid-cols-[minmax(0,1fr)_340px]">
+        <main className="app-main grid min-h-0 flex-1 gap-4 ui-fade-up lg:grid-cols-[minmax(0,1fr)_340px]">
           <section
             ref={stageContainerRef}
-            className={`group/stage relative overflow-hidden border border-slate-300/65 bg-slate-950 shadow-[0_32px_70px_-40px_rgba(2,6,23,0.95)] ui-fade-up dark:border-slate-700/60 ${
-              isScreenMaximized
+            className={`app-stage group/stage relative overflow-hidden border border-slate-300/65 bg-slate-950 shadow-[0_32px_70px_-40px_rgba(2,6,23,0.95)] ui-fade-up dark:border-slate-700/60 ${isScreenMaximized
                 ? 'min-h-screen rounded-none border-0'
                 : 'min-h-[60vh] rounded-[28px]'
-            }`}
+              }`}
           >
             <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-2">
               <div className="rounded-full border border-white/20 bg-slate-950/75 px-3 py-1 text-xs font-medium text-slate-100 backdrop-blur" title={status}>
@@ -1879,7 +1839,7 @@ function App() {
               <div className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs text-slate-200">{roleLabel}</div>
             </div>
 
-            <div className="absolute right-4 top-4 z-20 flex gap-1.5">
+            <div className="absolute right-3 top-14 z-20 flex gap-1.5 sm:right-4 sm:top-4">
               {compactMetrics.map((item) => (
                 <div
                   key={item.label}
@@ -1898,13 +1858,7 @@ function App() {
               {isTeacher ? (
                 <video ref={localVideoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
               ) : (
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  onClick={handleStudentVideoTap}
-                  className="h-full w-full object-contain"
-                />
+                <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-contain" />
               )}
 
               {!joined ? (
@@ -1980,8 +1934,11 @@ function App() {
                 </div>
               ) : null}
 
-              <div className={`absolute bottom-4 left-1/2 z-20 -translate-x-1/2 ${stageControlsVisibilityClass}`}>
-                <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/90 p-2 shadow-2xl backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/88">
+              <div
+                className={`mobile-stage-controls-wrap absolute left-1/2 z-20 -translate-x-1/2 ${stageControlsVisibilityClass}`}
+                style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+              >
+                <div className="mobile-stage-controls flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/90 p-2 shadow-2xl backdrop-blur-2xl dark:border-slate-700/80 dark:bg-slate-900/88">
                   {isTeacher ? (
                     <>
                       <button
@@ -2144,13 +2101,13 @@ function App() {
                   )}
                 </div>
               </div>
+
             </div>
           </section>
 
           <aside
-            className={`flex flex-col gap-3 rounded-[28px] border border-slate-200/90 bg-white/88 p-4 shadow-[0_24px_52px_-34px_rgba(15,23,42,0.75)] ui-fade-up ui-fade-up-delay backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/82 ${
-              isScreenMaximized ? 'hidden' : ''
-            }`}
+            className={`app-aside flex flex-col gap-3 rounded-[28px] border border-slate-200/90 bg-white/88 p-4 shadow-[0_24px_52px_-34px_rgba(15,23,42,0.75)] ui-fade-up ui-fade-up-delay backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/82 ${isScreenMaximized ? 'hidden' : ''
+              }`}
           >
             <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50 p-3 dark:border-slate-700 dark:from-slate-800 dark:to-slate-900">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Session</div>
@@ -2520,15 +2477,15 @@ function App() {
                     )}
                   </div>
 
-                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
-                  <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
-                  <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
-                  <div>Accuracy: {accuracyValue}%</div>
-                  <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700">Engagement score: {analytics?.engagement?.score ?? 0}/100</div>
-                  <div>Quiz participation: {Math.round(100 * (analytics?.engagement?.quiz_participation_rate ?? 0))}%</div>
-                  <div>Break vote rate: {Math.round(100 * (analytics?.engagement?.break_vote_rate ?? 0))}%</div>
-                  <div>Confusion per student: {(analytics?.engagement?.confusion_per_student ?? 0).toFixed(2)}</div>
-                </div>
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
+                    <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
+                    <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
+                    <div>Accuracy: {accuracyValue}%</div>
+                    <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700">Engagement score: {analytics?.engagement?.score ?? 0}/100</div>
+                    <div>Quiz participation: {Math.round(100 * (analytics?.engagement?.quiz_participation_rate ?? 0))}%</div>
+                    <div>Break vote rate: {Math.round(100 * (analytics?.engagement?.break_vote_rate ?? 0))}%</div>
+                    <div>Confusion per student: {(analytics?.engagement?.confusion_per_student ?? 0).toFixed(2)}</div>
+                  </div>
                 </>
               ) : null}
             </section>
@@ -2728,11 +2685,10 @@ function App() {
                     type="button"
                     disabled={Boolean(savedQuizAttemptChoice)}
                     onClick={() => submitSavedQuizAttempt(option.id)}
-                    className={`rounded-2xl border px-4 py-3 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-70 ${
-                      savedQuizAttemptChoice === option.id
+                    className={`rounded-2xl border px-4 py-3 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-70 ${savedQuizAttemptChoice === option.id
                         ? 'border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-400 dark:bg-sky-900/30 dark:text-sky-100'
                         : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-700/85'
-                    }`}
+                      }`}
                   >
                     <span className="mr-2 font-bold">{option.id}.</span>
                     {option.text}
