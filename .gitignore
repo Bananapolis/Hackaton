@@ -15,6 +15,7 @@ desktop/dist/
 .DS_Store
 .env
 backend/.env
+frontend\vite.config.js
 
 # Secrets (never commit)
 *.env
@@ -41,3 +42,5 @@ backend/coverage.xml
 frontend/vitest-results.xml
 frontend/coverage/
 backend/.pytest_cache/
+
+frontend/vite.config.js
