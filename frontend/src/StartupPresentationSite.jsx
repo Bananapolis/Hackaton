@@ -139,18 +139,18 @@ function ContactPage() {
         <article>
           <h2>Email</h2>
           <p>
-            <a href="mailto:hello@viapulse.app">hello@viapulse.app</a>
+            <a href="mailto:Bananapolis@eduardfekete.com">Bananapolis@eduardfekete.com</a>
           </p>
         </article>
         <article>
           <h2>Phone</h2>
           <p>
-            <a href="tel:+4550102000">+45 50 10 20 00</a>
+            <a href="tel:+4593920729">+45 93920729</a>
           </p>
         </article>
         <article>
-          <h2>Office</h2>
-          <p>Dalgas Avenue 2, 8000 Aarhus C, Denmark</p>
+          <h2>Address</h2>
+          <p>Banegårdsgade 2, 8700 Horsens</p>
         </article>
       </section>
     </main>
