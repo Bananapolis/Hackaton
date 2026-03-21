@@ -2,6 +2,11 @@
 
 ## 2026-03-21
 
+- Resolved unresolved merge markers in [frontend/src/App.jsx](frontend/src/App.jsx) that broke frontend stability:
+  - removed conflict blocks in icon mapping and student control dock,
+  - preserved both student actions after reconciliation: anonymous question button and screenshot-to-PDF button.
+  - revalidated frontend with tests and production build.
+
 - Unified overlay close interaction safety in [frontend/src/App.jsx](frontend/src/App.jsx):
   - applied the same backdrop `mousedown`+`click` guard pattern used by session settings to notes, awards, library, saved-quiz attempt, quiz prompt, teacher question inbox, and student ask-question panels,
   - this prevents accidental close when text selection starts inside a panel and mouse is released outside.

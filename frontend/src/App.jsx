@@ -155,11 +155,8 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     eyeOff: EyeOff,
     lock: Lock,
     lockOpen: LockOpen,
-<<<<<<< Updated upstream
     question: MessageSquare,
-=======
     camera: Camera,
->>>>>>> Stashed changes
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -1757,7 +1754,6 @@ function App() {
                       <button
                         type="button"
                         disabled={!joined}
-<<<<<<< Updated upstream
                         onClick={() => {
                           setError('')
                           setShowAskQuestionPanel(true)
@@ -1767,14 +1763,16 @@ function App() {
                         aria-label="Ask anonymous question"
                       >
                         <Icon name="question" className="h-5 w-5" />
-=======
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!joined}
                         onClick={captureLiveScreenAsPdf}
                         className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-lg text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
                         title="Take screenshot (PDF)"
                         aria-label="Take screenshot (PDF)"
                       >
                         <Icon name="camera" className="h-5 w-5" />
->>>>>>> Stashed changes
                       </button>
                       <button
                         type="button"
