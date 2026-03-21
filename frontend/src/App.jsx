@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
+  Camera,
   Coffee,
   Copy,
   Eye,
@@ -23,6 +24,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { PDFDocument } from 'pdf-lib'
 import { config } from './config'
 import { CountdownBanner } from './components/CountdownBanner'
 import { QuizOverlay } from './components/QuizOverlay'
@@ -153,7 +155,11 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     eyeOff: EyeOff,
     lock: Lock,
     lockOpen: LockOpen,
+<<<<<<< Updated upstream
     question: MessageSquare,
+=======
+    camera: Camera,
+>>>>>>> Stashed changes
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -1144,6 +1150,86 @@ function App() {
     }
   }
 
+  async function captureLiveScreenAsPdf() {
+    if (isTeacher || !joined) return
+
+    try {
+      setError('')
+      setStatus('Capturing screenshot from live screen...')
+
+      const videoElement = remoteVideoRef.current
+      const hasVideoFrame = Boolean(
+        videoElement
+        && videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        && videoElement.videoWidth > 0
+        && videoElement.videoHeight > 0
+      )
+
+      const canvas = document.createElement('canvas')
+      canvas.width = hasVideoFrame ? videoElement.videoWidth : 1280
+      canvas.height = hasVideoFrame ? videoElement.videoHeight : 720
+      const context = canvas.getContext('2d')
+      if (!context) {
+        throw new Error('Canvas context unavailable')
+      }
+
+      if (hasVideoFrame) {
+        context.drawImage(videoElement, 0, 0, canvas.width, canvas.height)
+      } else {
+        context.fillStyle = '#000000'
+        context.fillRect(0, 0, canvas.width, canvas.height)
+      }
+
+      const pngBlob = await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob)
+            return
+          }
+          reject(new Error('Canvas blob generation failed'))
+        }, 'image/png')
+      })
+      const imageBytes = await pngBlob.arrayBuffer()
+
+      const pdfDoc = await PDFDocument.create()
+      const screenshotImage = await pdfDoc.embedPng(imageBytes)
+
+      const isLandscape = screenshotImage.width >= screenshotImage.height
+      const pageWidth = isLandscape ? 842 : 595
+      const pageHeight = isLandscape ? 595 : 842
+      const scale = Math.min(pageWidth / screenshotImage.width, pageHeight / screenshotImage.height)
+      const drawWidth = screenshotImage.width * scale
+      const drawHeight = screenshotImage.height * scale
+      const offsetX = (pageWidth - drawWidth) / 2
+      const offsetY = (pageHeight - drawHeight) / 2
+
+      const page = pdfDoc.addPage([pageWidth, pageHeight])
+      page.drawImage(screenshotImage, {
+        x: offsetX,
+        y: offsetY,
+        width: drawWidth,
+        height: drawHeight,
+      })
+
+      const pdfBytes = await pdfDoc.save()
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      link.href = objectUrl
+      link.download = `live-screen-${normalizedCode || 'session'}-${timestamp}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(objectUrl)
+
+      setStatus(hasVideoFrame ? 'Live screen screenshot downloaded as PDF.' : 'Blank screenshot PDF downloaded.')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown capture error'
+      setError(`Could not capture screenshot as PDF. ${message}`)
+    }
+  }
+
   async function downloadPresentation(item) {
     if (!authToken) return
     try {
@@ -1624,6 +1710,7 @@ function App() {
                       <button
                         type="button"
                         disabled={!joined}
+<<<<<<< Updated upstream
                         onClick={() => {
                           setError('')
                           setShowAskQuestionPanel(true)
@@ -1633,6 +1720,14 @@ function App() {
                         aria-label="Ask anonymous question"
                       >
                         <Icon name="question" className="h-5 w-5" />
+=======
+                        onClick={captureLiveScreenAsPdf}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-lg text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Take screenshot (PDF)"
+                        aria-label="Take screenshot (PDF)"
+                      >
+                        <Icon name="camera" className="h-5 w-5" />
+>>>>>>> Stashed changes
                       </button>
                       <button
                         type="button"
