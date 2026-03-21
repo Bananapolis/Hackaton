@@ -13,6 +13,21 @@ services:
       context: ./frontend
     depends_on:
       - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10-alpine
+    depends_on:
+      - web
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
     restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

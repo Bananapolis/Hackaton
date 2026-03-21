@@ -171,7 +171,7 @@ The backend sends notes to Gemini when configured.
 make backend-run
 ```
 
-Backend default URL: `http://localhost:8000`
+Backend default URL: `http://localhost:9000`
 
 ### 5.3 Frontend setup
 
@@ -189,7 +189,7 @@ make frontend-dev
 
 Frontend default URL: `http://localhost:5173`
 
-If backend is not on `http://localhost:8000`, set `VITE_API_BASE` in frontend environment.
+If backend is not on `http://localhost:9000`, set `VITE_API_BASE` in frontend environment.
 
 ### 5.4 Build checks
 
@@ -211,11 +211,12 @@ Containerized deployment is now included for Ubuntu servers.
 
 - Compose setup: [docker-compose.yml](docker-compose.yml)
 - Backend image: [backend/Dockerfile](backend/Dockerfile)
-- Frontend + reverse proxy image: [frontend/Dockerfile](frontend/Dockerfile) and [frontend/nginx.conf](frontend/nginx.conf)
+- Frontend image + internal reverse proxy: [frontend/Dockerfile](frontend/Dockerfile) and [frontend/nginx.conf](frontend/nginx.conf)
+- HTTPS termination: [deploy/Caddyfile](deploy/Caddyfile) (automatic Let's Encrypt on `vialive.libreuni.com`)
 - Full step-by-step runbook: [DEPLOYMENT.md](DEPLOYMENT.md)
 - Starter CI/CD pipeline: [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
 
-For production demos, HTTPS remains mandatory for reliable WebRTC behavior.
+For production demos, HTTPS is mandatory for reliable WebRTC behavior and is now handled directly by Docker Compose.
 
 ### AI Provider Setup
 

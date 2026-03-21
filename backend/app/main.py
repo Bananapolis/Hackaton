@@ -1207,7 +1207,7 @@ def build_full_analytics_report(session: RuntimeSession) -> dict[str, Any]:
     }
 
 
-app = FastAPI(title="Edu Engagement MVP API", version="1.0.0")
+app = FastAPI(title="VIA LIVE", version="1.0.0")
 
 
 def parse_allowed_origins(raw: str) -> list[str]:

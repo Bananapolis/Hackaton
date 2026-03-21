@@ -1,0 +1,8 @@
+vialive.libreuni.com {
+  tls {
+    key_type rsa2048
+  }
+
+  encode gzip zstd
+  reverse_proxy web:80
+}

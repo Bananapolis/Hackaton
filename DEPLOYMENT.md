@@ -6,8 +6,8 @@ This guide gives you a clean production setup for your hackathon demo and a path
 
 - `backend` container: FastAPI + WebSocket API on internal port `8000`
 - `web` container: Nginx serving React build and proxying `/api` + `/ws` to backend
-- `docker-compose.yml` orchestrates both
-- Optional: HTTPS via host Nginx + Certbot (or Cloudflare tunnel / Caddy)
+- `caddy` container: TLS termination on `:80/:443` with automatic Let's Encrypt certs for `vialive.libreuni.com`
+- `docker-compose.yml` orchestrates all services
 
 ## 2) One-time server setup (fresh Ubuntu)
 
@@ -40,7 +40,7 @@ Set at minimum:
 
 - `GEMINI_API_KEY`
 - `GEMINI_MODEL` (default is fine)
-- `ALLOWED_ORIGINS` (comma-separated, e.g. `https://demo.yourdomain.com`)
+- `ALLOWED_ORIGINS` (comma-separated, set to `https://vialive.libreuni.com`)
 
 Optional fallback provider:
 
@@ -65,20 +65,33 @@ docker compose logs -f --tail=100
 
 At this stage the app is live on `http://SERVER_IP`.
 
+For this repository's production domain, it should become available on:
+
+- `https://vialive.libreuni.com`
+
 ## 5) Enable HTTPS (required for reliable WebRTC in real browsers)
 
-Use either of these:
+HTTPS is now handled directly by Docker via Caddy.
 
-### Option A (simple): host Nginx + Certbot
+Prerequisites:
 
-- Install `nginx` + `certbot`
-- Reverse-proxy `https://demo.yourdomain.com` to `http://127.0.0.1:80`
-- Run `sudo certbot --nginx -d demo.yourdomain.com`
+- DNS `A`/`AAAA` for `vialive.libreuni.com` points to this server
+- Ports `80` and `443` are open in cloud firewall + `ufw`
 
-### Option B: Cloudflare proxy/tunnel
+How it works:
 
-- Keep server private-ish, terminate TLS at Cloudflare
-- Point DNS and tunnel traffic to local port `80`
+- Caddy reads [deploy/Caddyfile](deploy/Caddyfile)
+- Caddy automatically obtains/renews certificates from Let's Encrypt
+- Caddy reverse-proxies HTTPS traffic to the internal `web` container
+
+Validate after deploy:
+
+```bash
+docker compose ps
+docker compose logs -f --tail=100 caddy
+```
+
+You should see certificate provisioning logs and successful HTTPS startup.
 
 ## 6) Updating deploys manually
 
@@ -86,6 +99,20 @@ Use either of these:
 git pull
 docker compose up -d --build
 ```
+
+One-command option (recommended after this update):
+
+```bash
+./scripts/deploy-update.sh
+```
+
+Optional alias (if `make` is installed):
+
+```bash
+make deploy-update
+```
+
+If you use VS Code on the server, run task: **Server: Pull + Rebuild + Up**.
 
 ## 7) Basic CI/CD (GitHub Actions)
 
@@ -121,6 +148,6 @@ Required GitHub repository secrets:
 
 - DNS points to server
 - HTTPS certificate valid
-- `ALLOWED_ORIGINS` uses final domain
+- `ALLOWED_ORIGINS=https://vialive.libreuni.com`
 - `docker compose ps` shows both services healthy/running
 - Run a full browser test with 1 teacher + 1 student on separate devices/networks

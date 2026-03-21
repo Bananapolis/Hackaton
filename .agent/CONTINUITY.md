@@ -157,3 +157,16 @@
   - participant-side list/download/notes queries now validate presenter ownership using `sessions.owner_user_id` with legacy fallback,
   - sessions list in [frontend/src/App.jsx](frontend/src/App.jsx) is now clickable and sets a library session context,
   - file downloads and `AI notes PNG` actions now use the selected library session context for join mode so historical session assets are accessible.
+- Added one-command server redeploy automation:
+  - new script [scripts/deploy-update.sh](scripts/deploy-update.sh) for `git pull --ff-only` + `docker compose up -d --build` + status check,
+  - Make alias target `deploy-update` in [Makefile](Makefile),
+  - new VS Code task **Server: Pull + Rebuild + Up** in [.vscode/tasks.json](.vscode/tasks.json),
+  - documented usage in [DEPLOYMENT.md](DEPLOYMENT.md).
+- Switched production HTTPS to Docker-native TLS termination:
+  - added `caddy` service in [docker-compose.yml](docker-compose.yml) exposing ports `80` and `443`,
+  - added [deploy/Caddyfile](deploy/Caddyfile) for automatic certificate provisioning on `vialive.libreuni.com`,
+  - removed direct host port publishing from `web` service (now internal only),
+  - updated deployment docs in [DEPLOYMENT.md](DEPLOYMENT.md) and [README.md](README.md) for the new HTTPS path.
+- Added TLS client-compatibility hardening for production HTTPS:
+  - configured Caddy in [deploy/Caddyfile](deploy/Caddyfile) to issue RSA certificates (`key_type rsa2048`) for broader browser compatibility,
+  - rotated cached certificate material and re-issued certificate chain for `vialive.libreuni.com`.

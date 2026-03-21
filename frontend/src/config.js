@@ -10,14 +10,14 @@ function inferApiBase() {
   }
 
   if (typeof window === 'undefined') {
-    return devApiTarget || 'http://localhost:8000'
+    return devApiTarget || 'http://localhost:9000'
   }
 
   const { protocol, hostname, host, port } = window.location
 
   // When not using proxy and opened from a dev host, keep same host on backend port.
   if (port === '5173' || port === '4173') {
-    return `${protocol}//${hostname}:8000`
+    return `${protocol}//${hostname}:9000`
   }
 
   // In deployment, prefer same-origin unless explicitly overridden.
@@ -28,7 +28,7 @@ const API_BASE = inferApiBase()
 
 function inferWsBase() {
   if (API_BASE) return API_BASE.replace(/^http/, 'ws')
-  if (typeof window === 'undefined') return 'ws://localhost:8000'
+  if (typeof window === 'undefined') return 'ws://localhost:9000'
   return `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
 }
 

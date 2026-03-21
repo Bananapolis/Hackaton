@@ -16,9 +16,9 @@
     {
       "label": "Backend: Run API",
       "type": "shell",
-      "command": "if command -v fuser >/dev/null 2>&1; then fuser -k 8000/tcp >/dev/null 2>&1 || true; fi; ./.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+      "command": "if command -v fuser >/dev/null 2>&1; then fuser -k 9000/tcp >/dev/null 2>&1 || true; fi; ./.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 9000 --reload",
       "windows": {
-        "command": "$portUsers = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($portUsers) { Stop-Process -Id $portUsers -Force }; .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+        "command": "$portUsers = Get-NetTCPConnection -LocalPort 9000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($portUsers) { Stop-Process -Id $portUsers -Force }; .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 9000 --reload"
       },
       "isBackground": true,
       "options": {
@@ -38,11 +38,11 @@
       }
     },
     {
-      "label": "Backend: Stop API (free :8000)",
+      "label": "Backend: Stop API (free :9000)",
       "type": "shell",
-      "command": "fuser -k 8000/tcp >/dev/null 2>&1 || true",
+      "command": "fuser -k 9000/tcp >/dev/null 2>&1 || true",
       "windows": {
-        "command": "$portUsers = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($portUsers) { Stop-Process -Id $portUsers -Force }"
+        "command": "$portUsers = Get-NetTCPConnection -LocalPort 9000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if ($portUsers) { Stop-Process -Id $portUsers -Force }"
       },
       "problemMatcher": []
     },
@@ -135,6 +135,15 @@
       "group": {
         "kind": "build",
         "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Server: Pull + Rebuild + Up",
+      "type": "shell",
+      "command": "./scripts/deploy-update.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
       "problemMatcher": []
     }
