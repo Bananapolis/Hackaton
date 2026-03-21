@@ -4,3 +4,6 @@ pydantic>=2.12
 openai>=1.101
 python-dotenv>=1.1
 python-multipart>=0.0.9
+pypdf>=4.3
+python-pptx>=1.0
+Pillow>=10.4

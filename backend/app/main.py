@@ -4,8 +4,11 @@ import random
 import secrets
 import sqlite3
 import string
+import textwrap
 import time
 import uuid
+from base64 import b64decode
+from io import BytesIO
 from hashlib import pbkdf2_hmac
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -17,7 +20,7 @@ from urllib.request import Request, urlopen
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 try:
@@ -67,10 +70,15 @@ def init_db() -> None:
             code TEXT PRIMARY KEY,
             created_at TEXT NOT NULL,
             teacher_name TEXT NOT NULL,
+            owner_user_id INTEGER,
             active INTEGER NOT NULL DEFAULT 1
         )
         """
     )
+    cursor.execute("PRAGMA table_info(sessions)")
+    session_columns = {row[1] for row in cursor.fetchall()}
+    if "owner_user_id" not in session_columns:
+        cursor.execute("ALTER TABLE sessions ADD COLUMN owner_user_id INTEGER")
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS events (
@@ -143,12 +151,12 @@ def init_db() -> None:
     conn.close()
 
 
-def insert_session(code: str, teacher_name: str) -> None:
+def insert_session(code: str, teacher_name: str, owner_user_id: int | None = None) -> None:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO sessions(code, created_at, teacher_name, active) VALUES (?, ?, ?, 1)",
-        (code, now_iso(), teacher_name),
+        "INSERT INTO sessions(code, created_at, teacher_name, owner_user_id, active) VALUES (?, ?, ?, ?, 1)",
+        (code, now_iso(), teacher_name, owner_user_id),
     )
     conn.commit()
     conn.close()
@@ -716,6 +724,412 @@ def build_screen_explanation_with_ai(notes: str) -> str:
     raise RuntimeError("Screen explanation failed with unknown AI error")
 
 
+def extract_text_from_presentation(file_path: Path, original_name: str, mime_type: str | None) -> str:
+    suffix = file_path.suffix.lower()
+
+    if suffix in {".txt", ".md", ".csv", ".json"}:
+        return file_path.read_text(encoding="utf-8", errors="ignore")[:50000]
+
+    if suffix == ".pdf" or (mime_type or "").lower() == "application/pdf":
+        try:
+            from pypdf import PdfReader
+        except Exception as exc:
+            raise RuntimeError("PDF parsing is unavailable. Install pypdf.") from exc
+
+        reader = PdfReader(str(file_path))
+        chunks: list[str] = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text.strip():
+                chunks.append(text)
+            if sum(len(item) for item in chunks) > 50000:
+                break
+        return "\n\n".join(chunks)[:50000]
+
+    if suffix == ".pptx" or "presentation" in (mime_type or "").lower():
+        try:
+            from pptx import Presentation
+        except Exception as exc:
+            raise RuntimeError("PPTX parsing is unavailable. Install python-pptx.") from exc
+
+        prs = Presentation(str(file_path))
+        chunks: list[str] = []
+        for idx, slide in enumerate(prs.slides, start=1):
+            slide_lines: list[str] = []
+            for shape in slide.shapes:
+                text = getattr(shape, "text", "")
+                if text and text.strip():
+                    slide_lines.append(text.strip())
+            if slide_lines:
+                chunks.append(f"Slide {idx}:\n" + "\n".join(slide_lines))
+            if sum(len(item) for item in chunks) > 50000:
+                break
+        return "\n\n".join(chunks)[:50000]
+
+    raise RuntimeError(
+        f"Unsupported presentation format for AI notes: {original_name}. Supported: .pptx, .pdf, .txt, .md, .csv, .json"
+    )
+
+
+def build_student_notes_with_ai(presentation_text: str, presentation_name: str) -> str:
+    source = (presentation_text or "").strip()
+    if not source:
+        raise RuntimeError("No readable text was found in the presentation.")
+
+    source_excerpt = source[:24000]
+    prompt = (
+        "Create concise, student-friendly study notes from the presentation content. "
+        "Use this structure exactly: 1) Title, 2) Key ideas (5-8 bullets), 3) Simple explanations, "
+        "4) What to remember for exam, 5) Quick recap in 3 bullets. "
+        "Use clear language for students and avoid jargon when possible."
+    )
+
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    errors: list[str] = []
+
+    if gemini_api_key:
+        parts: list[dict[str, Any]] = [
+            {
+                "text": f"Presentation file: {presentation_name}\n\nContent:\n{source_excerpt}\n\n{prompt}",
+            }
+        ]
+
+        models_to_try = [gemini_model]
+        if gemini_model != "gemini-2.5-flash":
+            models_to_try.append("gemini-2.5-flash")
+
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_api_key}"
+            body = {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {
+                    "temperature": 0.2,
+                },
+            }
+            try:
+                req = Request(
+                    url,
+                    data=json.dumps(body).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(req, timeout=30) as resp:
+                    response_text = resp.read().decode("utf-8")
+                response_json = json.loads(response_text)
+                text_output = (
+                    response_json.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [{}])[0]
+                    .get("text", "")
+                    .strip()
+                )
+                if text_output:
+                    return text_output[:6000]
+                raise ValueError("Gemini returned empty notes")
+            except HTTPError as exc:
+                details = ""
+                try:
+                    details = exc.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    details = ""
+                details = (details or exc.reason or "request failed")
+                errors.append(f"Gemini model {model_name} HTTP {exc.code}: {details[:300]}")
+            except (URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                errors.append(f"Gemini model {model_name} error: {str(exc)[:300]}")
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+
+    if api_key and OpenAI is not None:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        try:
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {
+                        "role": "system",
+                        "content": "You write clear, student-friendly study notes.",
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": f"Presentation file: {presentation_name}\n\nContent:\n{source_excerpt}\n\n{prompt}",
+                            }
+                        ],
+                    },
+                ],
+                temperature=0.2,
+            )
+            text_output = response.output_text.strip()
+            if text_output:
+                return text_output[:6000]
+            raise ValueError("OpenAI-compatible provider returned empty notes")
+        except Exception as exc:
+            errors.append(f"OpenAI-compatible error: {str(exc)[:300]}")
+    elif api_key and OpenAI is None:
+        errors.append("OpenAI-compatible API key is set but OpenAI SDK is unavailable")
+
+    if not gemini_api_key and not api_key:
+        raise RuntimeError("No AI provider configured. Set GEMINI_API_KEY (recommended).")
+
+    if errors:
+        raise RuntimeError("; ".join(errors))
+
+    raise RuntimeError("Student-notes generation failed with unknown AI error")
+
+
+STUDENT_NOTES_IMAGE_PROMPT_TEMPLATE = (
+    "A high-resolution, top-down flat lay of a single page of handwritten student notes on white "
+    "[lined/grid] paper, isolated on a plain background for easy PNG conversion. The style is \"Gen Z studygram\": "
+    "neat but organic handwriting using a black 0.5mm gel pen, with key terms highlighted in mild pastel colors "
+    "(lemon yellow and mint green). Includes hand-drawn arrows, small aesthetic doodles in the margins "
+    "(like tiny stars or chemistry beakers), and a \"header\" title in simple faux-calligraphy. "
+    "The paper has slight natural crinkles. Lighting is bright, even, and clinical. Soft shadows only. "
+    "8k resolution, macro photography style, extremely legible text."
+)
+
+
+def build_notes_image_prompt(notes_text: str) -> str:
+    normalized_notes = (notes_text or "").strip()
+    return (
+        f"{STUDENT_NOTES_IMAGE_PROMPT_TEMPLATE}\n\n"
+        "Write exactly this study-notes content on the page and keep it fully legible:\n"
+        "---\n"
+        f"{normalized_notes[:5000]}\n"
+        "---\n"
+        "Do not add logos, watermarks, or extra pages. Keep one page only."
+    )
+
+
+def generate_notes_png_with_ai(notes_text: str) -> bytes:
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    configured_model = os.getenv("GEMINI_IMAGE_MODEL", "").strip()
+
+    if not gemini_api_key:
+        raise RuntimeError("Gemini image generation is unavailable. Set GEMINI_API_KEY.")
+
+    prompt = build_notes_image_prompt(notes_text)
+
+    models_to_try: list[str] = []
+
+    if configured_model:
+        models_to_try.append(configured_model)
+
+    # Try likely image-capable model aliases first.
+    for candidate in [
+        "gemini-2.5-flash-image",
+        "gemini-2.5-flash-image-preview",
+        "gemini-2.0-flash-preview-image-generation",
+        "gemini-2.0-flash-exp-image-generation",
+    ]:
+        if candidate not in models_to_try:
+            models_to_try.append(candidate)
+
+    # Discover account-available models and prioritize image-related ones.
+    try:
+        list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_api_key}"
+        list_req = Request(list_url, headers={"Content-Type": "application/json"}, method="GET")
+        with urlopen(list_req, timeout=20) as list_resp:
+            list_text = list_resp.read().decode("utf-8")
+        list_json = json.loads(list_text)
+        discovered = list_json.get("models", [])
+        for model_entry in discovered:
+            name = str(model_entry.get("name", ""))
+            if not name:
+                continue
+            short_name = name.split("models/", 1)[-1]
+            generation_methods = [str(item) for item in model_entry.get("supportedGenerationMethods", [])]
+            if "generateContent" not in generation_methods:
+                continue
+
+            lower = short_name.lower()
+            # Heuristic: image/vision/preview variants are more likely to return inline images.
+            if any(token in lower for token in ["image", "vision", "imagen", "preview"]):
+                if short_name not in models_to_try:
+                    models_to_try.append(short_name)
+    except Exception:
+        # Model discovery is best-effort; keep static fallback list.
+        pass
+
+    errors: list[str] = []
+
+    def decode_image_from_response(response_json: dict[str, Any]) -> bytes | None:
+        candidates = response_json.get("candidates", [])
+        for candidate in candidates:
+            parts = candidate.get("content", {}).get("parts", [])
+            for part in parts:
+                inline = part.get("inlineData") or part.get("inline_data")
+                if not inline:
+                    continue
+                mime_type = (inline.get("mimeType") or inline.get("mime_type") or "").lower()
+                if mime_type not in {"image/png", "image/jpeg", "image/webp"}:
+                    continue
+                data = inline.get("data")
+                if data:
+                    return b64decode(data)
+        return None
+
+    for image_model in models_to_try:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{image_model}:generateContent?key={gemini_api_key}"
+            body = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": prompt}],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.35,
+                    "responseModalities": ["IMAGE", "TEXT"],
+                },
+            }
+
+            req = Request(
+                url,
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=80) as resp:
+                response_text = resp.read().decode("utf-8")
+
+            response_json = json.loads(response_text)
+            image_bytes = decode_image_from_response(response_json)
+            if image_bytes:
+                return image_bytes
+            errors.append(f"{image_model}: response had no inline image bytes")
+        except HTTPError as exc:
+            details = ""
+            try:
+                details = exc.read().decode("utf-8", errors="ignore")
+            except Exception:
+                details = ""
+            details = details or exc.reason or "request failed"
+            errors.append(f"{image_model} HTTP {exc.code}: {details[:240]}")
+        except Exception as exc:
+            errors.append(f"{image_model}: {str(exc)[:240]}")
+
+    raise RuntimeError("Gemini image generation failed: " + " | ".join(errors[:3]))
+
+
+def render_notes_png(title: str, notes_text: str) -> bytes:
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception as exc:
+        raise RuntimeError("PNG rendering is unavailable. Install Pillow.") from exc
+
+    width = 1600
+    height = 2200
+    margin = 90
+
+    image = Image.new("RGB", (width, height), color=(251, 252, 255))
+    draw = ImageDraw.Draw(image)
+
+    try:
+        title_font = ImageFont.truetype("arial.ttf", 54)
+        body_font = ImageFont.truetype("arial.ttf", 30)
+    except Exception:
+        title_font = ImageFont.load_default()
+        body_font = ImageFont.load_default()
+
+    current_y = margin
+    draw.text((margin, current_y), title, fill=(20, 34, 62), font=title_font)
+    current_y += 90
+    draw.line((margin, current_y, width - margin, current_y), fill=(186, 200, 230), width=3)
+    current_y += 40
+
+    usable_width = width - (2 * margin)
+    paragraphs = [line.strip() for line in notes_text.splitlines() if line.strip()]
+    if not paragraphs:
+        paragraphs = ["No notes could be generated for this presentation."]
+
+    rendered_lines: list[str] = []
+    for paragraph in paragraphs:
+        wrapped = textwrap.wrap(paragraph, width=78) or [paragraph]
+        rendered_lines.extend(wrapped)
+        rendered_lines.append("")
+
+    max_lines = 58
+    if len(rendered_lines) > max_lines:
+        rendered_lines = rendered_lines[: max_lines - 1] + ["... (content truncated)"]
+
+    for line in rendered_lines:
+        if line == "":
+            current_y += 16
+            continue
+
+        while draw.textlength(line, font=body_font) > usable_width and len(line) > 4:
+            line = line[:-2]
+        draw.text((margin, current_y), line, fill=(38, 46, 66), font=body_font)
+        current_y += 42
+        if current_y > height - margin:
+            break
+
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def get_accessible_presentation_row(
+    cursor: sqlite3.Cursor,
+    *,
+    user: dict[str, Any],
+    presentation_id: int,
+    normalized_session_code: str | None,
+) -> sqlite3.Row | None:
+    if normalized_session_code:
+        cursor.execute("SELECT teacher_name, owner_user_id FROM sessions WHERE code = ?", (normalized_session_code,))
+        session_row = cursor.fetchone()
+        if not session_row:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        session_owner_id = session_row["owner_user_id"]
+        is_session_owner = (
+            (session_owner_id is not None and session_owner_id == user["id"])
+            or (session_owner_id is None and session_row["teacher_name"] == user["display_name"])
+        )
+        if is_session_owner:
+            cursor.execute(
+                """
+                SELECT id, session_code, original_name, stored_name, mime_type
+                FROM presentations
+                WHERE id = ? AND user_id = ?
+                """,
+                (presentation_id, user["id"]),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT p.id, p.session_code, p.original_name, p.stored_name, p.mime_type
+                FROM presentations p
+                JOIN sessions s ON s.code = p.session_code
+                JOIN users u ON u.id = p.user_id
+                WHERE p.id = ?
+                  AND p.session_code = ?
+                                    AND (
+                                        (s.owner_user_id IS NOT NULL AND s.owner_user_id = u.id)
+                                        OR (s.owner_user_id IS NULL AND s.teacher_name = u.display_name)
+                                    )
+                """,
+                (presentation_id, normalized_session_code),
+            )
+    else:
+        cursor.execute(
+            """
+            SELECT id, session_code, original_name, stored_name, mime_type
+            FROM presentations
+            WHERE id = ? AND user_id = ?
+            """,
+            (presentation_id, user["id"]),
+        )
+    return cursor.fetchone()
+
+
 def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
     confusion = confusion_snapshot(session)
     answers = session.quiz_answers.values()
@@ -933,11 +1347,11 @@ def list_library_sessions(authorization: str | None = Header(default=None)) -> d
         """
         SELECT code, created_at, teacher_name, active
         FROM sessions
-        WHERE teacher_name = ?
+        WHERE owner_user_id = ? OR (owner_user_id IS NULL AND teacher_name = ?)
         ORDER BY datetime(created_at) DESC
         LIMIT 100
         """,
-        (user["display_name"],),
+        (user["id"], user["display_name"]),
     )
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
@@ -960,14 +1374,19 @@ async def upload_presentation(
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT code, teacher_name FROM sessions WHERE code = ?",
+        "SELECT code, teacher_name, owner_user_id FROM sessions WHERE code = ?",
         (normalized_session_code,),
     )
     session_row = cursor.fetchone()
     conn.close()
     if not session_row:
         raise HTTPException(status_code=404, detail="Session not found")
-    if session_row["teacher_name"] != user["display_name"]:
+    session_owner_id = session_row["owner_user_id"]
+    is_owner = (
+        (session_owner_id is not None and session_owner_id == user["id"])
+        or (session_owner_id is None and session_row["teacher_name"] == user["display_name"])
+    )
+    if not is_owner:
         raise HTTPException(status_code=403, detail="You can only upload files for your own sessions")
 
     original_name = (file.filename or "presentation").strip() or "presentation"
@@ -1032,7 +1451,7 @@ def list_presentations(
 
     if normalized_session_code:
         cursor.execute(
-            "SELECT teacher_name FROM sessions WHERE code = ?",
+            "SELECT teacher_name, owner_user_id FROM sessions WHERE code = ?",
             (normalized_session_code,),
         )
         session_row = cursor.fetchone()
@@ -1040,19 +1459,21 @@ def list_presentations(
             conn.close()
             raise HTTPException(status_code=404, detail="Session not found")
 
-        is_session_owner = session_row["teacher_name"] == user["display_name"]
+        session_owner_id = session_row["owner_user_id"]
+        is_session_owner = (
+            (session_owner_id is not None and session_owner_id == user["id"])
+            or (session_owner_id is None and session_row["teacher_name"] == user["display_name"])
+        )
         if is_session_owner:
             cursor.execute(
                 """
-                SELECT p.id, p.session_code, p.original_name, p.mime_type, p.size_bytes, p.created_at
-                FROM presentations p
-                JOIN sessions s ON s.code = p.session_code
+                                SELECT p.id, p.session_code, p.original_name, p.mime_type, p.size_bytes, p.created_at
+                                FROM presentations p
                 WHERE p.user_id = ?
                   AND p.session_code = ?
-                  AND s.teacher_name = ?
                 ORDER BY datetime(p.created_at) DESC
                 """,
-                (user["id"], normalized_session_code, user["display_name"]),
+                                (user["id"], normalized_session_code),
             )
         else:
             cursor.execute(
@@ -1062,7 +1483,10 @@ def list_presentations(
                 JOIN sessions s ON s.code = p.session_code
                 JOIN users u ON u.id = p.user_id
                 WHERE p.session_code = ?
-                  AND s.teacher_name = u.display_name
+                                    AND (
+                                        (s.owner_user_id IS NOT NULL AND s.owner_user_id = u.id)
+                                        OR (s.owner_user_id IS NULL AND s.teacher_name = u.display_name)
+                                    )
                 ORDER BY datetime(p.created_at) DESC
                 """,
                 (normalized_session_code,),
@@ -1106,48 +1530,12 @@ def download_presentation(
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-
-    if normalized_session_code:
-        cursor.execute("SELECT teacher_name FROM sessions WHERE code = ?", (normalized_session_code,))
-        session_row = cursor.fetchone()
-        if not session_row:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        is_session_owner = session_row["teacher_name"] == user["display_name"]
-        if is_session_owner:
-            cursor.execute(
-                """
-                SELECT id, session_code, original_name, stored_name, mime_type
-                FROM presentations
-                WHERE id = ? AND user_id = ?
-                """,
-                (presentation_id, user["id"]),
-            )
-        else:
-            cursor.execute(
-                """
-                SELECT p.id, p.session_code, p.original_name, p.stored_name, p.mime_type
-                FROM presentations p
-                JOIN sessions s ON s.code = p.session_code
-                JOIN users u ON u.id = p.user_id
-                WHERE p.id = ?
-                  AND p.session_code = ?
-                  AND s.teacher_name = u.display_name
-                """,
-                (presentation_id, normalized_session_code),
-            )
-    else:
-        cursor.execute(
-            """
-            SELECT id, session_code, original_name, stored_name, mime_type
-            FROM presentations
-            WHERE id = ? AND user_id = ?
-            """,
-            (presentation_id, user["id"]),
-        )
-
-    row = cursor.fetchone()
+    row = get_accessible_presentation_row(
+        cursor,
+        user=user,
+        presentation_id=presentation_id,
+        normalized_session_code=normalized_session_code,
+    )
     conn.close()
 
     if not row:
@@ -1161,6 +1549,69 @@ def download_presentation(
         path=file_path,
         filename=row["original_name"],
         media_type=row["mime_type"] or "application/octet-stream",
+    )
+
+
+@app.post("/api/presentations/{presentation_id}/notes-png")
+def generate_presentation_notes_png(
+    presentation_id: int,
+    session_code: str | None = Query(default=None),
+    authorization: str | None = Header(default=None),
+) -> Response:
+    user = require_user(authorization)
+    normalized_session_code = (session_code or "").strip().upper() or None
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    row = get_accessible_presentation_row(
+        cursor,
+        user=user,
+        presentation_id=presentation_id,
+        normalized_session_code=normalized_session_code,
+    )
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+
+    file_path = UPLOADS_DIR / row["stored_name"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Stored file is missing")
+
+    try:
+        extracted_text = extract_text_from_presentation(
+            file_path,
+            row["original_name"],
+            row["mime_type"],
+        )
+        notes_text = build_student_notes_with_ai(extracted_text, row["original_name"])
+        allow_text_fallback = os.getenv("NOTES_PNG_ALLOW_TEXT_FALLBACK", "0").strip() == "1"
+        try:
+            png_bytes = generate_notes_png_with_ai(notes_text)
+        except RuntimeError as image_exc:
+            if not allow_text_fallback:
+                raise RuntimeError(
+                    "Handwritten-style image generation failed. "
+                    "Set GEMINI_IMAGE_MODEL or enable NOTES_PNG_ALLOW_TEXT_FALLBACK=1 if you want text-rendered fallback. "
+                    f"Details: {str(image_exc)}"
+                ) from image_exc
+            png_bytes = render_notes_png(
+                title=f"Student Notes: {Path(row['original_name']).stem}",
+                notes_text=notes_text,
+            )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    safe_stem = Path(row["original_name"]).stem.replace('"', "").strip()[:70] or "presentation"
+    download_name = f"{safe_stem}-student-notes.png"
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_name}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -1241,14 +1692,17 @@ def list_saved_quizzes(authorization: str | None = Header(default=None)) -> dict
 
 
 @app.post("/api/sessions", response_model=SessionCreateResponse)
-def create_session(payload: SessionCreateRequest) -> SessionCreateResponse:
+def create_session(payload: SessionCreateRequest, authorization: str | None = Header(default=None)) -> SessionCreateResponse:
     teacher_name = payload.teacher_name.strip()
     if not teacher_name:
         raise HTTPException(status_code=400, detail="teacher_name is required")
 
+    user = get_user_by_token(parse_bearer_token(authorization))
+    owner_user_id = user["id"] if user else None
+
     code = generate_session_code()
     SESSIONS[code] = RuntimeSession(code=code, teacher_name=teacher_name)
-    insert_session(code, teacher_name)
+    insert_session(code, teacher_name, owner_user_id=owner_user_id)
     return SessionCreateResponse(code=code)
 
 

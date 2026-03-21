@@ -144,3 +144,16 @@
   - session settings now frame role choice as mode selection (`Host a new session` vs `Join existing session`),
   - library upload/download behavior in [frontend/src/App.jsx](frontend/src/App.jsx) now follows current session mode instead of persisted account role,
   - presentation access control in [backend/app/main.py](backend/app/main.py) now derives host permissions from session ownership (`teacher_name`) rather than user role, so both hosting and joining work from one account flow.
+- Added AI presentation-to-notes PNG feature:
+  - new endpoint `POST /api/presentations/{id}/notes-png` in [backend/app/main.py](backend/app/main.py) extracts text from supported presentation files (`.pptx`, `.pdf`, text formats),
+  - backend generates student-friendly study notes with configured AI provider and renders them to a downloadable PNG,
+  - files tab in [frontend/src/App.jsx](frontend/src/App.jsx) now shows `AI notes PNG` action next to each presentation.
+- Fixed false `403 You can only upload files for your own sessions` for real hosts:
+  - sessions in [backend/app/main.py](backend/app/main.py) now store `owner_user_id` (with migration for existing DBs),
+  - upload/list/download ownership checks now use `owner_user_id` first with fallback to legacy `teacher_name`,
+  - frontend session creation in [frontend/src/App.jsx](frontend/src/App.jsx) now sends auth token so backend can persist owner identity for future file actions.
+- Fixed presentation visibility and past-session access UX:
+  - owner-side file listing in [backend/app/main.py](backend/app/main.py) now uses direct `user_id + session_code` filtering (no brittle name join),
+  - participant-side list/download/notes queries now validate presenter ownership using `sessions.owner_user_id` with legacy fallback,
+  - sessions list in [frontend/src/App.jsx](frontend/src/App.jsx) is now clickable and sets a library session context,
+  - file downloads and `AI notes PNG` actions now use the selected library session context for join mode so historical session assets are accessible.
