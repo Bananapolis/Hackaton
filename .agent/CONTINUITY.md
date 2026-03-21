@@ -157,3 +157,8 @@
   - backend now records engagement timeline points across session lifecycle/events,
   - report payload includes `engagement_timeline`,
   - generated PDF now contains a line chart of student engagement score over session duration.
+- Improved PDF report layout and data visualization quality:
+  - refactored PDF section flow with explicit space checks to prevent chart/text overlap,
+  - upgraded styling with header band, metric cards, and clearer typography,
+  - engagement trend chart now plots two color-coded series (engagement + confusion) with mini legend,
+  - added quiz performance bar visualization (correct/incorrect/unanswered) plus accuracy/participation labels.

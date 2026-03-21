@@ -111,7 +111,7 @@ The backend sends notes to Gemini when configured.
 * **UC-T5: Note Distribution:** Create and push shared text notes to the student interface during the live session.
 * **UC-T6: Analytics & Awards Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, class awards (e.g. most active student / most correct answers), and exported notes.
 * **UC-T6: Analytics Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, and exported notes.
-* **UC-T7: Session Closure & Report Export:** End the live session from settings and download a full analytics PDF report with engagement score, participation rates, quiz outcomes, AI-generated insight recommendations, and a student-engagement trend graph over session duration.
+* **UC-T7: Session Closure & Report Export:** End the live session from settings and download a full analytics PDF report with engagement score, participation rates, quiz outcomes, AI-generated insight recommendations, a dual-series engagement/confusion trend graph over session duration, and quiz performance visualization.
 
 ### Actor 2: Student (Client)
 
