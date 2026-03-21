@@ -325,6 +325,7 @@ class RuntimeSession:
     ended_at_epoch: float | None = None
     final_report: dict[str, Any] | None = None
     final_report_insights: dict[str, Any] | None = None
+    engagement_timeline: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def student_count(self) -> int:
@@ -782,6 +783,31 @@ def analytics_for_session(session: RuntimeSession) -> dict[str, Any]:
     }
 
 
+def record_engagement_point(session: RuntimeSession, source: str) -> None:
+    analytics = analytics_for_session(session)
+    point = {
+        "recorded_at_epoch": round(time.time(), 3),
+        "source": source,
+        "engagement_score": int(analytics.get("engagement", {}).get("score", 0)),
+        "confusion_level_percent": int(analytics.get("confusion_level_percent", 0)),
+        "break_votes": int(analytics.get("break_votes", 0)),
+    }
+
+    timeline = session.engagement_timeline
+    if timeline:
+        last = timeline[-1]
+        if (
+            last.get("engagement_score") == point["engagement_score"]
+            and last.get("confusion_level_percent") == point["confusion_level_percent"]
+            and last.get("break_votes") == point["break_votes"]
+            and last.get("source") == point["source"]
+            and (point["recorded_at_epoch"] - float(last.get("recorded_at_epoch", 0))) < 5
+        ):
+            return
+
+    timeline.append(point)
+
+
 def build_full_analytics_report(session: RuntimeSession) -> dict[str, Any]:
     analytics = analytics_for_session(session)
     students_connected = []
@@ -798,11 +824,23 @@ def build_full_analytics_report(session: RuntimeSession) -> dict[str, Any]:
             }
         )
 
+    timeline = sorted(
+        session.engagement_timeline,
+        key=lambda item: float(item.get("recorded_at_epoch", 0)),
+    )
+    if not timeline:
+        record_engagement_point(session, "report_generated")
+        timeline = sorted(
+            session.engagement_timeline,
+            key=lambda item: float(item.get("recorded_at_epoch", 0)),
+        )
+
     return {
         "report_type": "session_engagement",
         "generated_at": now_iso(),
         "analytics": analytics,
         "students_connected": students_connected,
+        "engagement_timeline": timeline,
     }
 
 
@@ -1037,6 +1075,27 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
     engagement = analytics.get("engagement", {})
     quiz = analytics.get("quiz", {})
     students = report.get("students_connected", [])
+    timeline = report.get("engagement_timeline", [])
+
+    duration_seconds = int(analytics.get("duration_seconds") or 0)
+    if not timeline:
+        timeline = [
+            {"recorded_at_epoch": 0, "engagement_score": int(engagement.get("score", 0))},
+            {"recorded_at_epoch": max(duration_seconds, 1), "engagement_score": int(engagement.get("score", 0))},
+        ]
+
+    first_epoch = float(timeline[0].get("recorded_at_epoch", 0)) if timeline else 0.0
+    timeline_points: list[tuple[float, float]] = []
+    for item in timeline:
+        raw_epoch = float(item.get("recorded_at_epoch", first_epoch))
+        elapsed = raw_epoch - first_epoch
+        if duration_seconds > 0:
+            elapsed = min(max(elapsed, 0.0), float(duration_seconds))
+        score = float(item.get("engagement_score", 0))
+        timeline_points.append((elapsed, min(max(score, 0.0), 100.0)))
+
+    if len(timeline_points) == 1:
+        timeline_points.append((max(float(duration_seconds), 1.0), timeline_points[0][1]))
 
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
@@ -1113,6 +1172,53 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
         f"Quiz answers: {quiz.get('total_answers', 0)} total, {quiz.get('correct_answers', 0)} correct, "
         f"accuracy {round(float(quiz.get('accuracy', 0.0)) * 100)}%"
     )
+
+    draw_heading("Student Engagement Trend")
+    if y < 9 * cm:
+        pdf.showPage()
+        y = page_height - 2 * cm
+
+    chart_left = margin_x
+    chart_bottom = y - 6 * cm
+    chart_width = content_width
+    chart_height = 5.2 * cm
+
+    # Axes and bounds.
+    pdf.setLineWidth(1)
+    pdf.line(chart_left, chart_bottom, chart_left, chart_bottom + chart_height)
+    pdf.line(chart_left, chart_bottom, chart_left + chart_width, chart_bottom)
+
+    for value in [0, 25, 50, 75, 100]:
+        y_tick = chart_bottom + (chart_height * (value / 100.0))
+        pdf.setStrokeColorRGB(0.85, 0.88, 0.92)
+        pdf.setLineWidth(0.5)
+        pdf.line(chart_left, y_tick, chart_left + chart_width, y_tick)
+        pdf.setFillColorRGB(0.2, 0.25, 0.32)
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(chart_left - 14, y_tick - 2, str(value))
+
+    x_max = max(float(duration_seconds), max((point[0] for point in timeline_points), default=1.0), 1.0)
+    pdf.setStrokeColorRGB(0.08, 0.43, 0.74)
+    pdf.setLineWidth(2)
+    for idx in range(1, len(timeline_points)):
+        x1 = chart_left + (timeline_points[idx - 1][0] / x_max) * chart_width
+        y1 = chart_bottom + (timeline_points[idx - 1][1] / 100.0) * chart_height
+        x2 = chart_left + (timeline_points[idx][0] / x_max) * chart_width
+        y2 = chart_bottom + (timeline_points[idx][1] / 100.0) * chart_height
+        pdf.line(x1, y1, x2, y2)
+
+    pdf.setFillColorRGB(0.08, 0.43, 0.74)
+    for elapsed, score in timeline_points:
+        x = chart_left + (elapsed / x_max) * chart_width
+        y_point = chart_bottom + (score / 100.0) * chart_height
+        pdf.circle(x, y_point, 1.8, fill=1, stroke=0)
+
+    pdf.setFillColorRGB(0.2, 0.25, 0.32)
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(chart_left, chart_bottom - 14, "Session timeline (seconds)")
+    pdf.drawRightString(chart_left + chart_width, chart_bottom - 14, f"{int(round(x_max))}s")
+    pdf.drawString(chart_left, chart_bottom + chart_height + 8, "Engagement score (0-100)")
+    y = chart_bottom - 22
 
     draw_heading("Key Findings")
     draw_bullets(insights.get("key_findings", []))
@@ -1595,6 +1701,7 @@ def create_session(payload: SessionCreateRequest) -> SessionCreateResponse:
 
     code = generate_session_code()
     SESSIONS[code] = RuntimeSession(code=code, teacher_name=teacher_name)
+    record_engagement_point(SESSIONS[code], "session_created")
     insert_session(code, teacher_name)
     return SessionCreateResponse(code=code)
 
@@ -1619,6 +1726,7 @@ async def end_session(code: str) -> dict[str, Any]:
 
     session.active = False
     session.ended_at_epoch = time.time()
+    record_engagement_point(session, "session_ended")
     set_session_active(code, False)
 
     report = build_full_analytics_report(session)
@@ -1695,6 +1803,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
     client_id = str(uuid.uuid4())
     state = ClientState(client_id=client_id, websocket=websocket, role=role, name=name)
     session.clients[client_id] = state
+    record_engagement_point(session, "participant_joined")
 
     insert_event(code, "join", {"client_id": client_id, "role": role, "name": name})
 
@@ -1776,6 +1885,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 state.confusion_signals_sent += 1
                 state.last_active_at = now_epoch
                 insert_event(code, "confusion", {"client_id": client_id, "level": 1.0})
+                record_engagement_point(session, "confusion")
                 await broadcast(
                     session,
                     {
@@ -1806,6 +1916,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 state.last_active_at = now
                 session.break_votes.add(client_id)
                 insert_event(code, "break_vote", {"client_id": client_id})
+                record_engagement_point(session, "break_vote")
 
                 student_count = max(session.student_count, 1)
                 ratio = len(session.break_votes) / student_count
@@ -1838,6 +1949,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 session.break_active_until = time.time() + duration
                 session.break_votes.clear()
                 insert_event(code, "break_start", {"duration_seconds": duration})
+                record_engagement_point(session, "break_start")
 
                 await broadcast(
                     session,
@@ -1859,6 +1971,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     session.break_active_until = None
                     session.break_votes.clear()
                     insert_event(code, "break_cancelled", {"by": client_id})
+                    record_engagement_point(session, "break_cancelled")
                     await broadcast(session, {"type": "break_ended", "payload": {"reason": "cancelled"}})
                     await broadcast(
                         session,
@@ -1890,6 +2003,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                         session.break_active_until = None
                         session.break_votes.clear()
                         insert_event(code, "break_adjusted", {"delta_seconds": delta_seconds, "ended": True})
+                        record_engagement_point(session, "break_adjusted_end")
                         await broadcast(session, {"type": "break_ended", "payload": {"reason": "adjusted_to_zero"}})
                         await broadcast(
                             session,
@@ -1908,6 +2022,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                                 "end_time_epoch": session.break_active_until,
                             },
                         )
+                        record_engagement_point(session, "break_adjusted")
                         await broadcast(
                             session,
                             {
@@ -1955,6 +2070,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 session.quiz_hidden = False
                 session.quiz_cover_mode = True
                 session.quiz_voting_closed = False
+                record_engagement_point(session, "quiz_generated")
                 insert_event(
                     code,
                     "quiz_generated",
@@ -1999,6 +2115,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                         "voting_closed": session.quiz_voting_closed,
                     },
                 )
+                record_engagement_point(session, "quiz_control")
 
                 await broadcast(
                     session,
@@ -2029,6 +2146,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     state.quiz_correct_answers += 1
                 state.last_active_at = time.time()
                 insert_event(code, "quiz_answer", {"client_id": client_id, "option_id": option_id})
+                record_engagement_point(session, "quiz_answer")
 
                 summary = analytics_for_session(session)["quiz"]
                 await broadcast(
@@ -2099,6 +2217,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
         pass
     finally:
         session.clients.pop(client_id, None)
+        record_engagement_point(session, "participant_left")
         insert_event(code, "leave", {"client_id": client_id, "role": role, "name": name})
         await broadcast(
             session,
