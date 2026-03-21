@@ -159,6 +159,15 @@ export function Icon({ name, className = 'h-5 w-5' }) {
   return <IconComponent className={className} strokeWidth={1.9} aria-hidden="true" />
 }
 
+function shuffleOptions(options) {
+  const items = Array.isArray(options) ? [...options] : []
+  for (let idx = items.length - 1; idx > 0; idx -= 1) {
+    const swapIdx = Math.floor(Math.random() * (idx + 1))
+    ;[items[idx], items[swapIdx]] = [items[swapIdx], items[idx]]
+  }
+  return items
+}
+
 function App() {
   const [initialSessionPreferences] = useState(() => loadSessionPreferences())
 
@@ -193,6 +202,11 @@ function App() {
   const [libraryLoading, setLibraryLoading] = useState(false)
   const [uploadPending, setUploadPending] = useState(false)
   const [notesPngPendingById, setNotesPngPendingById] = useState({})
+  const [showSavedQuizAttemptPanel, setShowSavedQuizAttemptPanel] = useState(false)
+  const [savedQuizAttemptItem, setSavedQuizAttemptItem] = useState(null)
+  const [savedQuizAttemptOptions, setSavedQuizAttemptOptions] = useState([])
+  const [savedQuizAttemptChoice, setSavedQuizAttemptChoice] = useState('')
+  const [savedQuizAttemptResult, setSavedQuizAttemptResult] = useState('')
 
   const [metrics, setMetrics] = useState({
     confusion_count: 0,
@@ -482,9 +496,12 @@ function App() {
       const filesPath = codeForFiles
         ? `/api/presentations?session_code=${encodeURIComponent(codeForFiles)}`
         : '/api/presentations'
+      const quizzesPath = codeForFiles
+        ? `/api/quizzes?session_code=${encodeURIComponent(codeForFiles)}`
+        : '/api/quizzes'
       const [filesData, quizzesData] = await Promise.all([
         apiRequest(filesPath, { token: authToken }),
-        apiRequest('/api/quizzes', { token: authToken }),
+        apiRequest(quizzesPath, { token: authToken }),
       ])
       setLibraryFiles(Array.isArray(filesData?.presentations) ? filesData.presentations : [])
       setLibraryQuizzes(Array.isArray(quizzesData?.quizzes) ? quizzesData.quizzes : [])
@@ -540,26 +557,36 @@ function App() {
     }
   }
 
-  async function saveCurrentQuizToLibrary() {
-    if (!authToken || !quiz) return
-    try {
-      await apiRequest('/api/quizzes/save', {
-        method: 'POST',
-        token: authToken,
-        body: {
-          session_code: normalizedCode || null,
-          question: quiz.question,
-          options: quiz.options,
-          correct_option_id: quiz.correct_option_id,
-        },
-      })
-      setStatus('Quiz saved to your library')
-      if (showLibraryPanel) {
-        await refreshLibraryData()
-      }
-    } catch (err) {
-      setError(err.message)
+
+  function openSavedQuizAttempt(quizItem) {
+    if (!quizItem) return
+    setSavedQuizAttemptItem(quizItem)
+    setSavedQuizAttemptOptions(shuffleOptions(quizItem.options))
+    setSavedQuizAttemptChoice('')
+    setSavedQuizAttemptResult('')
+    setShowSavedQuizAttemptPanel(true)
+  }
+
+  function submitSavedQuizAttempt(optionId) {
+    if (!savedQuizAttemptItem || savedQuizAttemptChoice) return
+    const picked = String(optionId || '').toUpperCase()
+    if (!picked) return
+    setSavedQuizAttemptChoice(picked)
+
+    if (!savedQuizAttemptItem.answer_revealed || !savedQuizAttemptItem.correct_option_id) {
+      setSavedQuizAttemptResult('hidden')
+      return
     }
+
+    const isCorrect = picked === String(savedQuizAttemptItem.correct_option_id).toUpperCase()
+    setSavedQuizAttemptResult(isCorrect ? 'correct' : 'incorrect')
+  }
+
+  function retrySavedQuizAttempt() {
+    if (!savedQuizAttemptItem) return
+    setSavedQuizAttemptOptions(shuffleOptions(savedQuizAttemptItem.options))
+    setSavedQuizAttemptChoice('')
+    setSavedQuizAttemptResult('')
   }
 
   async function createSession() {
@@ -1340,16 +1367,6 @@ function App() {
                     <button
                       type="button"
                       disabled={!joined}
-                      onClick={saveCurrentQuizToLibrary}
-                      className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Save quiz"
-                      aria-label="Save quiz"
-                    >
-                      <Icon name="copy" className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!joined}
                       onClick={closeQuiz}
                       className="grid h-11 w-11 place-items-center rounded-xl bg-rose-600 text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
                       title="Close question"
@@ -1956,28 +1973,29 @@ function App() {
                 ) : null}
 
                 {!libraryLoading && libraryTab === 'quizzes' ? (
-                  <div className="space-y-2">
-                    {quiz ? (
-                      <button
-                        type="button"
-                        onClick={saveCurrentQuizToLibrary}
-                        className="mb-1 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
-                      >
-                        Save current live quiz
-                      </button>
-                    ) : null}
-
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
+                      Session context: {activeLibrarySessionCode || 'your saved session quizzes'}
+                    </div>
                     {libraryQuizzes.length ? (
                       libraryQuizzes.map((item) => (
-                        <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70">
+                        <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm dark:border-slate-700 dark:bg-slate-800/70">
                           <div className="font-semibold text-slate-900 dark:text-slate-100">{item.question}</div>
                           <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Session: {item.session_code || '-'} · {new Date(item.created_at).toLocaleString()}</div>
-                          <div className="mt-2 grid gap-1 text-xs text-slate-600 dark:text-slate-300">
-                            {(item.options || []).map((option) => (
-                              <div key={option.id} className={option.id === item.correct_option_id ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}>
-                                {option.id}. {option.text}
-                              </div>
-                            ))}
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <div className="text-xs text-slate-600 dark:text-slate-300">
+                              {item.answer_revealed ? 'Practice mode: result will be shown after answering.' : 'Live quiz: correct answer hidden until host closes quiz.'}
+                            </div>
+                            {item.is_live ? <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Live</span> : null}
+                          </div>
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => openSavedQuizAttempt(item)}
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                            >
+                              Practice this quiz
+                            </button>
                           </div>
                         </div>
                       ))
@@ -1986,6 +2004,85 @@ function App() {
                     )}
                   </div>
                 ) : null}
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {showSavedQuizAttemptPanel && savedQuizAttemptItem ? (
+          <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" onClick={() => setShowSavedQuizAttemptPanel(false)}>
+            <section
+              className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Practice quiz</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowSavedQuizAttemptPanel(false)}
+                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/70">
+                <div className="text-base font-semibold text-slate-900 dark:text-slate-100">{savedQuizAttemptItem.question}</div>
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Session: {savedQuizAttemptItem.session_code || '-'} · {new Date(savedQuizAttemptItem.created_at).toLocaleString()}</div>
+              </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {savedQuizAttemptOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    disabled={Boolean(savedQuizAttemptChoice)}
+                    onClick={() => submitSavedQuizAttempt(option.id)}
+                    className={`rounded-2xl border px-4 py-3 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-70 ${
+                      savedQuizAttemptChoice === option.id
+                        ? 'border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-400 dark:bg-sky-900/30 dark:text-sky-100'
+                        : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-700/85'
+                    }`}
+                  >
+                    <span className="mr-2 font-bold">{option.id}.</span>
+                    {option.text}
+                  </button>
+                ))}
+              </div>
+
+              {savedQuizAttemptResult === 'correct' ? (
+                <div className="mt-3 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:text-emerald-300">
+                  Correct.
+                </div>
+              ) : null}
+              {savedQuizAttemptResult === 'incorrect' ? (
+                <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 dark:border-rose-700/60 dark:bg-rose-900/20 dark:text-rose-300">
+                  Incorrect. Correct answer: {savedQuizAttemptItem.correct_option_id}
+                </div>
+              ) : null}
+              {savedQuizAttemptResult === 'hidden' ? (
+                <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-300">
+                  Answer submitted. The host has not finished this live quiz yet, so correct answer is hidden.
+                </div>
+              ) : null}
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={retrySavedQuizAttempt}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                >
+                  Try again (reshuffle)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSavedQuizAttemptPanel(false)}
+                  className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-600"
+                >
+                  Done
+                </button>
               </div>
             </section>
           </div>

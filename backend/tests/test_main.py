@@ -155,6 +155,12 @@ def test_auth_register_login_and_profile(client: TestClient) -> None:
 
 def test_sessions_library_quizzes_end_and_report_pdf(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     token, user = register_user(client, email="owner@example.com", display_name="Owner")
+    student_token, _ = register_user(
+        client,
+        email="quizstudent@example.com",
+        display_name="Quiz Student",
+        role="student",
+    )
 
     create = client.post(
         "/api/sessions",
@@ -201,10 +207,41 @@ def test_sessions_library_quizzes_end_and_report_pdf(client: TestClient, monkeyp
         },
     )
     assert save_ok.status_code == 200
+    saved_quiz_id = save_ok.json()["id"]
 
     list_quizzes = client.get("/api/quizzes", headers=auth_headers(token))
     assert list_quizzes.status_code == 200
     assert len(list_quizzes.json()["quizzes"]) == 1
+    assert list_quizzes.json()["quizzes"][0]["answer_revealed"] is True
+
+    # Simulate an active live quiz bound to the saved quiz id: answers must stay hidden.
+    session = main.SESSIONS[code]
+    session.current_quiz_saved_id = saved_quiz_id
+    session.quiz_voting_closed = False
+    session.quiz_hidden = False
+
+    owner_live_view = client.get(f"/api/quizzes?session_code={code}", headers=auth_headers(token))
+    assert owner_live_view.status_code == 200
+    owner_live_quiz = owner_live_view.json()["quizzes"][0]
+    assert owner_live_quiz["is_live"] is True
+    assert owner_live_quiz["answer_revealed"] is False
+    assert owner_live_quiz["correct_option_id"] is None
+
+    student_live_view = client.get(f"/api/quizzes?session_code={code}", headers=auth_headers(student_token))
+    assert student_live_view.status_code == 200
+    student_live_quiz = student_live_view.json()["quizzes"][0]
+    assert student_live_quiz["is_live"] is True
+    assert student_live_quiz["answer_revealed"] is False
+    assert student_live_quiz["correct_option_id"] is None
+
+    # Once host closes/finishes voting, correct answer becomes visible again.
+    session.quiz_voting_closed = True
+    student_closed_view = client.get(f"/api/quizzes?session_code={code}", headers=auth_headers(student_token))
+    assert student_closed_view.status_code == 200
+    student_closed_quiz = student_closed_view.json()["quizzes"][0]
+    assert student_closed_quiz["is_live"] is False
+    assert student_closed_quiz["answer_revealed"] is True
+    assert student_closed_quiz["correct_option_id"] == "B"
 
     analytics = client.get(f"/api/sessions/{code}/analytics")
     assert analytics.status_code == 200
