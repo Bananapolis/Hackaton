@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
+  Camera,
   Coffee,
   Copy,
   Eye,
@@ -23,6 +24,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { PDFDocument } from 'pdf-lib'
 import { config } from './config'
 import { CountdownBanner } from './components/CountdownBanner'
 import { QuizOverlay } from './components/QuizOverlay'
@@ -153,7 +155,11 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     eyeOff: EyeOff,
     lock: Lock,
     lockOpen: LockOpen,
+<<<<<<< Updated upstream
     question: MessageSquare,
+=======
+    camera: Camera,
+>>>>>>> Stashed changes
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -229,6 +235,7 @@ function App() {
   const [quizProgress, setQuizProgress] = useState(null)
   const [analytics, setAnalytics] = useState(null)
   const [endingSession, setEndingSession] = useState(false)
+  const [endSessionProgressMessage, setEndSessionProgressMessage] = useState('')
   const [selectedQuizOptionId, setSelectedQuizOptionId] = useState('')
   const [showSessionPanel, setShowSessionPanel] = useState(true)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
@@ -244,6 +251,7 @@ function App() {
   const [isScreenSharing, setIsScreenSharing] = useState(false)
 
   const wsRef = useRef(null)
+  const endingSessionRef = useRef(false)
   const localStreamRef = useRef(null)
   const peerConnectionsRef = useRef(new Map())
   const localVideoRef = useRef(null)
@@ -270,6 +278,10 @@ function App() {
     return url.toString()
   }, [normalizedCode])
   const activeJoinUrl = joined ? joinUrl : ''
+
+  useEffect(() => {
+    endingSessionRef.current = endingSession
+  }, [endingSession])
 
   useEffect(() => {
     return () => {
@@ -699,7 +711,11 @@ function App() {
 
     ws.onclose = () => {
       setJoined(false)
-      setStatus('Disconnected')
+      if (endingSessionRef.current && isTeacher) {
+        setStatus('Session ended. Generating analytics report...')
+      } else {
+        setStatus('Disconnected')
+      }
       setExplainLoading(false)
       setQuizGenerationPending(false)
       setAnonymousQuestionSubmitting(false)
@@ -1124,17 +1140,25 @@ function App() {
     if (!isTeacher || !joined || !normalizedCode || endingSession) return
     setError('')
     setEndingSession(true)
+    setEndSessionProgressMessage('Ending meeting for all participants...')
+    setStatus('Ending session...')
 
     try {
       const report = await postJson(`/api/sessions/${encodeURIComponent(normalizedCode)}/end`, {})
       setAnalytics(report.analytics || null)
+
+      setEndSessionProgressMessage('Generating and downloading analytics PDF...')
+      setStatus('Generating analytics report...')
       await downloadPdfReport(normalizedCode)
+
+      setEndSessionProgressMessage('')
       setStatus('Session ended. Full analytics PDF report downloaded.')
       setShowAwardsPanel(true)
     } catch (err) {
       setError(err.message)
     } finally {
       setEndingSession(false)
+      setEndSessionProgressMessage('')
     }
   }
 
@@ -1170,6 +1194,86 @@ function App() {
       setStatus('Student join link copied')
     } catch {
       setError('Could not copy student join link. Please copy manually.')
+    }
+  }
+
+  async function captureLiveScreenAsPdf() {
+    if (isTeacher || !joined) return
+
+    try {
+      setError('')
+      setStatus('Capturing screenshot from live screen...')
+
+      const videoElement = remoteVideoRef.current
+      const hasVideoFrame = Boolean(
+        videoElement
+        && videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        && videoElement.videoWidth > 0
+        && videoElement.videoHeight > 0
+      )
+
+      const canvas = document.createElement('canvas')
+      canvas.width = hasVideoFrame ? videoElement.videoWidth : 1280
+      canvas.height = hasVideoFrame ? videoElement.videoHeight : 720
+      const context = canvas.getContext('2d')
+      if (!context) {
+        throw new Error('Canvas context unavailable')
+      }
+
+      if (hasVideoFrame) {
+        context.drawImage(videoElement, 0, 0, canvas.width, canvas.height)
+      } else {
+        context.fillStyle = '#000000'
+        context.fillRect(0, 0, canvas.width, canvas.height)
+      }
+
+      const pngBlob = await new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob)
+            return
+          }
+          reject(new Error('Canvas blob generation failed'))
+        }, 'image/png')
+      })
+      const imageBytes = await pngBlob.arrayBuffer()
+
+      const pdfDoc = await PDFDocument.create()
+      const screenshotImage = await pdfDoc.embedPng(imageBytes)
+
+      const isLandscape = screenshotImage.width >= screenshotImage.height
+      const pageWidth = isLandscape ? 842 : 595
+      const pageHeight = isLandscape ? 595 : 842
+      const scale = Math.min(pageWidth / screenshotImage.width, pageHeight / screenshotImage.height)
+      const drawWidth = screenshotImage.width * scale
+      const drawHeight = screenshotImage.height * scale
+      const offsetX = (pageWidth - drawWidth) / 2
+      const offsetY = (pageHeight - drawHeight) / 2
+
+      const page = pdfDoc.addPage([pageWidth, pageHeight])
+      page.drawImage(screenshotImage, {
+        x: offsetX,
+        y: offsetY,
+        width: drawWidth,
+        height: drawHeight,
+      })
+
+      const pdfBytes = await pdfDoc.save()
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+      const objectUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      link.href = objectUrl
+      link.download = `live-screen-${normalizedCode || 'session'}-${timestamp}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(objectUrl)
+
+      setStatus(hasVideoFrame ? 'Live screen screenshot downloaded as PDF.' : 'Blank screenshot PDF downloaded.')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown capture error'
+      setError(`Could not capture screenshot as PDF. ${message}`)
     }
   }
 
@@ -1653,6 +1757,7 @@ function App() {
                       <button
                         type="button"
                         disabled={!joined}
+<<<<<<< Updated upstream
                         onClick={() => {
                           setError('')
                           setShowAskQuestionPanel(true)
@@ -1662,6 +1767,14 @@ function App() {
                         aria-label="Ask anonymous question"
                       >
                         <Icon name="question" className="h-5 w-5" />
+=======
+                        onClick={captureLiveScreenAsPdf}
+                        className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-lg text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Take screenshot (PDF)"
+                        aria-label="Take screenshot (PDF)"
+                      >
+                        <Icon name="camera" className="h-5 w-5" />
+>>>>>>> Stashed changes
                       </button>
                       <button
                         type="button"
@@ -1780,6 +1893,22 @@ function App() {
             ) : null}
           </aside>
         </main>
+
+        {endingSession ? (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 px-4 backdrop-blur-sm">
+            <div
+              role="status"
+              aria-live="polite"
+              className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white/95 p-6 text-center shadow-2xl dark:border-slate-700/80 dark:bg-slate-900/95"
+            >
+              <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-slate-300 border-t-sky-600 dark:border-slate-700 dark:border-t-sky-400" />
+              <h3 className="mt-4 text-base font-semibold text-slate-900 dark:text-slate-100">Generating analytics report</h3>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                {endSessionProgressMessage || 'Please wait while we finalize your session report.'}
+              </p>
+            </div>
+          </div>
+        ) : null}
 
         {showSessionPanel ? (
           <div
@@ -1926,6 +2055,17 @@ function App() {
               {error ? (
                 <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">
                   {error}
+                </div>
+              ) : null}
+
+              {endingSession ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/80 dark:bg-amber-900/30 dark:text-amber-100"
+                >
+                  <div className="font-semibold">Preparing analytics report...</div>
+                  <div className="mt-1">{endSessionProgressMessage || 'Please wait while we finalize your session report.'}</div>
                 </div>
               ) : null}
             </aside>
