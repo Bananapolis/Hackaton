@@ -1,0 +1,29 @@
+@startuml
+!theme plain
+
+node "Client Side" {
+  [Web Browser] as Browser
+  [Electron Desktop App] as DesktopApp
+}
+
+node "Deployment Environment / VPS" {
+  [Caddy Reverse Proxy] as Caddy
+  
+  node "Docker Compose" {
+    [Frontend (Nginx)] as FrontendContainer
+    [Backend (FastAPI/Python)] as BackendContainer
+  }
+}
+
+database "SQLite Database" as SQLite
+cloud "OpenAI API Service" as OpenAI
+
+Browser --> Caddy : HTTPS
+DesktopApp --> Caddy : HTTPS
+
+Caddy --> FrontendContainer : Proxy Pass
+Caddy --> BackendContainer : Proxy Pass
+
+BackendContainer ..> SQLite : Read/Write
+BackendContainer ..> OpenAI : REST API
+@enduml

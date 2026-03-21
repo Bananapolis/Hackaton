@@ -2761,6 +2761,19 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 insert_event(code, "note_update", {"len": len(session.notes)})
                 await broadcast(session, {"type": "notes", "payload": {"text": session.notes}})
 
+            elif msg_type == "screen_share_stopped":
+                if role != "teacher":
+                    continue
+                insert_event(code, "screen_share_stopped", {"client_id": client_id})
+                await broadcast(
+                    session,
+                    {
+                        "type": "screen_share_stopped",
+                        "payload": {},
+                    },
+                    role="student",
+                )
+
             elif msg_type == "ask_question":
                 if role != "student":
                     continue

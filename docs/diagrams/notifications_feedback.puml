@@ -1,0 +1,22 @@
+@startuml
+!theme plain
+
+actor Student as S
+participant Backend as B
+actor Teacher as T
+
+S -> B: WS Send {type: "confusion", payload: {}}
+B -> B: Record Metric & Set Cooldown
+B -> T: WS Emit {type: "notification", payload: "A student is confused"}
+B -> S: WS Emit {type: "metrics", payload: {confusionLevel: +1}}
+B -> T: WS Emit {type: "metrics"}
+
+S -> B: WS Send {type: "vote_break", payload: {}}
+B -> B: Update Break Threshold
+B -> T: WS Emit {type: "metrics", payload: {breakVotes: N}}
+
+alt Break Threshold Reached
+    B -> T: WS Emit {type: "notification", payload: "Class break requested by majority"}
+end
+
+@enduml
