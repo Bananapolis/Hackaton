@@ -207,6 +207,7 @@ function App() {
   const [quizProgress, setQuizProgress] = useState(null)
   const [analytics, setAnalytics] = useState(null)
   const [endingSession, setEndingSession] = useState(false)
+  const [endSessionProgressMessage, setEndSessionProgressMessage] = useState('')
   const [selectedQuizOptionId, setSelectedQuizOptionId] = useState('')
   const [showSessionPanel, setShowSessionPanel] = useState(true)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
@@ -221,6 +222,7 @@ function App() {
   const [isScreenMaximized, setIsScreenMaximized] = useState(false)
 
   const wsRef = useRef(null)
+  const endingSessionRef = useRef(false)
   const localStreamRef = useRef(null)
   const peerConnectionsRef = useRef(new Map())
   const localVideoRef = useRef(null)
@@ -245,6 +247,10 @@ function App() {
     return url.toString()
   }, [normalizedCode])
   const activeJoinUrl = joined ? joinUrl : ''
+
+  useEffect(() => {
+    endingSessionRef.current = endingSession
+  }, [endingSession])
 
   useEffect(() => {
     return () => {
@@ -617,7 +623,11 @@ function App() {
 
     ws.onclose = () => {
       setJoined(false)
-      setStatus('Disconnected')
+      if (endingSessionRef.current && isTeacher) {
+        setStatus('Session ended. Generating analytics report...')
+      } else {
+        setStatus('Disconnected')
+      }
       setExplainLoading(false)
       setQuizGenerationPending(false)
       for (const pc of peerConnectionsRef.current.values()) {
@@ -958,17 +968,25 @@ function App() {
     if (!isTeacher || !joined || !normalizedCode || endingSession) return
     setError('')
     setEndingSession(true)
+    setEndSessionProgressMessage('Ending meeting for all participants...')
+    setStatus('Ending session...')
 
     try {
       const report = await postJson(`/api/sessions/${encodeURIComponent(normalizedCode)}/end`, {})
       setAnalytics(report.analytics || null)
+
+      setEndSessionProgressMessage('Generating and downloading analytics PDF...')
+      setStatus('Generating analytics report...')
       await downloadPdfReport(normalizedCode)
+
+      setEndSessionProgressMessage('')
       setStatus('Session ended. Full analytics PDF report downloaded.')
       setShowAwardsPanel(true)
     } catch (err) {
       setError(err.message)
     } finally {
       setEndingSession(false)
+      setEndSessionProgressMessage('')
     }
   }
 
@@ -1731,6 +1749,17 @@ function App() {
               {error ? (
                 <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">
                   {error}
+                </div>
+              ) : null}
+
+              {endingSession ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/80 dark:bg-amber-900/30 dark:text-amber-100"
+                >
+                  <div className="font-semibold">Preparing analytics report...</div>
+                  <div className="mt-1">{endSessionProgressMessage || 'Please wait while we finalize your session report.'}</div>
                 </div>
               ) : null}
             </aside>
