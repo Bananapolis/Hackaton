@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Camera,
+  CheckCircle,
   Coffee,
   Copy,
   Eye,
@@ -163,6 +164,7 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     question: MessageSquare,
     camera: Camera,
     history: History,
+    checkCircle: CheckCircle,
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -237,7 +239,7 @@ function App() {
   const [notes, setNotes] = useState('')
   const [breakEndTime, setBreakEndTime] = useState(null)
   const [quiz, setQuiz] = useState(null)
-  const [quizState, setQuizState] = useState({ hidden: false, cover_mode: true, voting_closed: false })
+  const [quizState, setQuizState] = useState({ hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null })
   const [quizProgress, setQuizProgress] = useState(null)
   const [analytics, setAnalytics] = useState(null)
   const [endingSession, setEndingSession] = useState(false)
@@ -480,6 +482,33 @@ function App() {
 
     lastAnonymousQuestionPendingRef.current = pendingQuestionCount
   }, [anonymousQuestions, isTeacher, joined, pendingQuestionCount])
+
+  useEffect(() => {
+    if (!isTeacher || !joined) return
+
+    function handleKeyDown(event) {
+      // Ignore shortcuts when focus is inside an input, textarea, or contentEditable
+      const tag = document.activeElement?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) return
+
+      switch (event.key.toLowerCase()) {
+        case 'q':
+          if (!showQuizPromptPanel) setShowQuizPromptPanel(true)
+          break
+        case 'n':
+          if (!showNotesPanel) setShowNotesPanel(true)
+          break
+        case 'b':
+          startBreak(300)
+          break
+        default:
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isTeacher, joined, showQuizPromptPanel, showNotesPanel])
 
   async function ensureTeacherNotificationPermission(nextRole) {
     if (typeof window === 'undefined') return
@@ -776,7 +805,7 @@ function App() {
           },
         )
         setQuizState(
-          message.payload.quiz_state || { hidden: false, cover_mode: true, voting_closed: false },
+          message.payload.quiz_state || { hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null },
         )
         if (message.payload.break_active_until) {
           setBreakEndTime(message.payload.break_active_until)
@@ -797,7 +826,7 @@ function App() {
             student_count: 0,
           },
         )
-        setQuizState(nextState.quiz_state || { hidden: false, cover_mode: true, voting_closed: false })
+        setQuizState(nextState.quiz_state || { hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null })
         if (nextState.break_active_until) {
           setBreakEndTime(nextState.break_active_until)
         } else {
@@ -825,7 +854,7 @@ function App() {
 
       if (message.type === 'quiz') {
         setQuiz(message.payload)
-        setQuizState({ hidden: false, cover_mode: true, voting_closed: false })
+        setQuizState({ hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null })
         setSelectedQuizOptionId('')
         setQuizGenerationPending(false)
       }
@@ -1699,6 +1728,9 @@ function App() {
                     onAnswer={submitQuizAnswer}
                     large={quizState.cover_mode}
                     votingClosed={quizState.voting_closed}
+                    answerRevealed={quizState.answer_revealed}
+                    correctOptionId={quizState.correct_option_id}
+                    perOption={quizState.per_option}
                   />
                 </div>
               ) : null}
@@ -1725,6 +1757,16 @@ function App() {
                       aria-label={quizState.voting_closed ? 'Resume voting' : 'Close voting'}
                     >
                       <Icon name={quizState.voting_closed ? 'lockOpen' : 'lock'} className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!joined || quizState.answer_revealed}
+                      onClick={() => send('quiz_control', { answer_revealed: true })}
+                      className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-600 text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={quizState.answer_revealed ? 'Answer revealed' : 'Reveal correct answer'}
+                      aria-label={quizState.answer_revealed ? 'Answer revealed' : 'Reveal correct answer'}
+                    >
+                      <Icon name="checkCircle" className="h-5 w-5" />
                     </button>
                     <button
                       type="button"

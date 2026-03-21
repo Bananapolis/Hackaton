@@ -2,6 +2,13 @@
 
 ## 2026-03-21
 
+- Added three high-impact hackathon presentation improvements in [backend/app/main.py](backend/app/main.py) and [frontend/src/App.jsx](frontend/src/App.jsx):
+  - **Quiz Answer Reveal:** teacher can now reveal the correct answer and per-option vote distribution to all students mid-session via a green checkmark button in the quiz controls; correct option highlighted green, wrong choices red, each option shows animated % bar; voting auto-locks on reveal; backend broadcasts `correct_option_id` and `per_option` in `quiz_state`; `quiz_answer_revealed` field added to `RuntimeSession` and included in session-state snapshots for late joiners.
+  - **AI Quiz Generation Timeout + Non-blocking:** moved synchronous `build_quiz_with_ai` to `asyncio.to_thread` so WebSocket event loop is no longer blocked during AI calls; added `asyncio.wait_for(..., timeout=AI_QUIZ_GENERATION_TIMEOUT_SECONDS)` (45s) with clear error message on timeout.
+  - **Teacher Keyboard Shortcuts:** `Q` opens quiz prompt panel, `N` opens notes panel, `B` starts a 5-minute break; shortcuts suppressed when focus is inside input/textarea.
+- Restored missing [frontend/vite.config.js](frontend/vite.config.js) with Vitest globals/jsdom config and cobertura reporter; this file was never committed but required by the test suite — all 25 frontend tests now pass in CI.
+- Updated [frontend/src/components/QuizOverlay.jsx](frontend/src/components/QuizOverlay.jsx) to accept and render `answerRevealed`, `correctOptionId`, and `perOption` props with color-coded options and percentage bars.
+
 - Recovered and improved security architecture documentation artifacts:
   - recreated [docs/diagrams/security_architecture.puml](docs/diagrams/security_architecture.puml) after it was accidentally emptied,
   - kept `!theme plain` and added explicit administrator threat paths plus a dedicated MITM actor targeting both web and SSH admin ingress,
