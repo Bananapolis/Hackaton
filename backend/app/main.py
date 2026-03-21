@@ -2473,19 +2473,22 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
             elif msg_type == "confusion":
                 if role != "student":
                     continue
-                now_epoch = time.time()
-                state.last_confusion_vote_at = now_epoch
-                state.confusion_signals_sent += 1
-                state.last_active_at = now_epoch
-                insert_event(code, "confusion", {"client_id": client_id, "level": 1.0})
-                record_engagement_point(session, "confusion")
-                await broadcast(
-                    session,
-                    {
-                        "type": "metrics",
-                        "payload": metrics_payload(session),
-                    },
-                )
+                try:
+                    now_epoch = time.time()
+                    state.last_confusion_vote_at = now_epoch
+                    state.confusion_signals_sent += 1
+                    state.last_active_at = now_epoch
+                    insert_event(code, "confusion", {"client_id": client_id, "level": 1.0})
+                    record_engagement_point(session, "confusion")
+                    await broadcast(
+                        session,
+                        {
+                            "type": "metrics",
+                            "payload": metrics_payload(session),
+                        },
+                    )
+                except Exception as e:
+                    print("CONFUSION ERROR:", repr(e))
 
             elif msg_type == "break_vote":
                 if role != "student":

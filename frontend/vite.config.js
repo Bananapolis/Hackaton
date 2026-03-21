@@ -1,27 +1,21 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-const devApiTarget = process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:9000'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  server: {
-    host: true,
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: devApiTarget,
-        changeOrigin: true,
-      },
-      '/health': {
-        target: devApiTarget,
-        changeOrigin: true,
-      },
-      '/ws': {
-        target: devApiTarget,
-        changeOrigin: true,
-        ws: true,
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.js',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'lcov', 'cobertura'],
+      thresholds: {
+        lines: 30,
+        functions: 15,
+        branches: 30,
+        statements: 30
       },
     },
   },
-})
+});
