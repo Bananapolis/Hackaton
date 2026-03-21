@@ -211,6 +211,28 @@ function getVideoFullscreenState(videoElement) {
   )
 }
 
+function preferH264CodecForVideo(pc) {
+  if (!pc || typeof RTCRtpSender === 'undefined' || typeof RTCRtpSender.getCapabilities !== 'function') {
+    return
+  }
+
+  const capabilities = RTCRtpSender.getCapabilities('video')
+  const codecs = capabilities?.codecs || []
+  if (!codecs.length) return
+
+  const h264Codecs = codecs.filter((codec) => (codec.mimeType || '').toLowerCase() === 'video/h264')
+  if (!h264Codecs.length) return
+
+  const preferred = [...h264Codecs, ...codecs.filter((codec) => (codec.mimeType || '').toLowerCase() !== 'video/h264')]
+  const videoTransceiver = pc
+    .getTransceivers()
+    .find((transceiver) => transceiver?.sender?.track?.kind === 'video' && typeof transceiver.setCodecPreferences === 'function')
+
+  if (videoTransceiver) {
+    videoTransceiver.setCodecPreferences(preferred)
+  }
+}
+
 export function Icon({ name, className = 'h-5 w-5' }) {
   const icons = {
     settings: Settings,
@@ -1172,6 +1194,7 @@ function App() {
         for (const track of stream.getTracks()) {
           pc.addTrack(track, stream)
         }
+        preferH264CodecForVideo(pc)
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
         send('signal', { target_id: studentId, description: offer })
@@ -1200,7 +1223,25 @@ function App() {
 
     pc.ontrack = (event) => {
       if (!isTeacher && remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0]
+        const videoElement = remoteVideoRef.current
+        videoElement.srcObject = event.streams[0] || new MediaStream([event.track])
+
+        // iOS Safari may block autoplay when audio is present; fallback to muted playback.
+        const ensurePlayback = async () => {
+          videoElement.playsInline = true
+          videoElement.autoplay = true
+          try {
+            await videoElement.play()
+          } catch {
+            videoElement.muted = true
+            await videoElement.play().catch(() => {})
+          }
+        }
+
+        void ensurePlayback()
+        videoElement.onloadedmetadata = () => {
+          void ensurePlayback()
+        }
       }
     }
 
@@ -1208,6 +1249,7 @@ function App() {
       for (const track of localStreamRef.current.getTracks()) {
         pc.addTrack(track, localStreamRef.current)
       }
+      preferH264CodecForVideo(pc)
     }
 
     return pc
@@ -1215,6 +1257,7 @@ function App() {
 
   async function createOfferForStudent(studentId) {
     const pc = await createPeerConnection(studentId)
+    preferH264CodecForVideo(pc)
     const offer = await pc.createOffer()
     await pc.setLocalDescription(offer)
     send('signal', { target_id: studentId, description: offer })
@@ -1545,6 +1588,19 @@ function App() {
     setStatus('Replay closed. Live frame buffer resumed.')
   }
 
+  function handleStudentVideoTap() {
+    if (isTeacher) return
+    const videoElement = remoteVideoRef.current
+    if (!videoElement) return
+
+    if (videoElement.muted) {
+      videoElement.muted = false
+      void videoElement.play().catch(() => {
+        videoElement.muted = true
+      })
+    }
+  }
+
   async function downloadPresentation(item) {
     if (!authToken) return
     try {
@@ -1842,7 +1898,13 @@ function App() {
               {isTeacher ? (
                 <video ref={localVideoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
               ) : (
-                <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-contain" />
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  onClick={handleStudentVideoTap}
+                  className="h-full w-full object-contain"
+                />
               )}
 
               {!joined ? (
