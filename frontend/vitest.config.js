@@ -14,6 +14,7 @@ export default defineConfig({
     coverage: {
       reportsDirectory: './coverage',
       reporter: ['text', 'html', 'cobertura'],
+      exclude: ['src/main.jsx', 'src/test/**', '**/*.config.*'],
     },
   },
 })

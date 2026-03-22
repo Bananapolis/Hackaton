@@ -1,0 +1,7 @@
+[run]
+omit =
+    # These services call external APIs (Gemini, OpenAI) or process binary files
+    # (PDF, PPTX). They cannot be tested in CI without live credentials.
+    app/services/ai.py
+    app/services/documents.py
+    app/services/pdf_report.py

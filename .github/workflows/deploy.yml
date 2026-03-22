@@ -55,7 +55,7 @@ jobs:
           badge: true
           fail_below_min: false
           format: markdown
-          hide_branch_rate: false
+          hide_branch_rate: true
           hide_complexity: true
           indicators: true
           output: both
@@ -63,7 +63,16 @@ jobs:
 
       - name: Write Backend Coverage to Job Summary
         if: always()
-        run: cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY || true
+        run: |
+          cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY || true
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+
+          > **How to read this table:**
+          > Each row is a layer of the backend. **"."** = core app (config, models, auth, sessions). **"routers"** = API endpoints. **"services"** = analytics only (AI generation and PDF export are excluded — they require live API keys and cannot run in CI).
+          >
+          > **Scale:** 🔴 below 50% needs attention · ➖ 50–75% is acceptable · ✅ above 75% is strong
+          > **Reference:** 60–80% is a healthy target for production web APIs. 80%+ on core logic is excellent.
+          EOF
 
   test-frontend:
     runs-on: ubuntu-latest
@@ -109,7 +118,17 @@ jobs:
 
       - name: Write Frontend Coverage to Job Summary
         if: always()
-        run: cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY || true
+        run: |
+          cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY || true
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+
+          > **How to read this table:**
+          > **"frontend.src.components"** = individual UI components (buttons, cards, overlays). **"frontend.src"** = page-level logic and WebSocket handling. Entry point (`main.jsx`) and config files are excluded.
+          > Branch rate measures whether both sides of every `if` statement are tested — harder to reach than line coverage.
+          >
+          > **Scale:** 🔴 below 50% needs attention · ➖ 50–75% is acceptable · ✅ above 75% is strong
+          > **Reference:** UI components at 80%+ is excellent. Page-level logic at 40–60% is normal for apps with heavy real-time state.
+          EOF
 
       - name: Build frontend
         working-directory: frontend
