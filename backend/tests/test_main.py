@@ -330,6 +330,7 @@ def test_upload_list_download_and_notes_png_access_control(client: TestClient, m
 def test_websocket_join_confusion_and_break_vote_signals(client: TestClient) -> None:
     create = client.post("/api/sessions", json={"teacher_name": "Teacher"})
     code = create.json()["code"]
+    main.SESSIONS[code].focus_period_ends_at = 0
 
     with client.websocket_connect(f"/ws/{code}?role=student&name=Alice") as student_ws:
         # read welcome and initial states
