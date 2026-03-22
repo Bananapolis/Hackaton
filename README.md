@@ -344,6 +344,17 @@ Examples:
 
 Priority order is: Gemini first, then OpenAI-compatible. If generation fails, the teacher gets an explicit error and no new quiz is broadcast.
 
+### OAuth / Social Sign-In Setup
+
+Users can optionally sign in with **GitHub** or **Google** instead of email + password. Both providers are opt-in — leaving the credentials unset simply keeps those buttons non-functional.
+
+Full setup guide: [docs/OAUTH_SETUP.md](docs/OAUTH_SETUP.md)
+
+Quick summary:
+
+- **GitHub** — create an OAuth App at GitHub → Settings → Developer settings, set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `BACKEND_URL`, and `FRONTEND_URL` in `backend/.env`.
+- **Google** — create a Web OAuth client in Google Cloud Console, set `VITE_GOOGLE_CLIENT_ID` in `frontend/.env` (not a secret — safe to embed in frontend bundle).
+
 ### Public Repo Secret Safety (Required)
 
 - Never commit real API keys.

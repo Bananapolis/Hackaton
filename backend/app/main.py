@@ -22,7 +22,8 @@ from urllib.request import Request, urlopen
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
+from urllib.parse import urlencode, urlparse, parse_qs
 from pydantic import BaseModel
 
 try:
@@ -51,6 +52,11 @@ UPLOADS_DIR = BASE_DIR / "uploads"
 # Timeout for AI quiz generation calls (seconds). Long enough for slow providers.
 AI_QUIZ_GENERATION_TIMEOUT_SECONDS = 45.0
 
+# OAuth configuration (set in backend/.env — never commit actual secrets)
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "").strip()
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "").strip()
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").strip().rstrip("/")
+
 
 def parse_bearer_token(authorization: str | None) -> str | None:
     if not authorization:
@@ -70,6 +76,34 @@ def hash_password(password: str, salt_hex: str | None = None) -> tuple[str, str]
 
 def create_auth_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def upsert_oauth_user(email: str, display_name: str) -> tuple[dict[str, Any], str]:
+    """Find or create a user by email (for OAuth sign-in), return (user_dict, token)."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, email, display_name, role FROM users WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    if row:
+        user_id = row["id"]
+        user = dict(row)
+    else:
+        cursor.execute(
+            "INSERT INTO users(email, display_name, role, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (email, display_name, "teacher", "", "", now_iso()),
+        )
+        user_id = cursor.lastrowid
+        cursor.execute("SELECT id, email, display_name, role FROM users WHERE id = ?", (user_id,))
+        user = dict(cursor.fetchone())
+    token = create_auth_token()
+    cursor.execute(
+        "INSERT INTO auth_tokens(token, user_id, created_at) VALUES (?, ?, ?)",
+        (token, user_id, now_iso()),
+    )
+    conn.commit()
+    conn.close()
+    return user, token
 
 
 def now_iso() -> str:
@@ -2006,6 +2040,120 @@ def login(payload: AuthLoginRequest) -> AuthResponse:
 def auth_me(authorization: str | None = Header(default=None)) -> UserPublic:
     user = require_user(authorization)
     return UserPublic(**user)
+
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth
+# ---------------------------------------------------------------------------
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:9000").strip().rstrip("/")
+
+
+@app.get("/api/auth/oauth/github")
+def github_oauth_start() -> RedirectResponse:
+    if not GITHUB_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="GitHub OAuth is not configured")
+    params = urlencode({
+        "client_id": GITHUB_CLIENT_ID,
+        "redirect_uri": f"{BACKEND_URL}/api/auth/oauth/github/callback",
+        "scope": "user:email",
+    })
+    return RedirectResponse(f"https://github.com/login/oauth/authorize?{params}")
+
+
+@app.get("/api/auth/oauth/github/callback")
+def github_oauth_callback(code: str | None = None, error: str | None = None) -> RedirectResponse:
+    if error or not code:
+        return RedirectResponse(f"{FRONTEND_URL}?oauth_error=github_denied")
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        return RedirectResponse(f"{FRONTEND_URL}?oauth_error=not_configured")
+
+    # Exchange code for access token
+    try:
+        token_req = Request(
+            "https://github.com/login/oauth/access_token",
+            data=json.dumps({
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+            }).encode(),
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(token_req, timeout=10) as resp:
+            token_data = json.loads(resp.read())
+    except Exception:
+        return RedirectResponse(f"{FRONTEND_URL}?oauth_error=github_token_failed")
+
+    access_token = token_data.get("access_token")
+    if not access_token:
+        return RedirectResponse(f"{FRONTEND_URL}?oauth_error=github_no_token")
+
+    # Get user info
+    try:
+        user_req = Request(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+        )
+        with urlopen(user_req, timeout=10) as resp:
+            gh_user = json.loads(resp.read())
+    except Exception:
+        return RedirectResponse(f"{FRONTEND_URL}?oauth_error=github_user_failed")
+
+    # Get primary verified email if not public
+    email = gh_user.get("email")
+    if not email:
+        try:
+            email_req = Request(
+                "https://api.github.com/user/emails",
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+            )
+            with urlopen(email_req, timeout=10) as resp:
+                emails = json.loads(resp.read())
+            for e in emails:
+                if e.get("primary") and e.get("verified"):
+                    email = e["email"]
+                    break
+        except Exception:
+            pass
+
+    if not email:
+        return RedirectResponse(f"{FRONTEND_URL}?oauth_error=github_no_email")
+
+    display_name = gh_user.get("name") or gh_user.get("login") or email.split("@")[0]
+    user, auth_token = upsert_oauth_user(email.strip().lower(), display_name)
+    return RedirectResponse(f"{FRONTEND_URL}?oauth_token={auth_token}&oauth_user={json.dumps(user)}")
+
+
+# ---------------------------------------------------------------------------
+# Google OAuth (access token → userinfo)
+# ---------------------------------------------------------------------------
+
+class GoogleTokenRequest(BaseModel):
+    access_token: str  # Google OAuth access token from frontend implicit flow
+
+
+@app.post("/api/auth/oauth/google", response_model=AuthResponse)
+def google_oauth(payload: GoogleTokenRequest) -> AuthResponse:
+    try:
+        req = Request(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {payload.access_token}"},
+        )
+        with urlopen(req, timeout=10) as resp:
+            info = json.loads(resp.read())
+    except HTTPError as exc:
+        raise HTTPException(status_code=401, detail="Invalid Google token") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Google token verification failed") from exc
+
+    email = info.get("email")
+    if not email or not info.get("email_verified"):
+        raise HTTPException(status_code=400, detail="Google account email not verified")
+
+    display_name = info.get("name") or email.split("@")[0]
+    user, token = upsert_oauth_user(email.strip().lower(), display_name)
+    return AuthResponse(token=token, user=UserPublic(**user))
 
 
 @app.get("/api/library/sessions")

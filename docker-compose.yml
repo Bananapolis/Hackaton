@@ -38,6 +38,7 @@ services:
       context: ./frontend
       args:
         VITE_RTC_ICE_SERVERS: ${VITE_RTC_ICE_SERVERS-}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID-}
     depends_on:
       - backend
       - turn

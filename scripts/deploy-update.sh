@@ -27,6 +27,14 @@ read_env_value() {
   printf '%s' "$value"
 }
 
+# Load VITE_GOOGLE_CLIENT_ID from backend/.env for the frontend build arg.
+if [[ -z "${VITE_GOOGLE_CLIENT_ID:-}" && -f "$REPO_ROOT/backend/.env" ]]; then
+  google_client_id="$(read_env_value "VITE_GOOGLE_CLIENT_ID" "$REPO_ROOT/backend/.env" || true)"
+  if [[ -n "$google_client_id" ]]; then
+    export VITE_GOOGLE_CLIENT_ID="$google_client_id"
+  fi
+fi
+
 # Load deploy-time frontend build args from backend/.env when not exported in shell.
 if [[ -z "${VITE_RTC_ICE_SERVERS:-}" && -f "$REPO_ROOT/backend/.env" ]]; then
   rtc_value="$(read_env_value "VITE_RTC_ICE_SERVERS" "$REPO_ROOT/backend/.env" || true)"

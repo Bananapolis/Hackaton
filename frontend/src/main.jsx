@@ -1,8 +1,11 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { GoogleOAuthProvider } from '@react-oauth/google'
 import App from './App'
 import { StartupPresentationSite, isStartupPresentationPath } from './StartupPresentationSite'
 import './styles.css'
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 
 class GlobalErrorBoundary extends React.Component {
   constructor(props) {
@@ -76,7 +79,9 @@ function RootApp() {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <GlobalErrorBoundary>
-      <RootApp />
+      {GOOGLE_CLIENT_ID
+        ? <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}><RootApp /></GoogleOAuthProvider>
+        : <RootApp />}
     </GlobalErrorBoundary>
   </React.StrictMode>,
 )
