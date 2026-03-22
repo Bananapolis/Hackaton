@@ -1,0 +1,36 @@
+# Dev environment — deployed from the 'dev' branch at dev.vialive.libreuni.com
+# Joins the production 'vialive' network so the shared Caddy container can route to web-dev.
+# Run via: scripts/deploy-dev.sh
+#
+# First-time server setup:
+#   cd /home/deploy/apps
+#   git clone <repo> app-dev
+#   cd app-dev && git checkout dev
+
+networks:
+  default:
+    external: true
+    name: vialive
+
+services:
+  backend-dev:
+    build:
+      context: ./backend
+    container_name: backend-dev
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend/data-dev.sqlite3:/app/data.sqlite3
+    restart: unless-stopped
+
+  web-dev:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_HOST: backend-dev
+        VITE_RTC_ICE_SERVERS: ${VITE_RTC_ICE_SERVERS-}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID-}
+    container_name: web-dev
+    depends_on:
+      - backend-dev
+    restart: unless-stopped

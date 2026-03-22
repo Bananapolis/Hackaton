@@ -9,3 +9,11 @@ vialive.libreuni.com {
   encode gzip zstd
   reverse_proxy web:80
 }
+
+dev.vialive.libreuni.com {
+  tls {
+    issuer acme https://acme.zerossl.com/v2/DV90
+  }
+  encode gzip zstd
+  reverse_proxy web-dev:80
+}

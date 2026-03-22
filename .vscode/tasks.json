@@ -236,17 +236,18 @@
       "problemMatcher": []
     },
     {
-      "label": "Run Full Stack (dev)",
-      "dependsOrder": "sequence",
+      "label": "Dev: Start",
+      "detail": "Start backend + frontend (run 'Dev: Setup' first if deps are missing)",
+      "dependsOrder": "parallel",
       "dependsOn": [
-        "Install All",
         "Backend: Run API",
         "Frontend: Run dev server"
       ],
       "problemMatcher": []
     },
     {
-      "label": "Install All",
+      "label": "Dev: Setup",
+      "detail": "Install all dependencies (run once after cloning or when deps change)",
       "dependsOrder": "sequence",
       "dependsOn": [
         "Backend: Install deps",
@@ -268,9 +269,18 @@
       "problemMatcher": []
     },
     {
-      "label": "Server: Pull + Rebuild + Up",
+      "label": "Server: Deploy main (production)",
       "type": "shell",
       "command": "./scripts/deploy-update.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Server: Deploy dev (staging)",
+      "type": "shell",
+      "command": "./scripts/deploy-dev.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },

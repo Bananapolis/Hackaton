@@ -14,7 +14,11 @@ COPY . .
 RUN npm run build
 
 FROM nginx:1.27.5
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+ARG BACKEND_HOST=backend
+RUN --mount=type=bind,source=nginx.conf,target=/tmp/nginx.conf.template \
+    envsubst '${BACKEND_HOST}' < /tmp/nginx.conf.template > /etc/nginx/conf.d/default.conf
+
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
