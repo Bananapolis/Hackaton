@@ -8,6 +8,31 @@ services:
       - ./backend/data.sqlite3:/app/data.sqlite3
     restart: unless-stopped
 
+  turn:
+    image: coturn/coturn:4.7.0-r2
+    env_file:
+      - ./backend/.env
+    environment:
+      TURN_REALM: ${TURN_REALM:-vialive.libreuni.com}
+      TURN_USERNAME: ${TURN_USERNAME:-via-turn}
+      TURN_PASSWORD: ${TURN_PASSWORD:-change-this-turn-password}
+      TURN_MIN_PORT: ${TURN_MIN_PORT:-49160}
+      TURN_MAX_PORT: ${TURN_MAX_PORT:-49200}
+    command:
+      - -n
+      - --log-file=stdout
+      - --fingerprint
+      - --lt-cred-mech
+      - --realm=${TURN_REALM:-vialive.libreuni.com}
+      - --user=${TURN_USERNAME:-via-turn}:${TURN_PASSWORD:-change-this-turn-password}
+      - --min-port=${TURN_MIN_PORT:-49160}
+      - --max-port=${TURN_MAX_PORT:-49200}
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    restart: unless-stopped
+
   web:
     build:
       context: ./frontend
@@ -15,6 +40,7 @@ services:
         VITE_RTC_ICE_SERVERS: ${VITE_RTC_ICE_SERVERS-}
     depends_on:
       - backend
+      - turn
     restart: unless-stopped
 
   caddy:

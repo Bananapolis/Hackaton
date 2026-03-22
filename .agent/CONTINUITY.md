@@ -1,5 +1,20 @@
 # Continuity Log
 
+## 2026-03-22
+
+- Added self-hosted TURN relay infrastructure to remove dependency on external TURN providers:
+  - added `turn` (`coturn`) service in [docker-compose.yml](docker-compose.yml) with published TURN listener ports (`3478` TCP/UDP) and UDP relay range (`49160-49200`),
+  - wired TURN config through env (`TURN_REALM`, `TURN_PUBLIC_HOST`, `TURN_USERNAME`, `TURN_PASSWORD`, relay min/max ports).
+  - on production host, stopped and disabled system-level `coturn.service` so compose-managed `turn` can own port `3478`.
+- Updated deploy automation in [scripts/deploy-update.sh](scripts/deploy-update.sh):
+  - added env parsing helper for quoted/unquoted values,
+  - if `VITE_RTC_ICE_SERVERS` is not explicitly set, it is now auto-generated from local TURN env values so frontend builds default to self-hosted relay.
+- Removed third-party OpenRelay TURN fallback from [frontend/src/config.js](frontend/src/config.js); fallback is now STUN-only unless explicit/self-hosted TURN is configured.
+- Expanded deployment documentation for TURN operations:
+  - added TURN env examples in [backend/.env.example](backend/.env.example),
+  - updated firewall guidance and TURN section in [DEPLOYMENT.md](DEPLOYMENT.md),
+  - updated production WebRTC guidance in [README.md](README.md).
+
 ## 2026-03-21
 
 - Restored missing [frontend/vitest.config.js](frontend/vitest.config.js) so Vitest runs with global APIs (`describe`/`it`/`vi`), jsdom, JUnit output, and Cobertura coverage output; this unblocked frontend test execution and CI test artifact generation.

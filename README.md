@@ -282,13 +282,34 @@ For production demos, HTTPS is mandatory for reliable WebRTC behavior and is now
 
 If host and student can see screen share on the same device but not across different devices/networks, this is usually NAT traversal and relay configuration (WebRTC ICE/TURN).
 
-Configure frontend ICE servers at build time with `VITE_RTC_ICE_SERVERS` (JSON array), for example:
+This repository includes a self-hosted TURN service (`turn`) in `docker-compose.yml` via `coturn`.
+
+Set these values in `backend/.env`:
+
+```bash
+TURN_REALM=vialive.libreuni.com
+TURN_PUBLIC_HOST=vialive.libreuni.com
+TURN_USERNAME=via-turn
+TURN_PASSWORD=<strong-random-password>
+TURN_MIN_PORT=49160
+TURN_MAX_PORT=49200
+```
+
+Then rebuild:
+
+```bash
+docker compose up -d --build
+```
+
+`scripts/deploy-update.sh` will auto-generate `VITE_RTC_ICE_SERVERS` from those TURN variables when no explicit value is provided.
+
+Manual override is still supported with explicit `VITE_RTC_ICE_SERVERS` JSON, for example:
 
 ```bash
 export VITE_RTC_ICE_SERVERS='[
 	{"urls":"stun:stun.l.google.com:19302"},
-	{"urls":"turn:turn.your-domain.com:3478","username":"turn-user","credential":"turn-password"},
-	{"urls":"turns:turn.your-domain.com:5349","username":"turn-user","credential":"turn-password"}
+	{"urls":"turn:turn.vialive.libreuni.com:3478?transport=udp","username":"via-turn","credential":"<strong-random-password>"},
+	{"urls":"turn:turn.vialive.libreuni.com:3478?transport=tcp","username":"via-turn","credential":"<strong-random-password>"}
 ]'
 docker compose up -d --build web
 ```

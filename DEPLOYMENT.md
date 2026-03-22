@@ -101,12 +101,15 @@ curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker $DEPLOY_USER
 ```
 
-### 2.4) Firewall (allow SSH + web)
+### 2.4) Firewall (allow SSH + web + TURN)
 
 ```bash
 sudo ufw allow OpenSSH
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
+sudo ufw allow 3478/tcp
+sudo ufw allow 3478/udp
+sudo ufw allow 49160:49200/udp
 sudo ufw --force enable
 sudo ufw status verbose
 ```
@@ -278,46 +281,60 @@ If Caddy logs show ACME errors like:
 
 then inbound validation from Let's Encrypt cannot reach this server on `:80` and/or `:443`.
 
-### 5.1) WebRTC cross-device reliability (TURN/ICE)
+### 5.1) WebRTC cross-device reliability (self-hosted TURN/ICE)
 
-If screen sharing works only on the same device or same local network but fails across different networks/devices, configure TURN relay servers for the frontend build.
+This repository now includes a self-hosted TURN service (`turn`) in `docker-compose.yml` using `coturn`.
 
-Set `VITE_RTC_ICE_SERVERS` before `docker compose up -d --build` (JSON array):
+1. In `backend/.env`, configure TURN credentials and host:
 
 ```bash
-export VITE_RTC_ICE_SERVERS='[
-  {"urls":"stun:stun.l.google.com:19302"},
-  {"urls":"turn:turn.your-domain.com:3478","username":"turn-user","credential":"turn-password"},
-  {"urls":"turns:turn.your-domain.com:5349","username":"turn-user","credential":"turn-password"}
-]'
+TURN_REALM=vialive.libreuni.com
+TURN_PUBLIC_HOST=vialive.libreuni.com
+TURN_USERNAME=via-turn
+TURN_PASSWORD=<strong-random-password>
+TURN_MIN_PORT=49160
+TURN_MAX_PORT=49200
 ```
 
-Then rebuild web image:
+2. Ensure DNS points to this server:
+
+- `vialive.libreuni.com` (app)
+- `turn.vialive.libreuni.com` (optional dedicated TURN hostname; if used, set `TURN_PUBLIC_HOST=turn.vialive.libreuni.com`)
+
+3. Build/redeploy:
 
 ```bash
-docker compose up -d --build web
+docker compose up -d --build
 ```
 
-Persistent option for server deploy script:
-
-- Put the same key in `backend/.env` as a single-line value so `scripts/deploy-update.sh` can reuse it on each deploy:
+If `docker compose up` fails with `failed to bind host port ...:3478 ... address already in use`, the host likely already runs a system coturn service. Migrate to the compose-managed service:
 
 ```bash
-VITE_RTC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:turn.your-domain.com:3478","username":"turn-user","credential":"turn-password"},{"urls":"turns:turn.your-domain.com:5349","username":"turn-user","credential":"turn-password"}]'
+sudo systemctl stop coturn
+sudo systemctl disable coturn
+docker compose up -d turn
+```
+
+`scripts/deploy-update.sh` now auto-builds `VITE_RTC_ICE_SERVERS` from `TURN_PUBLIC_HOST` + `TURN_USERNAME` + `TURN_PASSWORD` when no explicit `VITE_RTC_ICE_SERVERS` is set.
+
+If you want a manual override, set explicit ICE JSON in `backend/.env`:
+
+```bash
+VITE_RTC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:turn.vialive.libreuni.com:3478?transport=udp","username":"via-turn","credential":"<strong-random-password>"},{"urls":"turn:turn.vialive.libreuni.com:3478?transport=tcp","username":"via-turn","credential":"<strong-random-password>"}]'
 ```
 
 Notes:
 
 - TURN credentials are injected at frontend build time (Vite `VITE_*` variable).
-- Keep TURN credentials out of git; set them only in shell/CI secrets.
+- Keep TURN credentials out of git; set them only in local env/CI secrets.
 - Keep HTTPS enabled in production for stable screen-capture/browser permissions.
 
 Use this checklist:
 
 1. Confirm DNS points to this exact server (check both `A` and `AAAA` records).
   - If you do not have working IPv6 on this host, remove the `AAAA` record.
-2. Confirm cloud/provider firewall allows inbound TCP `80` and `443` (in addition to UFW).
-3. Confirm `ufw status` shows `OpenSSH`, `80/tcp`, `443/tcp` as allowed.
+2. Confirm cloud/provider firewall allows inbound TCP `80`, `443`, `3478` and UDP `3478`, `49160-49200` (in addition to UFW).
+3. Confirm `ufw status` shows `OpenSSH`, `80/tcp`, `443/tcp`, `3478/tcp`, `3478/udp`, and `49160:49200/udp` as allowed.
 4. If using a DNS proxy/CDN (e.g., Cloudflare orange-cloud), switch to DNS-only while issuing certs.
 5. Retry after DNS/firewall fixes:
   - `docker compose restart caddy`
@@ -502,7 +519,7 @@ Required GitHub repository secrets:
 - [ ] `PermitRootLogin no` applied
 - [ ] `PasswordAuthentication no` applied
 - [ ] Fail2ban active for SSH
-- [ ] UFW allows only OpenSSH, 80, 443
+- [ ] UFW allows only OpenSSH, 80/tcp, 443/tcp, 3478/tcp, 3478/udp, 49160:49200/udp
 - [ ] unattended-upgrades enabled
 - [ ] all compromised credentials rotated
 - [ ] fresh `backend/.env` written from rotated keys
@@ -512,5 +529,5 @@ Required GitHub repository secrets:
 - DNS points to server
 - HTTPS certificate valid
 - `ALLOWED_ORIGINS=https://vialive.libreuni.com`
-- `docker compose ps` shows all services running
+- `docker compose ps` shows all services running (`backend`, `web`, `caddy`, `turn`)
 - Run full browser test with 1 teacher + 1 student on separate devices/networks
