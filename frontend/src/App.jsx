@@ -312,6 +312,12 @@ function App() {
   })
   const [notes, setNotes] = useState('')
   const [breakEndTime, setBreakEndTime] = useState(null)
+  // Epoch when the 30-min focus period ends and the break-vote button unlocks (0 = unlocked)
+  const [focusPeriodEndsAt, setFocusPeriodEndsAt] = useState(0)
+  // Show a prominent alert banner on teacher's UI when the threshold is reached
+  const [breakThresholdAlert, setBreakThresholdAlert] = useState(null)
+  // Ticking "now" used to reactively compute focus-period countdown without extra effects
+  const [nowEpoch, setNowEpoch] = useState(() => Date.now() / 1000)
   const [quiz, setQuiz] = useState(null)
   const [quizState, setQuizState] = useState({ hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null })
   const [quizProgress, setQuizProgress] = useState(null)
@@ -376,6 +382,12 @@ function App() {
       peerConnectionsRef.current.clear()
       localStreamRef.current?.getTracks().forEach((track) => track.stop())
     }
+  }, [])
+
+  // Tick every second so focus-period countdown updates reactively
+  useEffect(() => {
+    const timer = setInterval(() => setNowEpoch(Date.now() / 1000), 1000)
+    return () => clearInterval(timer)
   }, [])
 
   useEffect(() => {
@@ -924,6 +936,9 @@ function App() {
         } else {
           setBreakEndTime(null)
         }
+        if (nextState.focus_period_ends_at !== undefined) {
+          setFocusPeriodEndsAt(nextState.focus_period_ends_at || 0)
+        }
       }
 
       if (message.type === 'metrics') {
@@ -932,12 +947,20 @@ function App() {
 
       if (message.type === 'break_started') {
         setBreakEndTime(message.payload.end_time_epoch)
+        if (message.payload.focus_period_ends_at !== undefined) {
+          setFocusPeriodEndsAt(message.payload.focus_period_ends_at || 0)
+        }
         setStatus('Break timer updated')
       }
 
       if (message.type === 'break_ended') {
         setBreakEndTime(null)
         setStatus('Break ended')
+      }
+
+      if (message.type === 'focus_timer_reset') {
+        setFocusPeriodEndsAt(message.payload?.focus_period_ends_at || 0)
+        setBreakThresholdAlert(null)
       }
 
       if (message.type === 'notes') {
@@ -999,7 +1022,9 @@ function App() {
 
       if (message.type === 'break_threshold_reached') {
         const ratioPercent = Math.round((message.payload?.ratio || 0) * 100)
+        const votes = message.payload?.votes ?? 0
         setStatus(`Break threshold reached (${ratioPercent}%)`)
+        setBreakThresholdAlert({ ratioPercent, votes })
         const now = Date.now()
         if (now - lastBreakNotificationAtRef.current > BREAK_NOTIFICATION_COOLDOWN_MS) {
           notifyTeacher(
@@ -1655,7 +1680,15 @@ function App() {
   const breakVotesMetricDisplay = `${metrics.break_votes} (${Math.round(breakVotePercent)}%)`
   const awards = Array.isArray(analytics?.awards) ? analytics.awards : []
   const shortStatus = status.length > 54 ? `${status.slice(0, 54)}…` : status
-  const breakIsActive = Boolean(breakEndTime && breakEndTime > Date.now() / 1000)
+  const breakIsActive = Boolean(breakEndTime && breakEndTime > nowEpoch)
+  // Seconds left until the break-vote button unlocks (0 means already unlocked)
+  const focusSecondsLeft = focusPeriodEndsAt > 0 ? Math.max(0, Math.floor(focusPeriodEndsAt - nowEpoch)) : 0
+  // Button is active when: joined, no break in progress, and focus period has elapsed
+  const breakVoteButtonActive = joined && !breakIsActive && focusSecondsLeft === 0
+  const focusCountdownLabel =
+    focusSecondsLeft > 0
+      ? `Break available in ${Math.floor(focusSecondsLeft / 60)}:${String(focusSecondsLeft % 60).padStart(2, '0')}`
+      : null
   const compactMetrics = [
     { label: 'Students', value: metrics.student_count, icon: 'users' },
     { label: 'Confusion level', value: confusionMetricDisplay, icon: 'alert' },
@@ -1822,6 +1855,25 @@ function App() {
         </header>
 
         <CountdownBanner endTimeEpoch={breakEndTime} />
+
+        {isTeacher && breakThresholdAlert && !breakIsActive && (
+          <div className="mb-4 flex items-center justify-between rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-2.5 text-amber-900 shadow-sm dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+            <div className="flex items-center gap-2">
+              <Coffee className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <span className="text-sm font-semibold">
+                Students want a break — {breakThresholdAlert.ratioPercent}% voted ({breakThresholdAlert.votes} student{breakThresholdAlert.votes !== 1 ? 's' : ''})
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBreakThresholdAlert(null)}
+              className="ml-4 shrink-0 rounded-lg p-1 text-amber-700 transition hover:bg-amber-200 dark:text-amber-400 dark:hover:bg-amber-900/50"
+              aria-label="Dismiss alert"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <main className="app-main grid min-h-0 flex-1 gap-4 ui-fade-up lg:grid-cols-[minmax(0,1fr)_340px]">
           <section
@@ -2036,16 +2088,26 @@ function App() {
                       >
                         <Icon name="confusion" className="h-5 w-5" />
                       </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={() => send('break_vote')}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-sky-700 text-lg text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Request break"
-                        aria-label="Request break"
-                      >
-                        <Icon name="break" className="h-5 w-5" />
-                      </button>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <button
+                          type="button"
+                          disabled={!breakVoteButtonActive}
+                          onClick={() => {
+                            send('break_vote')
+                            setStatus('Break vote sent')
+                          }}
+                          className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${breakVoteButtonActive ? 'bg-sky-700 hover:bg-sky-600' : 'bg-slate-600'}`}
+                          title={focusCountdownLabel ?? (breakIsActive ? 'Break in progress' : 'Request break')}
+                          aria-label="Request break"
+                        >
+                          <Icon name="break" className="h-5 w-5" />
+                        </button>
+                        {focusCountdownLabel && (
+                          <span className="text-[9px] font-medium tabular-nums text-slate-400 dark:text-slate-500">
+                            {Math.floor(focusSecondsLeft / 60)}:{String(focusSecondsLeft % 60).padStart(2, '0')}
+                          </span>
+                        )}
+                      </div>
                       <button
                         type="button"
                         disabled={!joined || explainLoading}

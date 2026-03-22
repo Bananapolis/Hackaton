@@ -339,6 +339,9 @@ class AnonymousQuestion:
     resolved_at: str | None = None
 
 
+FOCUS_PERIOD_SECONDS = 1800  # 30 minutes of teaching before break-vote button unlocks
+
+
 @dataclass
 class RuntimeSession:
     code: str
@@ -347,6 +350,8 @@ class RuntimeSession:
     clients: dict[str, ClientState] = field(default_factory=dict)
     break_votes: set[str] = field(default_factory=set)
     break_active_until: float | None = None
+    # Epoch when break-vote button unlocks for students; 0.0 = already unlocked
+    focus_period_ends_at: float = 0.0
     notes: str = ""
     current_quiz: QuizPayload | None = None
     current_quiz_saved_id: int | None = None
@@ -361,6 +366,11 @@ class RuntimeSession:
     final_report: dict[str, Any] | None = None
     final_report_insights: dict[str, Any] | None = None
     engagement_timeline: list[dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # Set focus period relative to session creation if not already set
+        if self.focus_period_ends_at == 0.0:
+            self.focus_period_ends_at = self.created_at_epoch + FOCUS_PERIOD_SECONDS
 
     @property
     def student_count(self) -> int:
@@ -439,6 +449,7 @@ def session_state_payload(session: RuntimeSession) -> dict[str, Any]:
     return {
         "notes": session.notes,
         "break_active_until": session.break_active_until,
+        "focus_period_ends_at": session.focus_period_ends_at,
         "quiz": session.current_quiz.model_dump() if session.current_quiz else None,
         "quiz_state": quiz_state_dict,
         "metrics": metrics_payload(session),
@@ -2599,6 +2610,21 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
             msg_type = message.get("type")
             payload = message.get("payload", {})
 
+            # Detect natural break expiry and reset the focus-period timer
+            if session.break_active_until and time.time() > session.break_active_until:
+                session.break_active_until = None
+                session.break_votes.clear()
+                session.focus_period_ends_at = time.time() + FOCUS_PERIOD_SECONDS
+                await broadcast(session, {"type": "break_ended", "payload": {"reason": "expired"}})
+                await broadcast(
+                    session,
+                    {
+                        "type": "focus_timer_reset",
+                        "payload": {"focus_period_ends_at": session.focus_period_ends_at},
+                    },
+                )
+                await broadcast(session, {"type": "metrics", "payload": metrics_payload(session)})
+
             if msg_type == "signal":
                 target_id = payload.get("target_id")
                 target = session.clients.get(target_id)
@@ -2640,6 +2666,33 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     continue
 
                 now = time.time()
+
+                # Reject if the 30-minute focus period hasn't elapsed yet
+                if now < session.focus_period_ends_at:
+                    remaining = int(session.focus_period_ends_at - now)
+                    mins, secs = divmod(remaining, 60)
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "error",
+                            "payload": {
+                                "message": f"Break voting unlocks in {mins}m {secs:02d}s."
+                            },
+                        },
+                    )
+                    continue
+
+                # Reject if a break is already active
+                if session.break_active_until and now < session.break_active_until:
+                    await send_json(
+                        websocket,
+                        {
+                            "type": "error",
+                            "payload": {"message": "A break is already in progress."},
+                        },
+                    )
+                    continue
+
                 if now - state.last_break_vote_at < BREAK_COOLDOWN_SECONDS:
                     await send_json(
                         websocket,
@@ -2689,6 +2742,8 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 duration = max(30, min(duration, 1800))
                 session.break_active_until = time.time() + duration
                 session.break_votes.clear()
+                # Clear focus period while break is active; it resets after break ends
+                session.focus_period_ends_at = 0.0
                 insert_event(code, "break_start", {"duration_seconds": duration})
                 record_engagement_point(session, "break_start")
 
@@ -2696,7 +2751,10 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     session,
                     {
                         "type": "break_started",
-                        "payload": {"end_time_epoch": session.break_active_until},
+                        "payload": {
+                            "end_time_epoch": session.break_active_until,
+                            "focus_period_ends_at": session.focus_period_ends_at,
+                        },
                     },
                 )
 
@@ -2711,9 +2769,18 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                         continue
                     session.break_active_until = None
                     session.break_votes.clear()
+                    # Start fresh 30-minute focus period after the break ends
+                    session.focus_period_ends_at = time.time() + FOCUS_PERIOD_SECONDS
                     insert_event(code, "break_cancelled", {"by": client_id})
                     record_engagement_point(session, "break_cancelled")
                     await broadcast(session, {"type": "break_ended", "payload": {"reason": "cancelled"}})
+                    await broadcast(
+                        session,
+                        {
+                            "type": "focus_timer_reset",
+                            "payload": {"focus_period_ends_at": session.focus_period_ends_at},
+                        },
+                    )
                     await broadcast(
                         session,
                         {
@@ -2743,9 +2810,18 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     if updated_end <= now_epoch + 1:
                         session.break_active_until = None
                         session.break_votes.clear()
+                        # Start fresh 30-minute focus period after the break ends
+                        session.focus_period_ends_at = now_epoch + FOCUS_PERIOD_SECONDS
                         insert_event(code, "break_adjusted", {"delta_seconds": delta_seconds, "ended": True})
                         record_engagement_point(session, "break_adjusted_end")
                         await broadcast(session, {"type": "break_ended", "payload": {"reason": "adjusted_to_zero"}})
+                        await broadcast(
+                            session,
+                            {
+                                "type": "focus_timer_reset",
+                                "payload": {"focus_period_ends_at": session.focus_period_ends_at},
+                            },
+                        )
                         await broadcast(
                             session,
                             {
