@@ -340,7 +340,10 @@ def test_websocket_join_confusion_and_break_vote_signals(client: TestClient) -> 
 
         student_ws.send_json({"type": "confusion", "payload": {}})
         msg1 = student_ws.receive_json()
-        
+
+        # Unlock break voting by clearing the focus period lock
+        main.SESSIONS[code].focus_period_ends_at = 0.0
+
         student_ws.send_json({"type": "break_vote", "payload": {}})
         msg2 = student_ws.receive_json()
         
