@@ -121,6 +121,31 @@ export function loadSessionPreferences() {
   }
 }
 
+async function parseErrorResponse(response) {
+  const text = await response.text()
+  if (!text) return `Request failed with status ${response.status}`
+  // If the response is HTML (e.g. from nginx), extract a readable message
+  if (text.trimStart().startsWith('<')) {
+    const statusMessages = {
+      413: 'File is too large to upload.',
+      414: 'Request URL too long.',
+      431: 'Request headers too large.',
+      500: 'Internal server error.',
+      502: 'Bad gateway.',
+      503: 'Service unavailable.',
+      504: 'Gateway timeout.',
+    }
+    return statusMessages[response.status] || `Request failed with status ${response.status}`
+  }
+  // Try to extract FastAPI detail field
+  try {
+    const json = JSON.parse(text)
+    return json.detail || text
+  } catch {
+    return text
+  }
+}
+
 export async function postJson(path, body) {
   const response = await fetch(`${config.apiBase}${path}`, {
     method: 'POST',
@@ -129,8 +154,7 @@ export async function postJson(path, body) {
   })
 
   if (!response.ok) {
-    const detail = await response.text()
-    throw new Error(detail || `Request failed with status ${response.status}`)
+    throw new Error(await parseErrorResponse(response))
   }
 
   return response.json()
@@ -156,8 +180,7 @@ export async function apiRequest(path, { method = 'GET', body, token, isFormData
   })
 
   if (!response.ok) {
-    const detail = await response.text()
-    throw new Error(detail || `Request failed with status ${response.status}`)
+    throw new Error(await parseErrorResponse(response))
   }
 
   if (response.status === 204) {
@@ -1637,8 +1660,7 @@ function App() {
       })
 
       if (!response.ok) {
-        const detail = await response.text()
-        throw new Error(detail || `Download failed (${response.status})`)
+        throw new Error(await parseErrorResponse(response))
       }
 
       const blob = await response.blob()
@@ -1672,8 +1694,7 @@ function App() {
       })
 
       if (!response.ok) {
-        const detail = await response.text()
-        throw new Error(detail || `Notes generation failed (${response.status})`)
+        throw new Error(await parseErrorResponse(response))
       }
 
       const blob = await response.blob()
