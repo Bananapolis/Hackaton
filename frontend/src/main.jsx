@@ -79,9 +79,9 @@ function RootApp() {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <GlobalErrorBoundary>
-      <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-        <RootApp />
-      </GoogleOAuthProvider>
+      {GOOGLE_CLIENT_ID
+        ? <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}><RootApp /></GoogleOAuthProvider>
+        : <RootApp />}
     </GlobalErrorBoundary>
   </React.StrictMode>,
 )
