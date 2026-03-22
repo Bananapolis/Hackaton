@@ -12,6 +12,7 @@ desktop/node_modules/
 desktop/dist/
 
 # IDE / OS
+.claude/
 .DS_Store
 .env
 backend/.env
