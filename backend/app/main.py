@@ -11,7 +11,7 @@ import time
 import uuid
 from base64 import b64decode
 from io import BytesIO
-from hashlib import pbkdf2_hmac
+from hashlib import pbkdf2_hmac, sha256
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -197,8 +197,72 @@ def init_db() -> None:
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ai_cache (
+            cache_key TEXT PRIMARY KEY,
+            response TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            hit_count INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
     conn.commit()
     conn.close()
+
+
+def ai_cache_key(prefix: str, *parts: str) -> str:
+    """Return a SHA-256 hex digest over the concatenation of prefix and all parts."""
+    payload = prefix + "|" + "|".join(parts)
+    return sha256(payload.encode("utf-8")).hexdigest()
+
+
+def ai_cache_get(cache_key: str) -> str | None:
+    """Return cached response string, or None on miss / expiry."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT response FROM ai_cache WHERE cache_key = ? AND expires_at > ?",
+            (cache_key, now_iso()),
+        )
+        row = cursor.fetchone()
+        if row:
+            cursor.execute(
+                "UPDATE ai_cache SET hit_count = hit_count + 1 WHERE cache_key = ?",
+                (cache_key,),
+            )
+            conn.commit()
+            return row[0]
+        return None
+    finally:
+        conn.close()
+
+
+def ai_cache_set(cache_key: str, response: str, ttl_seconds: int = 3600) -> None:
+    """Store response in cache with a TTL. Overwrites any existing entry."""
+    from datetime import timedelta
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conn.cursor()
+        now = datetime.now(timezone.utc)
+        expires = (now + timedelta(seconds=ttl_seconds)).isoformat()
+        cursor.execute(
+            """
+            INSERT INTO ai_cache(cache_key, response, created_at, expires_at, hit_count)
+            VALUES (?, ?, ?, ?, 0)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                response = excluded.response,
+                created_at = excluded.created_at,
+                expires_at = excluded.expires_at,
+                hit_count = 0
+            """,
+            (cache_key, response, now.isoformat(), expires),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def insert_session(code: str, teacher_name: str, owner_user_id: int | None = None) -> None:
@@ -595,6 +659,11 @@ def build_quiz_with_ai(
     style_preset: str = "default",
     custom_prompt: str = "",
 ) -> QuizPayload:
+    _cache_key = ai_cache_key("quiz", notes or "", style_preset, custom_prompt or "")
+    _cached = ai_cache_get(_cache_key)
+    if _cached is not None:
+        return QuizPayload(**json.loads(_cached))
+
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     errors: list[str] = []
@@ -648,7 +717,9 @@ def build_quiz_with_ai(
                         text_output = text_output[4:].strip()
 
                 parsed = json.loads(text_output)
-                return QuizPayload(**parsed)
+                quiz = QuizPayload(**parsed)
+                ai_cache_set(_cache_key, json.dumps(parsed), ttl_seconds=3600)
+                return quiz
             except HTTPError as exc:
                 details = ""
                 try:
@@ -701,7 +772,9 @@ def build_quiz_with_ai(
                     text_output = text_output[4:].strip()
 
             parsed = json.loads(text_output)
-            return QuizPayload(**parsed)
+            quiz = QuizPayload(**parsed)
+            ai_cache_set(_cache_key, json.dumps(parsed), ttl_seconds=3600)
+            return quiz
         except Exception as exc:
             errors.append(f"OpenAI-compatible error: {str(exc)[:300]}")
     elif api_key and OpenAI is None:
@@ -717,6 +790,11 @@ def build_quiz_with_ai(
 
 
 def build_screen_explanation_with_ai(notes: str) -> str:
+    _cache_key = ai_cache_key("explain", notes or "")
+    _cached = ai_cache_get(_cache_key)
+    if _cached is not None:
+        return _cached
+
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     errors: list[str] = []
@@ -765,7 +843,9 @@ def build_screen_explanation_with_ai(notes: str) -> str:
                     .strip()
                 )
                 if text_output:
-                    return text_output[:1400]
+                    result = text_output[:1400]
+                    ai_cache_set(_cache_key, result, ttl_seconds=3600)
+                    return result
                 raise ValueError("Gemini returned an empty explanation")
             except HTTPError as exc:
                 details = ""
@@ -814,7 +894,9 @@ def build_screen_explanation_with_ai(notes: str) -> str:
 
             text_output = response.output_text.strip()
             if text_output:
-                return text_output[:1400]
+                result = text_output[:1400]
+                ai_cache_set(_cache_key, result, ttl_seconds=3600)
+                return result
             raise ValueError("OpenAI-compatible provider returned an empty explanation")
         except Exception as exc:
             errors.append(f"OpenAI-compatible error: {str(exc)[:300]}")
@@ -882,6 +964,11 @@ def build_student_notes_with_ai(presentation_text: str, presentation_name: str) 
     if not source:
         raise RuntimeError("No readable text was found in the presentation.")
 
+    _cache_key = ai_cache_key("student_notes", source[:24000])
+    _cached = ai_cache_get(_cache_key)
+    if _cached is not None:
+        return _cached
+
     source_excerpt = source[:24000]
     topic = Path(presentation_name).stem.replace("-", " ").replace("_", " ").strip() or "Science Topic"
     prompt = (
@@ -944,7 +1031,9 @@ def build_student_notes_with_ai(presentation_text: str, presentation_name: str) 
                     .strip()
                 )
                 if text_output:
-                    return text_output[:6000]
+                    result = text_output[:6000]
+                    ai_cache_set(_cache_key, result, ttl_seconds=604800)
+                    return result
                 raise ValueError("Gemini returned empty notes")
             except HTTPError as exc:
                 details = ""
@@ -985,7 +1074,9 @@ def build_student_notes_with_ai(presentation_text: str, presentation_name: str) 
             )
             text_output = response.output_text.strip()
             if text_output:
-                return text_output[:6000]
+                result = text_output[:6000]
+                ai_cache_set(_cache_key, result, ttl_seconds=604800)
+                return result
             raise ValueError("OpenAI-compatible provider returned empty notes")
         except Exception as exc:
             errors.append(f"OpenAI-compatible error: {str(exc)[:300]}")
