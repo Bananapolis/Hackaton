@@ -1,12 +1,11 @@
 import json
-import os
 from base64 import b64decode
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
-from app import database
+import httpx
+
+from app import config, database
 from app.models import QuizOption, QuizPayload
 
 try:
@@ -70,6 +69,46 @@ def build_quiz_fallback(notes: str) -> QuizPayload:
     )
 
 
+def _call_gemini(
+    model_name: str,
+    parts: list[dict[str, Any]],
+    generation_config: dict[str, Any],
+    *,
+    timeout: float = 20.0,
+) -> str:
+    """POST to Gemini generateContent and return the first candidate's text."""
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model_name}:generateContent"
+    )
+    response = httpx.post(
+        url,
+        params={"key": config.settings.gemini_api_key},
+        json={
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": generation_config,
+        },
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return (
+        data.get("candidates", [{}])[0]
+        .get("content", {})
+        .get("parts", [{}])[0]
+        .get("text", "")
+        .strip()
+    )
+
+
+def _gemini_models_to_try() -> list[str]:
+    model = config.settings.gemini_model
+    models = [model]
+    if model != "gemini-2.5-flash":
+        models.append("gemini-2.5-flash")
+    return models
+
+
 def build_quiz_with_ai(
     notes: str,
     style_preset: str = "default",
@@ -80,82 +119,46 @@ def build_quiz_with_ai(
     if _cached is not None:
         return QuizPayload(**json.loads(_cached))
 
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    gemini_api_key = config.settings.gemini_api_key
     errors: list[str] = []
 
     if gemini_api_key:
         prompt = compose_quiz_generation_prompt(style_preset, custom_prompt)
-
         parts: list[dict[str, Any]] = [
-            {
-                "text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
-            }
+            {"text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}"}
         ]
-
-        models_to_try = [gemini_model]
-        if gemini_model != "gemini-2.5-flash":
-            models_to_try.append("gemini-2.5-flash")
-
-        for model_name in models_to_try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_api_key}"
-            body = {
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": {
-                    "temperature": 0.2,
-                    "responseMimeType": "application/json",
-                },
-            }
-
+        for model_name in _gemini_models_to_try():
             try:
-                req = Request(
-                    url,
-                    data=json.dumps(body).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urlopen(req, timeout=20) as resp:
-                    response_text = resp.read().decode("utf-8")
-                response_json = json.loads(response_text)
-                text_output = (
-                    response_json.get("candidates", [{}])[0]
-                    .get("content", {})
-                    .get("parts", [{}])[0]
-                    .get("text", "")
-                    .strip()
+                text_output = _call_gemini(
+                    model_name,
+                    parts,
+                    {"temperature": 0.2, "responseMimeType": "application/json"},
                 )
                 if not text_output:
                     raise ValueError("Gemini returned an empty response")
-
                 if text_output.startswith("```"):
                     text_output = text_output.strip("`")
                     if text_output.lower().startswith("json"):
                         text_output = text_output[4:].strip()
-
                 parsed = json.loads(text_output)
                 quiz = QuizPayload(**parsed)
                 database.ai_cache_set(_cache_key, json.dumps(parsed), ttl_seconds=3600)
                 return quiz
-            except HTTPError as exc:
-                details = ""
-                try:
-                    details = exc.read().decode("utf-8", errors="ignore")
-                except Exception:
-                    details = ""
-                details = (details or exc.reason or "request failed")
-                errors.append(f"Gemini model {model_name} HTTP {exc.code}: {details[:300]}")
-            except (URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+            except httpx.HTTPStatusError as exc:
+                errors.append(
+                    f"Gemini model {model_name} HTTP {exc.response.status_code}: "
+                    f"{exc.response.text[:300]}"
+                )
+            except (httpx.RequestError, json.JSONDecodeError, KeyError, ValueError) as exc:
                 errors.append(f"Gemini model {model_name} error: {str(exc)[:300]}")
 
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+    api_key = config.settings.openai_api_key
+    model = config.settings.openai_model
+    base_url = config.settings.openai_base_url or None
 
     if api_key and OpenAI is not None:
         client = OpenAI(api_key=api_key, base_url=base_url)
-
         prompt = compose_quiz_generation_prompt(style_preset, custom_prompt)
-
         user_content: list[dict[str, Any]] = [
             {
                 "type": "input_text",
@@ -166,27 +169,18 @@ def build_quiz_with_ai(
             response = client.responses.create(
                 model=model,
                 input=[
-                    {
-                        "role": "system",
-                        "content": "You produce concise, educational quizzes in strict JSON.",
-                    },
-                    {
-                        "role": "user",
-                        "content": user_content,
-                    },
+                    {"role": "system", "content": "You produce concise, educational quizzes in strict JSON."},
+                    {"role": "user", "content": user_content},
                 ],
                 temperature=0.2,
             )
-
             text_output = response.output_text.strip()
             if not text_output:
                 raise ValueError("OpenAI-compatible provider returned an empty response")
-
             if text_output.startswith("```"):
                 text_output = text_output.strip("`")
                 if text_output.lower().startswith("json"):
                     text_output = text_output[4:].strip()
-
             parsed = json.loads(text_output)
             quiz = QuizPayload(**parsed)
             database.ai_cache_set(_cache_key, json.dumps(parsed), ttl_seconds=3600)
@@ -211,8 +205,7 @@ def build_screen_explanation_with_ai(notes: str) -> str:
     if _cached is not None:
         return _cached
 
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    gemini_api_key = config.settings.gemini_api_key
     errors: list[str] = []
 
     if gemini_api_key:
@@ -221,66 +214,31 @@ def build_screen_explanation_with_ai(notes: str) -> str:
             "Keep it concise (about 4-7 sentences), include the likely goal of the slide/screen, "
             "and suggest one practical thing the student should focus on next."
         )
-
         parts: list[dict[str, Any]] = [
-            {
-                "text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
-            }
+            {"text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}"}
         ]
-
-        models_to_try = [gemini_model]
-        if gemini_model != "gemini-2.5-flash":
-            models_to_try.append("gemini-2.5-flash")
-
-        for model_name in models_to_try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_api_key}"
-            body = {
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": {
-                    "temperature": 0.2,
-                },
-            }
-
+        for model_name in _gemini_models_to_try():
             try:
-                req = Request(
-                    url,
-                    data=json.dumps(body).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urlopen(req, timeout=20) as resp:
-                    response_text = resp.read().decode("utf-8")
-                response_json = json.loads(response_text)
-                text_output = (
-                    response_json.get("candidates", [{}])[0]
-                    .get("content", {})
-                    .get("parts", [{}])[0]
-                    .get("text", "")
-                    .strip()
-                )
+                text_output = _call_gemini(model_name, parts, {"temperature": 0.2})
                 if text_output:
                     result = text_output[:1400]
                     database.ai_cache_set(_cache_key, result, ttl_seconds=3600)
                     return result
                 raise ValueError("Gemini returned an empty explanation")
-            except HTTPError as exc:
-                details = ""
-                try:
-                    details = exc.read().decode("utf-8", errors="ignore")
-                except Exception:
-                    details = ""
-                details = (details or exc.reason or "request failed")
-                errors.append(f"Gemini model {model_name} HTTP {exc.code}: {details[:300]}")
-            except (URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+            except httpx.HTTPStatusError as exc:
+                errors.append(
+                    f"Gemini model {model_name} HTTP {exc.response.status_code}: "
+                    f"{exc.response.text[:300]}"
+                )
+            except (httpx.RequestError, json.JSONDecodeError, KeyError, ValueError) as exc:
                 errors.append(f"Gemini model {model_name} error: {str(exc)[:300]}")
 
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+    api_key = config.settings.openai_api_key
+    model = config.settings.openai_model
+    base_url = config.settings.openai_base_url or None
 
     if api_key and OpenAI is not None:
         client = OpenAI(api_key=api_key, base_url=base_url)
-
         user_content: list[dict[str, Any]] = [
             {
                 "type": "input_text",
@@ -296,18 +254,11 @@ def build_screen_explanation_with_ai(notes: str) -> str:
             response = client.responses.create(
                 model=model,
                 input=[
-                    {
-                        "role": "system",
-                        "content": "You explain live lecture visuals in concise and supportive language.",
-                    },
-                    {
-                        "role": "user",
-                        "content": user_content,
-                    },
+                    {"role": "system", "content": "You explain live lecture visuals in concise and supportive language."},
+                    {"role": "user", "content": user_content},
                 ],
                 temperature=0.2,
             )
-
             text_output = response.output_text.strip()
             if text_output:
                 result = text_output[:1400]
@@ -359,65 +310,32 @@ def build_student_notes_with_ai(presentation_text: str, presentation_name: str) 
         "Keep it concise and student-friendly so it fits one page."
     )
 
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    gemini_api_key = config.settings.gemini_api_key
     errors: list[str] = []
 
     if gemini_api_key:
         parts: list[dict[str, Any]] = [
-            {
-                "text": f"Presentation file: {presentation_name}\n\nContent:\n{source_excerpt}\n\n{prompt}",
-            }
+            {"text": f"Presentation file: {presentation_name}\n\nContent:\n{source_excerpt}\n\n{prompt}"}
         ]
-
-        models_to_try = [gemini_model]
-        if gemini_model != "gemini-2.5-flash":
-            models_to_try.append("gemini-2.5-flash")
-
-        for model_name in models_to_try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_api_key}"
-            body = {
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": {
-                    "temperature": 0.2,
-                },
-            }
+        for model_name in _gemini_models_to_try():
             try:
-                req = Request(
-                    url,
-                    data=json.dumps(body).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urlopen(req, timeout=30) as resp:
-                    response_text = resp.read().decode("utf-8")
-                response_json = json.loads(response_text)
-                text_output = (
-                    response_json.get("candidates", [{}])[0]
-                    .get("content", {})
-                    .get("parts", [{}])[0]
-                    .get("text", "")
-                    .strip()
-                )
+                text_output = _call_gemini(model_name, parts, {"temperature": 0.2}, timeout=30.0)
                 if text_output:
                     result = text_output[:6000]
                     database.ai_cache_set(_cache_key, result, ttl_seconds=604800)
                     return result
                 raise ValueError("Gemini returned empty notes")
-            except HTTPError as exc:
-                details = ""
-                try:
-                    details = exc.read().decode("utf-8", errors="ignore")
-                except Exception:
-                    details = ""
-                details = (details or exc.reason or "request failed")
-                errors.append(f"Gemini model {model_name} HTTP {exc.code}: {details[:300]}")
-            except (URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+            except httpx.HTTPStatusError as exc:
+                errors.append(
+                    f"Gemini model {model_name} HTTP {exc.response.status_code}: "
+                    f"{exc.response.text[:300]}"
+                )
+            except (httpx.RequestError, json.JSONDecodeError, KeyError, ValueError) as exc:
                 errors.append(f"Gemini model {model_name} error: {str(exc)[:300]}")
 
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+    api_key = config.settings.openai_api_key
+    model = config.settings.openai_model
+    base_url = config.settings.openai_base_url or None
 
     if api_key and OpenAI is not None:
         client = OpenAI(api_key=api_key, base_url=base_url)
@@ -425,10 +343,7 @@ def build_student_notes_with_ai(presentation_text: str, presentation_name: str) 
             response = client.responses.create(
                 model=model,
                 input=[
-                    {
-                        "role": "system",
-                        "content": "You write clear, student-friendly study notes.",
-                    },
+                    {"role": "system", "content": "You write clear, student-friendly study notes."},
                     {
                         "role": "user",
                         "content": [
@@ -485,8 +400,8 @@ def build_notes_image_prompt(notes_text: str) -> str:
 
 
 def generate_notes_png_with_ai(notes_text: str) -> bytes:
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    configured_model = os.getenv("GEMINI_IMAGE_MODEL", "").strip()
+    gemini_api_key = config.settings.gemini_api_key
+    configured_model = config.settings.gemini_image_model
 
     if not gemini_api_key:
         raise RuntimeError("Gemini image generation is unavailable. Set GEMINI_API_KEY.")
@@ -494,7 +409,6 @@ def generate_notes_png_with_ai(notes_text: str) -> bytes:
     prompt = build_notes_image_prompt(notes_text)
 
     models_to_try: list[str] = []
-
     if configured_model:
         models_to_try.append(configured_model)
 
@@ -508,21 +422,20 @@ def generate_notes_png_with_ai(notes_text: str) -> bytes:
             models_to_try.append(candidate)
 
     try:
-        list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_api_key}"
-        list_req = Request(list_url, headers={"Content-Type": "application/json"}, method="GET")
-        with urlopen(list_req, timeout=20) as list_resp:
-            list_text = list_resp.read().decode("utf-8")
-        list_json = json.loads(list_text)
-        discovered = list_json.get("models", [])
-        for model_entry in discovered:
+        resp = httpx.get(
+            "https://generativelanguage.googleapis.com/v1beta/models",
+            params={"key": gemini_api_key},
+            timeout=20.0,
+        )
+        resp.raise_for_status()
+        for model_entry in resp.json().get("models", []):
             name = str(model_entry.get("name", ""))
             if not name:
                 continue
             short_name = name.split("models/", 1)[-1]
-            generation_methods = [str(item) for item in model_entry.get("supportedGenerationMethods", [])]
+            generation_methods = [str(m) for m in model_entry.get("supportedGenerationMethods", [])]
             if "generateContent" not in generation_methods:
                 continue
-
             lower = short_name.lower()
             if any(token in lower for token in ["image", "vision", "imagen", "preview"]):
                 if short_name not in models_to_try:
@@ -533,10 +446,8 @@ def generate_notes_png_with_ai(notes_text: str) -> bytes:
     errors: list[str] = []
 
     def decode_image_from_response(response_json: dict[str, Any]) -> bytes | None:
-        candidates = response_json.get("candidates", [])
-        for candidate in candidates:
-            parts = candidate.get("content", {}).get("parts", [])
-            for part in parts:
+        for candidate in response_json.get("candidates", []):
+            for part in candidate.get("content", {}).get("parts", []):
                 inline = part.get("inlineData") or part.get("inline_data")
                 if not inline:
                     continue
@@ -550,42 +461,25 @@ def generate_notes_png_with_ai(notes_text: str) -> bytes:
 
     for image_model in models_to_try:
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{image_model}:generateContent?key={gemini_api_key}"
-            body = {
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": prompt}],
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 0.35,
-                    "responseModalities": ["IMAGE", "TEXT"],
+            response = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{image_model}:generateContent",
+                params={"key": gemini_api_key},
+                json={
+                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.35,
+                        "responseModalities": ["IMAGE", "TEXT"],
+                    },
                 },
-            }
-
-            req = Request(
-                url,
-                data=json.dumps(body).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
+                timeout=80.0,
             )
-            with urlopen(req, timeout=80) as resp:
-                response_text = resp.read().decode("utf-8")
-
-            response_json = json.loads(response_text)
-            image_bytes = decode_image_from_response(response_json)
+            response.raise_for_status()
+            image_bytes = decode_image_from_response(response.json())
             if image_bytes:
                 return image_bytes
             errors.append(f"{image_model}: response had no inline image bytes")
-        except HTTPError as exc:
-            details = ""
-            try:
-                details = exc.read().decode("utf-8", errors="ignore")
-            except Exception:
-                details = ""
-            details = details or exc.reason or "request failed"
-            errors.append(f"{image_model} HTTP {exc.code}: {details[:240]}")
+        except httpx.HTTPStatusError as exc:
+            errors.append(f"{image_model} HTTP {exc.response.status_code}: {exc.response.text[:240]}")
         except Exception as exc:
             errors.append(f"{image_model}: {str(exc)[:240]}")
 

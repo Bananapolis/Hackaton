@@ -676,7 +676,9 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 notes_input = notes_override if notes_override else session.notes
 
                 try:
-                    explanation = ai.build_screen_explanation_with_ai(notes_input)
+                    explanation = await asyncio.to_thread(
+                        ai.build_screen_explanation_with_ai, notes_input
+                    )
                 except Exception as exc:
                     reason = str(exc)[:500]
                     database.insert_event(code, "screen_explanation_failed", {"client_id": client_id, "reason": reason})

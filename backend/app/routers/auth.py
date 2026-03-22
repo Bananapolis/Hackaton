@@ -1,10 +1,11 @@
 import json
 import sqlite3
 from typing import Any
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode
 
+import httpx
 from fastapi import APIRouter, Header, HTTPException
-from urllib.error import HTTPError
+from fastapi.responses import RedirectResponse
 
 from app import config, database
 from app.dependencies import require_user
@@ -16,8 +17,6 @@ from app.models import (
     UserPublic,
 )
 from app.utils import create_auth_token, hash_password, now_iso, parse_bearer_token
-from fastapi.responses import RedirectResponse
-from urllib.parse import urlencode
 
 router = APIRouter()
 
@@ -39,37 +38,29 @@ def register(payload: AuthRegisterRequest) -> AuthResponse:
         raise HTTPException(status_code=400, detail="display_name is required")
 
     salt_hex, password_hash_hex = hash_password(password)
-    conn = sqlite3.connect(config.DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """
-            INSERT INTO users(email, display_name, role, password_salt, password_hash, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (email, display_name, role, salt_hex, password_hash_hex, now_iso()),
+    with database.get_db() as conn:
+        try:
+            cursor = conn.execute(
+                "INSERT INTO users(email, display_name, role, password_salt, password_hash, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (email, display_name, role, salt_hex, password_hash_hex, now_iso()),
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=409, detail="Email is already registered")
+
+        user_id = cursor.lastrowid
+        token = create_auth_token()
+        conn.execute(
+            "INSERT INTO auth_tokens(token, user_id, created_at) VALUES (?, ?, ?)",
+            (token, user_id, now_iso()),
         )
-    except sqlite3.IntegrityError:
-        conn.close()
-        raise HTTPException(status_code=409, detail="Email is already registered")
-
-    user_id = cursor.lastrowid
-    token = create_auth_token()
-    cursor.execute(
-        "INSERT INTO auth_tokens(token, user_id, created_at) VALUES (?, ?, ?)",
-        (token, user_id, now_iso()),
-    )
-    conn.commit()
-
-    cursor.execute("SELECT id, email, display_name, role FROM users WHERE id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
+        row = conn.execute(
+            "SELECT id, email, display_name, role FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
 
     if not row:
         raise HTTPException(status_code=500, detail="User creation failed")
-    user = UserPublic(**dict(row))
-    return AuthResponse(token=token, user=user)
+    return AuthResponse(token=token, user=UserPublic(**dict(row)))
 
 
 @router.post("/api/auth/login", response_model=AuthResponse)
@@ -77,31 +68,23 @@ def login(payload: AuthLoginRequest) -> AuthResponse:
     email = payload.email.strip().lower()
     password = payload.password
 
-    conn = sqlite3.connect(config.DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id, email, display_name, role, password_salt, password_hash FROM users WHERE email = ?",
-        (email,),
-    )
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+    with database.get_db() as conn:
+        row = conn.execute(
+            "SELECT id, email, display_name, role, password_salt, password_hash FROM users WHERE email = ?",
+            (email,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    salt_hex, expected_hash_hex = row["password_salt"], row["password_hash"]
-    _, actual_hash_hex = hash_password(password, salt_hex)
-    if actual_hash_hex != expected_hash_hex:
-        conn.close()
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        _, actual_hash_hex = hash_password(password, row["password_salt"])
+        if actual_hash_hex != row["password_hash"]:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    token = create_auth_token()
-    cursor.execute(
-        "INSERT INTO auth_tokens(token, user_id, created_at) VALUES (?, ?, ?)",
-        (token, row["id"], now_iso()),
-    )
-    conn.commit()
-    conn.close()
+        token = create_auth_token()
+        conn.execute(
+            "INSERT INTO auth_tokens(token, user_id, created_at) VALUES (?, ?, ?)",
+            (token, row["id"], now_iso()),
+        )
 
     user = UserPublic(
         id=row["id"],
@@ -143,18 +126,17 @@ def github_oauth_callback(code: str | None = None, error: str | None = None) -> 
         return RedirectResponse(f"{config.FRONTEND_URL}?oauth_error=not_configured")
 
     try:
-        token_req = Request(
+        resp = httpx.post(
             "https://github.com/login/oauth/access_token",
-            data=json.dumps({
+            json={
                 "client_id": config.GITHUB_CLIENT_ID,
                 "client_secret": config.GITHUB_CLIENT_SECRET,
                 "code": code,
-            }).encode(),
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            method="POST",
+            },
+            headers={"Accept": "application/json"},
+            timeout=10.0,
         )
-        with urlopen(token_req, timeout=10) as resp:
-            token_data = json.loads(resp.read())
+        token_data = resp.json()
     except Exception:
         return RedirectResponse(f"{config.FRONTEND_URL}?oauth_error=github_token_failed")
 
@@ -163,25 +145,30 @@ def github_oauth_callback(code: str | None = None, error: str | None = None) -> 
         return RedirectResponse(f"{config.FRONTEND_URL}?oauth_error=github_no_token")
 
     try:
-        user_req = Request(
+        resp = httpx.get(
             "https://api.github.com/user",
-            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=10.0,
         )
-        with urlopen(user_req, timeout=10) as resp:
-            gh_user = json.loads(resp.read())
+        gh_user = resp.json()
     except Exception:
         return RedirectResponse(f"{config.FRONTEND_URL}?oauth_error=github_user_failed")
 
     email = gh_user.get("email")
     if not email:
         try:
-            email_req = Request(
+            resp = httpx.get(
                 "https://api.github.com/user/emails",
-                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                },
+                timeout=10.0,
             )
-            with urlopen(email_req, timeout=10) as resp:
-                emails = json.loads(resp.read())
-            for e in emails:
+            for e in resp.json():
                 if e.get("primary") and e.get("verified"):
                     email = e["email"]
                     break
@@ -204,13 +191,14 @@ def github_oauth_callback(code: str | None = None, error: str | None = None) -> 
 @router.post("/api/auth/oauth/google", response_model=AuthResponse)
 def google_oauth(payload: GoogleTokenRequest) -> AuthResponse:
     try:
-        req = Request(
+        resp = httpx.get(
             "https://www.googleapis.com/oauth2/v3/userinfo",
             headers={"Authorization": f"Bearer {payload.access_token}"},
+            timeout=10.0,
         )
-        with urlopen(req, timeout=10) as resp:
-            info = json.loads(resp.read())
-    except HTTPError as exc:
+        resp.raise_for_status()
+        info = resp.json()
+    except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=401, detail="Invalid Google token") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Google token verification failed") from exc
