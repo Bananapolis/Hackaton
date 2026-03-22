@@ -33,7 +33,7 @@ import { QuizOverlay } from './components/QuizOverlay'
 import { SessionQRCode } from './components/SessionQRCode'
 import { StatCard } from './components/StatCard'
 
-const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+const rtcConfig = config.rtcConfig
 const sessionPreferencesStorageKey = 'session-preferences-v1'
 const authTokenStorageKey = 'auth-token-v1'
 const authUserStorageKey = 'auth-user-v1'
@@ -1136,13 +1136,15 @@ function App() {
   async function startShare() {
     if (!isTeacher) return
 
-    // Screen sharing requires Secure Context (HTTPS or localhost)
+    // Screen sharing requires Secure Context (HTTPS or localhost) and a desktop browser
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      // Check if the issue is likely due to insecure context (HTTP + IP address)
+      const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent)
       const isSecure = window.isSecureContext
-      const msg = isSecure
-        ? 'Screen sharing not supported by this browser.'
-        : 'Screen sharing blocked by browser security. Please reload using HTTPS or Localhost.'
+      const msg = isMobile
+        ? 'Screen sharing is not supported on mobile devices.'
+        : isSecure
+          ? 'Screen sharing not supported by this browser.'
+          : 'Screen sharing blocked by browser security. Please reload using HTTPS or Localhost.'
       setError(msg)
       return
     }
