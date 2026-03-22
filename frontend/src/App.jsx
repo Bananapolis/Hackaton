@@ -10,7 +10,7 @@ import {
   EyeOff,
   FileText,
   FolderOpen,
-  HelpCircle,
+  Hand,
   History,
   Lock,
   LockOpen,
@@ -250,7 +250,7 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     library: FolderOpen,
     logout: LogOut,
     break: Coffee,
-    confusion: HelpCircle,
+    confusion: Hand,
     users: Users,
     copy: Copy,
     close: X,
@@ -372,6 +372,7 @@ function App() {
   const [quizGenerationPending, setQuizGenerationPending] = useState(false)
   const [isScreenMaximized, setIsScreenMaximized] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [confusionFlash, setConfusionFlash] = useState(false)
 
   const wsRef = useRef(null)
   const endingSessionRef = useRef(false)
@@ -2197,10 +2198,12 @@ function App() {
                         onClick={() => {
                           send('confusion')
                           setStatus('Confusion signal sent')
+                          setConfusionFlash(true)
+                          setTimeout(() => setConfusionFlash(false), 1500)
                         }}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-slate-800 text-lg text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Send confusion alert"
-                        aria-label="Send confusion alert"
+                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${confusionFlash ? 'bg-amber-500 ring-2 ring-amber-300/70 ring-offset-1 ring-offset-slate-900' : 'bg-slate-800 hover:bg-slate-700'}`}
+                        title="Signal Confusion to Teacher"
+                        aria-label="Signal Confusion to Teacher"
                       >
                         <Icon name="confusion" className="h-5 w-5" />
                       </button>
