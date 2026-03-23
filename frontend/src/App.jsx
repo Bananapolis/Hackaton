@@ -38,6 +38,7 @@ const rtcConfig = config.rtcConfig
 const sessionPreferencesStorageKey = 'session-preferences-v1'
 const authTokenStorageKey = 'auth-token-v1'
 const authUserStorageKey = 'auth-user-v1'
+const REJOIN_STATUS_POLL_MS = 10_000
 const CONFUSION_NOTIFICATION_THRESHOLD_PERCENT = 65
 const CONFUSION_NOTIFICATION_RESET_PERCENT = 45
 const BREAK_NOTIFICATION_COOLDOWN_MS = 45_000
@@ -315,6 +316,8 @@ function App() {
   const [authPassword, setAuthPassword] = useState('')
   const [authDisplayName, setAuthDisplayName] = useState('')
   const [authPending, setAuthPending] = useState(false)
+  const [rejoinLookupPending, setRejoinLookupPending] = useState(false)
+  const [rejoinCandidate, setRejoinCandidate] = useState(null)
   const [showLibraryPanel, setShowLibraryPanel] = useState(false)
   const [libraryTab, setLibraryTab] = useState('sessions')
   const [librarySessionCode, setLibrarySessionCode] = useState('')
@@ -568,6 +571,24 @@ function App() {
     }
   }, [authToken, authUser])
 
+  useEffect(() => {
+    if (!authToken || joined) {
+      setRejoinCandidate(null)
+      return
+    }
+    refreshRejoinCandidate()
+  }, [authToken, joined])
+
+  useEffect(() => {
+    if (!authToken || joined) return undefined
+
+    const timer = window.setInterval(() => {
+      refreshRejoinCandidate({ silent: true })
+    }, REJOIN_STATUS_POLL_MS)
+
+    return () => window.clearInterval(timer)
+  }, [authToken, joined])
+
   // Handle OAuth redirect callback (GitHub sends ?oauth_token=... back to frontend)
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -777,6 +798,7 @@ function App() {
     disconnect()
     setAuthToken('')
     setAuthUser(null)
+    setRejoinCandidate(null)
     setLibrarySessions([])
     setLibraryFiles([])
     setLibraryQuizzes([])
@@ -822,6 +844,42 @@ function App() {
       setError(err.message)
     } finally {
       setLibraryLoading(false)
+    }
+  }
+
+  async function refreshRejoinCandidate({ silent = false } = {}) {
+    if (!authToken || joined) {
+      setRejoinCandidate(null)
+      return
+    }
+
+    if (!silent) {
+      setRejoinLookupPending(true)
+    }
+    try {
+      const payload = await apiRequest('/api/sessions/rejoin-status', { token: authToken })
+      const candidate = payload?.rejoin_available ? payload?.candidate : null
+
+      if (!candidate?.session_code || !candidate?.role || !candidate?.name) {
+        setRejoinCandidate(null)
+        return
+      }
+
+      setRejoinCandidate({
+        session_code: String(candidate.session_code || '').trim().toUpperCase(),
+        role: String(candidate.role || '').trim().toLowerCase() === 'teacher' ? 'teacher' : 'student',
+        name: String(candidate.name || '').trim(),
+        seconds_since_last_activity: Number(candidate.seconds_since_last_activity ?? 0),
+        seconds_until_expiry: Number(candidate.seconds_until_expiry ?? 0),
+      })
+    } catch {
+      if (!silent) {
+        setRejoinCandidate(null)
+      }
+    } finally {
+      if (!silent) {
+        setRejoinLookupPending(false)
+      }
     }
   }
 
@@ -945,6 +1003,9 @@ function App() {
     }
 
     const params = new URLSearchParams({ role: nextRole, name: trimmedName })
+    if (authToken) {
+      params.set('token', authToken)
+    }
     const wsUrl = `${config.wsBase}/ws/${normalizedSessionCode}?${params.toString()}`
 
     const ws = new WebSocket(wsUrl)
@@ -1381,6 +1442,26 @@ function App() {
     setAnonymousQuestionSubmitting(false)
   }
 
+  function rejoinLastSession() {
+    if (!rejoinCandidate) return
+
+    const nextRole = rejoinCandidate.role === 'teacher' ? 'teacher' : 'student'
+    const nextName = String(rejoinCandidate.name || '').trim()
+    const nextSessionCode = String(rejoinCandidate.session_code || '').trim().toUpperCase()
+
+    if (!nextName || !nextSessionCode) return
+
+    setRole(nextRole)
+    setName(nextName)
+    setSessionCode(nextSessionCode)
+    setStatus(`Rejoining session ${nextSessionCode}...`)
+    connectWebSocket({
+      nextRole,
+      nextName,
+      nextSessionCode,
+    })
+  }
+
   function requestAnalytics() {
     send('request_analytics')
   }
@@ -1778,6 +1859,7 @@ function App() {
   const roleLabel = isTeacher ? 'Host mode' : 'Join mode'
   const quizVisible = Boolean(quiz) && !quizState.hidden
   const quizReadonly = isTeacher || quizState.voting_closed
+  const hasRejoinCandidate = Boolean(rejoinCandidate?.session_code && rejoinCandidate?.name)
 
   if (!authToken || !authUser) {
     return (
@@ -2500,6 +2582,24 @@ function App() {
 
               {!joined ? (
                 <div className="space-y-2">
+                  {hasRejoinCandidate ? (
+                    <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-700/80 dark:bg-emerald-900/25 dark:text-emerald-200">
+                      <div className="font-semibold">Recent session found</div>
+                      <div className="mt-1">
+                        {rejoinCandidate.role === 'teacher' ? 'Host' : 'Student'} in {rejoinCandidate.session_code} as {rejoinCandidate.name}
+                      </div>
+                      <div className="mt-1 text-[11px] opacity-80">
+                        Last active {Math.max(0, Math.round(rejoinCandidate.seconds_since_last_activity || 0))}s ago.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={rejoinLastSession}
+                        className="mt-2 w-full rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                      >
+                        Rejoin recent session
+                      </button>
+                    </div>
+                  ) : null}
                   {isTeacher ? (
                     <button
                       type="button"
@@ -2517,6 +2617,11 @@ function App() {
                       Join session
                     </button>
                   )}
+                  {rejoinLookupPending ? (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
+                      Checking for rejoin options...
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="space-y-2">

@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app import state
 from app.services import analytics, pdf_report
-from tests.conftest import auth_headers, register_user
+from tests.conftest import auth_headers, receive_until_type, register_user
 
 
 def test_sessions_library_quizzes_end_and_report_pdf(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,3 +118,55 @@ def test_sessions_library_quizzes_end_and_report_pdf(client: TestClient, monkeyp
     assert report.status_code == 200
     assert report.headers["content-type"].startswith("application/pdf")
     assert report.content.startswith(b"%PDF")
+
+
+def test_rejoin_status_available_after_recent_disconnect(client: TestClient) -> None:
+    token, _ = register_user(client, email="rejoin@example.com", display_name="Rejoin User", role="student")
+
+    create = client.post(
+        "/api/sessions",
+        json={"teacher_name": "Owner"},
+    )
+    assert create.status_code == 200
+    code = create.json()["code"]
+
+    with client.websocket_connect(f"/ws/{code}?role=student&name=Rejoin%20User&token={token}") as student_ws:
+        receive_until_type(student_ws, "session_state")
+        student_ws.send_json({"type": "confusion", "payload": {}})
+        receive_until_type(student_ws, "metrics")
+
+    response = client.get("/api/sessions/rejoin-status", headers=auth_headers(token))
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rejoin_available"] is True
+    assert payload["candidate"]["session_code"] == code
+    assert payload["candidate"]["role"] == "student"
+    assert payload["candidate"]["name"] == "Rejoin User"
+    assert payload["candidate"]["seconds_until_expiry"] >= 0
+
+
+def test_rejoin_status_ignores_expired_presence(client: TestClient) -> None:
+    token, user = register_user(client, email="expired@example.com", display_name="Expired User", role="student")
+
+    create = client.post(
+        "/api/sessions",
+        json={"teacher_name": "Owner"},
+    )
+    assert create.status_code == 200
+    code = create.json()["code"]
+
+    with client.websocket_connect(f"/ws/{code}?role=student&name=Expired%20User&token={token}") as student_ws:
+        receive_until_type(student_ws, "session_state")
+
+    session = state.SESSIONS[code]
+    key = f"user:{user['id']}"
+    presence = session.recent_presence[key]
+    presence.last_active_at -= 10_000
+    presence.disconnected_at -= 10_000
+
+    response = client.get("/api/sessions/rejoin-status", headers=auth_headers(token))
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rejoin_available"] is False
+    assert payload["candidate"] is None
+    assert key not in session.recent_presence

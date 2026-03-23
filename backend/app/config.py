@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     break_cooldown_seconds: int = 30
     break_threshold_percent: float = 0.4
     max_break_duration_seconds: int = 3600
+    rejoin_grace_seconds: int = 90
 
     @field_validator("frontend_url", "backend_url", mode="before")
     @classmethod
@@ -66,6 +67,7 @@ CONFUSION_ACTIVE_THRESHOLD = settings.confusion_active_threshold
 BREAK_COOLDOWN_SECONDS = settings.break_cooldown_seconds
 BREAK_THRESHOLD_PERCENT = settings.break_threshold_percent
 MAX_BREAK_DURATION_SECONDS = settings.max_break_duration_seconds
+REJOIN_GRACE_SECONDS = settings.rejoin_grace_seconds
 
 
 def parse_allowed_origins(raw: str) -> list[str]:

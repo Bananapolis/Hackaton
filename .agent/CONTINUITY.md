@@ -2,6 +2,14 @@
 
 ## 2026-03-22
 
+- Added authenticated "rejoin after refresh/close" support across backend and frontend:
+  - backend runtime state in [backend/app/state.py](backend/app/state.py) now tracks short-lived recent participant presence per session,
+  - websocket handshake in [backend/app/routers/websocket.py](backend/app/routers/websocket.py) now accepts optional auth token query param, binds each connected client to a stable participant key, and stores disconnect/activity timestamps for rejoin eligibility,
+  - added [backend/app/routers/sessions.py](backend/app/routers/sessions.py) endpoint `GET /api/sessions/rejoin-status` (auth required) that returns a timed rejoin candidate for the current user,
+  - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now polls rejoin status while logged in and disconnected, surfaces a "Rejoin recent session" action in Session settings, and reconnects with role/name/session prefilled,
+  - added backend tests in [backend/tests/test_sessions.py](backend/tests/test_sessions.py) for available/expired rejoin status behavior,
+  - documented behavior in [README.md](README.md).
+
 - Added self-hosted TURN relay infrastructure to remove dependency on external TURN providers:
   - added `turn` (`coturn`) service in [docker-compose.yml](docker-compose.yml) with published TURN listener ports (`3478` TCP/UDP) and UDP relay range (`49160-49200`),
   - wired TURN config through env (`TURN_REALM`, `TURN_PUBLIC_HOST`, `TURN_USERNAME`, `TURN_PASSWORD`, relay min/max ports).

@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -40,6 +41,47 @@ def session_analytics(code: str) -> dict[str, Any]:
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return analytics.analytics_for_session(session)
+
+
+@router.get("/api/sessions/rejoin-status")
+def session_rejoin_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    user = require_user(authorization)
+    user_key = f"user:{user['id']}"
+
+    now_epoch = time.time()
+    best_candidate: dict[str, Any] | None = None
+
+    for session in state.SESSIONS.values():
+        if not session.active:
+            continue
+
+        presence = session.recent_presence.get(user_key)
+        if not presence:
+            continue
+        if not state.is_presence_rejoin_eligible(presence, now_epoch=now_epoch):
+            session.recent_presence.pop(user_key, None)
+            continue
+
+        # If user is already connected in this runtime session, no rejoin prompt is needed.
+        if any(client.participant_key == user_key for client in session.clients.values()):
+            continue
+
+        elapsed = max(0, int(now_epoch - presence.last_active_at))
+        candidate = {
+            "session_code": session.code,
+            "role": presence.role,
+            "name": presence.name,
+            "last_active_at": presence.last_active_at,
+            "seconds_since_last_activity": elapsed,
+            "seconds_until_expiry": max(0, config.REJOIN_GRACE_SECONDS - elapsed),
+        }
+        if best_candidate is None or presence.last_active_at > best_candidate["last_active_at"]:
+            best_candidate = candidate
+
+    return {
+        "rejoin_available": best_candidate is not None,
+        "candidate": best_candidate,
+    }
 
 
 @router.post("/api/sessions/{code}/end")

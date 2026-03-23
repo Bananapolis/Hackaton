@@ -16,6 +16,8 @@ class ClientState:
     websocket: WebSocket
     role: str
     name: str
+    participant_key: str = ""
+    user_id: int | None = None
     joined_at: float = field(default_factory=time.time)
     last_break_vote_at: float = 0.0
     last_confusion_vote_at: float | None = None
@@ -33,6 +35,16 @@ class AnonymousQuestion:
     created_at: str
     resolved: bool = False
     resolved_at: str | None = None
+
+
+@dataclass
+class RecentPresence:
+    participant_key: str
+    role: str
+    name: str
+    disconnected_at: float
+    last_active_at: float
+    user_id: int | None = None
 
 
 @dataclass
@@ -58,6 +70,7 @@ class RuntimeSession:
     final_report: dict[str, Any] | None = None
     final_report_insights: dict[str, Any] | None = None
     engagement_timeline: list[dict[str, Any]] = field(default_factory=list)
+    recent_presence: dict[str, RecentPresence] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.focus_period_ends_at == 0.0:
@@ -178,3 +191,9 @@ def anonymous_questions_payload(session: RuntimeSession) -> dict[str, Any]:
         "questions": questions,
         "pending_count": pending_count,
     }
+
+
+def is_presence_rejoin_eligible(presence: RecentPresence, now_epoch: float | None = None) -> bool:
+    now_epoch = now_epoch if now_epoch is not None else time.time()
+    threshold = now_epoch - config.REJOIN_GRACE_SECONDS
+    return presence.last_active_at >= threshold and presence.disconnected_at >= threshold

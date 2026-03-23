@@ -18,11 +18,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="VIA Live", version="1.0.0", lifespan=lifespan)
 
 allowed_origins = parse_allowed_origins(
-    os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
+    os.getenv("ALLOWED_ORIGINS", config.settings.allowed_origins)
 )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    # Support local dev hosts like 0.0.0.0 and LAN IPs used by Vite --host.
+    allow_origin_regex=r"^https?://((localhost|127\.0\.0\.1|0\.0\.0\.0)|(([0-9]{1,3}\.){3}[0-9]{1,3}))(:\d+)?$",
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,

@@ -33,7 +33,7 @@ async def broadcast(session: state.RuntimeSession, payload: dict[str, Any], *, r
 
 
 @router.websocket("/ws/{code}")
-async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) -> None:
+async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, token: str | None = None) -> None:
     code = code.upper()
     role = role.lower().strip()
     name = name.strip()
@@ -47,6 +47,9 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
         await websocket.close(code=1008, reason="Unknown session code")
         return
 
+    auth_user = database.get_user_by_token(token) if token else None
+    participant_key = f"user:{auth_user['id']}" if auth_user else f"guest:{role}:{name.lower()}"
+
     await websocket.accept()
 
     if role == "teacher" and state.get_teacher(session):
@@ -54,8 +57,16 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
         return
 
     client_id = str(uuid.uuid4())
-    client_state = state.ClientState(client_id=client_id, websocket=websocket, role=role, name=name)
+    client_state = state.ClientState(
+        client_id=client_id,
+        websocket=websocket,
+        role=role,
+        name=name,
+        participant_key=participant_key,
+        user_id=auth_user["id"] if auth_user else None,
+    )
     session.clients[client_id] = client_state
+    session.recent_presence.pop(participant_key, None)
     analytics.record_engagement_point(session, "participant_joined")
 
     database.insert_event(code, "join", {"client_id": client_id, "role": role, "name": name})
@@ -121,6 +132,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
             message = json.loads(raw)
             msg_type = message.get("type")
             payload = message.get("payload", {})
+            client_state.last_active_at = time.time()
 
             # Detect natural break expiry and reset the focus-period timer
             if session.break_active_until and time.time() > session.break_active_until:
@@ -709,6 +721,20 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
         pass
     finally:
         session.clients.pop(client_id, None)
+        now_epoch = time.time()
+        session.recent_presence[participant_key] = state.RecentPresence(
+            participant_key=participant_key,
+            role=role,
+            name=name,
+            disconnected_at=now_epoch,
+            last_active_at=max(client_state.last_active_at, now_epoch),
+            user_id=auth_user["id"] if auth_user else None,
+        )
+        for key in list(session.recent_presence.keys()):
+            presence = session.recent_presence.get(key)
+            if presence and not state.is_presence_rejoin_eligible(presence, now_epoch=now_epoch):
+                session.recent_presence.pop(key, None)
+
         analytics.record_engagement_point(session, "participant_left")
         database.insert_event(code, "leave", {"client_id": client_id, "role": role, "name": name})
         await broadcast(
