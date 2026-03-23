@@ -1,5 +1,20 @@
 # Continuity Log
 
+## 2026-03-23
+
+- Added backend assessment reporting module in [backend/app/assessment_reporting.py](backend/app/assessment_reporting.py):
+  - introduced SQLite schema helpers for real-time student answer capture in `assessment_responses`,
+  - added aggregation functions for session accuracy, average time-per-question, and correct/incorrect frequency,
+  - added per-student profile builders that compare student answers with correct answers,
+  - added Matplotlib report generators for class question-performance bar charts and student radar/table summaries.
+- Added automated coverage for the new module in [backend/tests/test_assessment_reporting.py](backend/tests/test_assessment_reporting.py).
+- Added visualization dependency in [backend/requirements.txt](backend/requirements.txt) and documented capability in [README.md](README.md).
+- Integrated end-session export bundle in [backend/app/main.py](backend/app/main.py) and [frontend/src/App.jsx](frontend/src/App.jsx):
+  - new endpoint `GET /api/sessions/{code}/report-bundle.zip` now exports 3 files in one download,
+  - bundle includes legacy analytics PDF, new `Quizes Analyticss` PDF, and quizzes information XLSX,
+  - frontend end-session button now downloads the ZIP bundle instead of only the legacy PDF.
+- Added XLSX export dependency in [backend/requirements.txt](backend/requirements.txt) (`openpyxl`) and backend test coverage for the bundle in [backend/tests/test_main.py](backend/tests/test_main.py).
+
 ## 2026-03-22
 
 - Added self-hosted TURN relay infrastructure to remove dependency on external TURN providers:

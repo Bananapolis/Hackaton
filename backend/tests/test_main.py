@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -271,6 +273,53 @@ def test_sessions_library_quizzes_end_and_report_pdf(client: TestClient, monkeyp
     assert report.status_code == 200
     assert report.headers["content-type"].startswith("application/pdf")
     assert report.content.startswith(b"%PDF")
+
+    monkeypatch.setattr(main, "generate_quizes_analyticss_pdf", lambda *_args, **_kwargs: b"%PDF-NEW\n")
+    monkeypatch.setattr(main, "generate_quiz_information_xlsx", lambda *_args, **_kwargs: b"PK\x03\x04XLSX")
+
+    report_bundle = client.get(f"/api/sessions/{code}/report-bundle.zip")
+    assert report_bundle.status_code == 200
+    assert report_bundle.headers["content-type"].startswith("application/zip")
+
+    with zipfile.ZipFile(io.BytesIO(report_bundle.content), "r") as zipped:
+        names = set(zipped.namelist())
+        assert f"session-{code}-analytics-report.pdf" in names
+        assert f"session-{code}-Quizes Analyticss.pdf" in names
+        assert f"session-{code}-quizes-information.xlsx" in names
+
+
+def test_report_bundle_recovers_when_assessment_table_missing(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    token, _ = register_user(client, email="recover@example.com", display_name="Recover")
+
+    create = client.post(
+        "/api/sessions",
+        json={"teacher_name": "Recover"},
+        headers=auth_headers(token),
+    )
+    assert create.status_code == 200
+    code = create.json()["code"]
+
+    # Simulate legacy DB state where assessment_responses does not exist.
+    conn = main.sqlite3.connect(main.DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DROP TABLE IF EXISTS assessment_responses")
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(main, "build_analytics_insights_with_ai", lambda report: {
+        "title": "Insights",
+        "executive_summary": "Summary",
+        "key_findings": ["A"],
+        "risks": ["B"],
+        "recommendations": ["C"],
+    })
+
+    end = client.post(f"/api/sessions/{code}/end")
+    assert end.status_code == 200
+
+    report_bundle = client.get(f"/api/sessions/{code}/report-bundle.zip")
+    assert report_bundle.status_code == 200
+    assert report_bundle.headers["content-type"].startswith("application/zip")
 
 
 def test_upload_list_download_and_notes_png_access_control(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -41,6 +41,12 @@ To achieve a live-sharing Kahoot/Google Meet hybrid in 24 hours, the architectur
 - `POST /api/presentations`, `GET /api/presentations`, and `GET /api/presentations/{id}/download` manage uploaded presentation files per account.
 - `POST /api/presentations/{id}/notes-png` generates student-friendly AI notes from a presentation and returns a downloadable PNG.
 - `POST /api/quizzes/save` and `GET /api/quizzes` manage a per-account quiz library.
+- `POST /api/sessions/{code}/end` ends a session and finalizes analytics.
+- `GET /api/sessions/{code}/report.pdf` downloads the legacy analytics PDF report.
+- `GET /api/sessions/{code}/report-bundle.zip` downloads a 3-file bundle with:
+	- legacy analytics PDF,
+	- `Quizes Analyticss` PDF (assessment-focused report),
+	- quizzes information XLSX workbook.
 - `GET /health` provides health status.
 - `WS /ws/{code}?role=teacher|student&name=...` handles:
 	- participant joins/leaves,
@@ -61,6 +67,15 @@ SQLite stores:
 - `users` + `auth_tokens` tables (account and token-based auth)
 - `presentations` table (uploaded files metadata)
 - `saved_quizzes` table (stored quiz library entries)
+- `assessment_responses` table (student-by-question answer stream for reporting)
+
+Assessment reporting module:
+
+- `backend/app/assessment_reporting.py` provides a focused backend utility layer for student assessment analytics.
+- Storage schema helpers create and index `assessment_responses` with required fields: `student_id`, `question_id`, `session_id`, `timestamp`, `raw_answer`, and `is_correct`.
+- Aggregation helpers compute session accuracy, average time between question submissions (per student, then averaged), and correct/incorrect frequency distributions.
+- Profile helpers build per-student answer breakdowns versus expected correct answers.
+- Visualization helpers generate class-level question performance bar charts plus per-student radar and table summary reports.
 
 ### Frontend (React + Tailwind)
 
@@ -116,7 +131,7 @@ The backend sends notes to Gemini when configured.
 * **UC-T5: Note Distribution:** Create and push shared text notes to the student interface during the live session.
 * **UC-T6: Anonymous Question Moderation:** Receive notifications when anonymous student questions arrive, review queued questions, and mark each one as resolved.
 * **UC-T7: Analytics & Awards Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, class awards (e.g. most active student / most correct answers), and exported notes.
-* **UC-T8: Session Closure & Report Export:** End the live session from settings and download a full analytics PDF report with engagement score, participation rates, quiz outcomes, AI-generated insight recommendations, a dual-series engagement/confusion trend graph over session duration, and quiz performance visualization.
+* **UC-T8: Session Closure & Report Export:** End the live session from settings and download a report bundle containing the legacy analytics PDF, a `Quizes Analyticss` PDF (assessment-focused), and a quizzes-information XLSX workbook.
 
 ### Actor 2: Student (Client)
 

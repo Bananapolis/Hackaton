@@ -9,12 +9,14 @@ import string
 import textwrap
 import time
 import uuid
+import zipfile
 from base64 import b64decode
 from io import BytesIO
 from hashlib import pbkdf2_hmac, sha256
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -25,14 +27,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from urllib.parse import urlencode, urlparse, parse_qs
 from pydantic import BaseModel
+from app.assessment_reporting import (
+    AssessmentResponse,
+    build_individual_profiles,
+    calculate_session_metrics,
+    fetch_session_responses,
+    init_assessment_schema,
+    question_performance_breakdown,
+    save_question_performance_bar_chart,
+    save_student_summary_table,
+    store_assessment_response,
+)
 
 try:
     from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
     from reportlab.lib.units import cm
     from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.pdfgen import canvas
 except Exception:  # pragma: no cover
     A4 = None
+    ImageReader = None
     cm = None
     stringWidth = None
     canvas = None
@@ -210,6 +225,9 @@ def init_db() -> None:
     )
     conn.commit()
     conn.close()
+
+    # Reporting schema is maintained in a dedicated module.
+    init_assessment_schema(DB_PATH)
 
 
 def ai_cache_key(prefix: str, *parts: str) -> str:
@@ -2003,6 +2021,415 @@ def generate_session_report_pdf(report: dict[str, Any], insights: dict[str, Any]
     return buffer.getvalue()
 
 
+def current_assessment_question_id(session: RuntimeSession) -> str:
+    if session.current_quiz_saved_id is not None:
+        return f"quiz-{session.current_quiz_saved_id}"
+    if session.current_quiz is None:
+        return "quiz-unknown"
+    digest = sha256(session.current_quiz.question.encode("utf-8")).hexdigest()[:12]
+    return f"quiz-{digest}"
+
+
+def ensure_assessment_schema() -> None:
+    init_assessment_schema(DB_PATH)
+
+
+def safe_fetch_session_responses(session_code: str) -> list[AssessmentResponse]:
+    try:
+        return fetch_session_responses(DB_PATH, session_code)
+    except sqlite3.OperationalError:
+        # Handles upgraded deployments where the process restarted before schema migration.
+        ensure_assessment_schema()
+        return fetch_session_responses(DB_PATH, session_code)
+
+
+def safe_store_assessment_response(response: AssessmentResponse) -> None:
+    try:
+        store_assessment_response(DB_PATH, response)
+    except sqlite3.OperationalError:
+        ensure_assessment_schema()
+        store_assessment_response(DB_PATH, response)
+
+
+def correct_answers_by_question_for_session(session_code: str, session: RuntimeSession) -> dict[str, str]:
+    answers: dict[str, str] = {}
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, correct_option_id
+        FROM saved_quizzes
+        WHERE session_code = ?
+        """,
+        (session_code,),
+    )
+    for row in cursor.fetchall():
+        answers[f"quiz-{row['id']}"] = str(row["correct_option_id"])
+    conn.close()
+
+    if session.current_quiz is not None:
+        answers[current_assessment_question_id(session)] = session.current_quiz.correct_option_id
+
+    return answers
+
+
+def generate_quizes_analyticss_pdf(session_code: str, session: RuntimeSession) -> bytes:
+    if canvas is None or A4 is None or cm is None:
+        raise RuntimeError("PDF generation dependency is not available")
+
+    responses = safe_fetch_session_responses(session_code)
+    metrics = calculate_session_metrics(responses)
+    breakdown = question_performance_breakdown(responses)
+    correct_by_question = correct_answers_by_question_for_session(session_code, session)
+    profiles = build_individual_profiles(responses, correct_by_question)
+
+    with TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        chart_path: Path | None = None
+        if breakdown:
+            chart_path = temp_path / "class-question-performance.png"
+            save_question_performance_bar_chart(
+                breakdown,
+                chart_path,
+                title="Quizes Analyticss - Class Performance by Question",
+            )
+
+        student_table_paths: list[tuple[str, Path]] = []
+        for student_id, student_rows in profiles.items():
+            if not student_rows:
+                continue
+            table_path = temp_path / f"{student_id}-summary.png"
+            save_student_summary_table(student_id, student_rows, table_path)
+            student_table_paths.append((student_id, table_path))
+
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        page_width, page_height = A4
+        margin_x = 2 * cm
+        y = page_height - 2 * cm
+
+        pdf.setFont("Helvetica-Bold", 22)
+        pdf.drawString(margin_x, y, "Quizes Analyticss")
+        y -= 22
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(margin_x, y, f"Session: {session_code}")
+        y -= 14
+        pdf.drawString(margin_x, y, f"Generated at: {now_iso()}")
+
+        y -= 22
+        pdf.setFont("Helvetica-Bold", 13)
+        pdf.drawString(margin_x, y, "Session Metrics")
+        y -= 16
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(margin_x, y, f"Total responses: {metrics['total_responses']}")
+        y -= 14
+        pdf.drawString(margin_x, y, f"Total accuracy: {metrics['total_accuracy_percentage']}%")
+        y -= 14
+        pdf.drawString(
+            margin_x,
+            y,
+            f"Average time per question: {metrics['average_time_per_question_seconds']}s",
+        )
+        y -= 14
+        pdf.drawString(
+            margin_x,
+            y,
+            (
+                "Answer frequency: "
+                f"correct={metrics['answer_frequency']['correct']}, "
+                f"incorrect={metrics['answer_frequency']['incorrect']}"
+            ),
+        )
+
+        if chart_path and chart_path.exists() and ImageReader is not None:
+            y -= 22
+            pdf.setFont("Helvetica-Bold", 13)
+            pdf.drawString(margin_x, y, "Class Performance by Question")
+            y -= 12
+            image_top = y
+            image_height = 10 * cm
+            image_width = page_width - (2 * margin_x)
+            pdf.drawImage(
+                ImageReader(str(chart_path)),
+                margin_x,
+                image_top - image_height,
+                width=image_width,
+                height=image_height,
+                preserveAspectRatio=True,
+                anchor="n",
+            )
+
+        for student_id, table_path in student_table_paths:
+            pdf.showPage()
+            pdf.setFont("Helvetica-Bold", 16)
+            pdf.drawString(margin_x, page_height - 2 * cm, f"Student Summary - {student_id}")
+            if table_path.exists() and ImageReader is not None:
+                image_width = page_width - (2 * margin_x)
+                image_height = page_height - (4 * cm)
+                pdf.drawImage(
+                    ImageReader(str(table_path)),
+                    margin_x,
+                    2 * cm,
+                    width=image_width,
+                    height=image_height,
+                    preserveAspectRatio=True,
+                    anchor="sw",
+                )
+
+        if not responses:
+            y -= 24
+            pdf.setFont("Helvetica", 11)
+            pdf.drawString(margin_x, y, "No quiz responses were captured for this session.")
+
+        pdf.save()
+        return buffer.getvalue()
+
+
+def generate_quiz_information_xlsx(session_code: str, session: RuntimeSession) -> bytes:
+    responses = safe_fetch_session_responses(session_code)
+    metrics = calculate_session_metrics(responses)
+    breakdown = question_performance_breakdown(responses)
+    correct_by_question = correct_answers_by_question_for_session(session_code, session)
+    profiles = build_individual_profiles(responses, correct_by_question)
+
+    quiz_bank_rows: list[list[Any]] = []
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, session_code, question, options_json, correct_option_id, created_at
+        FROM saved_quizzes
+        WHERE session_code = ?
+        ORDER BY datetime(created_at) ASC
+        """,
+        (session_code,),
+    )
+    for row in cursor.fetchall():
+        options_raw = json.loads(row["options_json"])
+        options = {str(item.get("id", "")).upper(): str(item.get("text", "")) for item in options_raw}
+        quiz_bank_rows.append([
+            row["id"],
+            row["session_code"],
+            row["question"],
+            options.get("A", ""),
+            options.get("B", ""),
+            options.get("C", ""),
+            options.get("D", ""),
+            row["correct_option_id"],
+            row["created_at"],
+        ])
+    conn.close()
+
+    try:
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        metrics_sheet = workbook.active
+        metrics_sheet.title = "Session Metrics"
+        metrics_sheet.append(["Metric", "Value"])
+        metrics_sheet.append(["session_code", session_code])
+        metrics_sheet.append(["generated_at", now_iso()])
+        metrics_sheet.append(["total_responses", metrics["total_responses"]])
+        metrics_sheet.append(["total_accuracy_percentage", metrics["total_accuracy_percentage"]])
+        metrics_sheet.append([
+            "average_time_per_question_seconds",
+            metrics["average_time_per_question_seconds"],
+        ])
+        metrics_sheet.append(["correct_answers", metrics["answer_frequency"]["correct"]])
+        metrics_sheet.append(["incorrect_answers", metrics["answer_frequency"]["incorrect"]])
+
+        performance_sheet = workbook.create_sheet("Question Performance")
+        performance_sheet.append([
+            "question_id",
+            "total_answers",
+            "correct_answers",
+            "incorrect_answers",
+            "accuracy_percentage",
+        ])
+        for breakdown_row in breakdown:
+            performance_sheet.append([
+                breakdown_row["question_id"],
+                breakdown_row["total_answers"],
+                breakdown_row["correct_answers"],
+                breakdown_row["incorrect_answers"],
+                breakdown_row["accuracy_percentage"],
+            ])
+
+        responses_sheet = workbook.create_sheet("Student Responses")
+        responses_sheet.append([
+            "student_id",
+            "question_id",
+            "timestamp",
+            "raw_answer",
+            "is_correct",
+        ])
+        for response_row in responses:
+            responses_sheet.append([
+                response_row.student_id,
+                response_row.question_id,
+                response_row.timestamp,
+                response_row.raw_answer,
+                "TRUE" if response_row.is_correct else "FALSE",
+            ])
+
+        profiles_sheet = workbook.create_sheet("Student Profiles")
+        profiles_sheet.append([
+            "student_id",
+            "question_id",
+            "student_answer",
+            "correct_answer",
+            "is_correct",
+            "timestamp",
+        ])
+        for student_id, student_rows in profiles.items():
+            for profile_row in student_rows:
+                profiles_sheet.append([
+                    student_id,
+                    profile_row["question_id"],
+                    profile_row["student_answer"],
+                    profile_row["correct_answer"],
+                    "TRUE" if profile_row["is_correct"] else "FALSE",
+                    profile_row["timestamp"],
+                ])
+
+        quiz_sheet = workbook.create_sheet("Quiz Bank")
+        quiz_sheet.append([
+            "quiz_id",
+            "session_code",
+            "question",
+            "option_a",
+            "option_b",
+            "option_c",
+            "option_d",
+            "correct_option_id",
+            "created_at",
+        ])
+        for quiz_row in quiz_bank_rows:
+            quiz_sheet.append(quiz_row)
+
+        output = BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+    except Exception:
+        # Fallback when openpyxl is unavailable in runtime environment.
+        try:
+            import xlsxwriter
+        except Exception as exc:
+            raise RuntimeError("XLSX generation is unavailable. Install openpyxl or xlsxwriter.") from exc
+
+        output = BytesIO()
+        workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+
+        metrics_sheet = workbook.add_worksheet("Session Metrics")
+        metrics_rows = [
+            ["Metric", "Value"],
+            ["session_code", session_code],
+            ["generated_at", now_iso()],
+            ["total_responses", metrics["total_responses"]],
+            ["total_accuracy_percentage", metrics["total_accuracy_percentage"]],
+            ["average_time_per_question_seconds", metrics["average_time_per_question_seconds"]],
+            ["correct_answers", metrics["answer_frequency"]["correct"]],
+            ["incorrect_answers", metrics["answer_frequency"]["incorrect"]],
+        ]
+        for row_index, row_values in enumerate(metrics_rows):
+            metrics_sheet.write_row(row_index, 0, row_values)
+
+        performance_sheet = workbook.add_worksheet("Question Performance")
+        performance_sheet.write_row(0, 0, [
+            "question_id",
+            "total_answers",
+            "correct_answers",
+            "incorrect_answers",
+            "accuracy_percentage",
+        ])
+        for idx, breakdown_row in enumerate(breakdown, start=1):
+            performance_sheet.write_row(idx, 0, [
+                breakdown_row["question_id"],
+                breakdown_row["total_answers"],
+                breakdown_row["correct_answers"],
+                breakdown_row["incorrect_answers"],
+                breakdown_row["accuracy_percentage"],
+            ])
+
+        responses_sheet = workbook.add_worksheet("Student Responses")
+        responses_sheet.write_row(0, 0, [
+            "student_id",
+            "question_id",
+            "timestamp",
+            "raw_answer",
+            "is_correct",
+        ])
+        for idx, response_row in enumerate(responses, start=1):
+            responses_sheet.write_row(idx, 0, [
+                response_row.student_id,
+                response_row.question_id,
+                response_row.timestamp,
+                response_row.raw_answer,
+                "TRUE" if response_row.is_correct else "FALSE",
+            ])
+
+        profiles_sheet = workbook.add_worksheet("Student Profiles")
+        profiles_sheet.write_row(0, 0, [
+            "student_id",
+            "question_id",
+            "student_answer",
+            "correct_answer",
+            "is_correct",
+            "timestamp",
+        ])
+        profile_line = 1
+        for student_id, student_rows in profiles.items():
+            for profile_row in student_rows:
+                profiles_sheet.write_row(profile_line, 0, [
+                    student_id,
+                    profile_row["question_id"],
+                    profile_row["student_answer"],
+                    profile_row["correct_answer"],
+                    "TRUE" if profile_row["is_correct"] else "FALSE",
+                    profile_row["timestamp"],
+                ])
+                profile_line += 1
+
+        quiz_sheet = workbook.add_worksheet("Quiz Bank")
+        quiz_sheet.write_row(0, 0, [
+            "quiz_id",
+            "session_code",
+            "question",
+            "option_a",
+            "option_b",
+            "option_c",
+            "option_d",
+            "correct_option_id",
+            "created_at",
+        ])
+        for idx, quiz_row in enumerate(quiz_bank_rows, start=1):
+            quiz_sheet.write_row(idx, 0, quiz_row)
+
+        workbook.close()
+        return output.getvalue()
+
+
+def generate_report_bundle_zip(code: str, session: RuntimeSession) -> bytes:
+    report = session.final_report if session.final_report is not None else build_full_analytics_report(session)
+    if session.final_report_insights is None:
+        session.final_report_insights = build_analytics_insights_with_ai(report)
+
+    legacy_pdf = generate_session_report_pdf(report, session.final_report_insights)
+    quizes_analyticss_pdf = generate_quizes_analyticss_pdf(code, session)
+    quizzes_xlsx = generate_quiz_information_xlsx(code, session)
+
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr(f"session-{code}-analytics-report.pdf", legacy_pdf)
+        zip_file.writestr(f"session-{code}-Quizes Analyticss.pdf", quizes_analyticss_pdf)
+        zip_file.writestr(f"session-{code}-quizes-information.xlsx", quizzes_xlsx)
+
+    return archive.getvalue()
+
+
 app = FastAPI(title="VIA Live", version="1.0.0")
 
 
@@ -2759,6 +3186,22 @@ def download_session_report_pdf(code: str) -> Response:
     )
 
 
+@app.get("/api/sessions/{code}/report-bundle.zip")
+def download_session_report_bundle(code: str) -> Response:
+    code = code.upper()
+    session = SESSIONS.get(code)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    bundle_bytes = generate_report_bundle_zip(code, session)
+    filename = f"session-{code}-reports-bundle.zip"
+    return Response(
+        content=bundle_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.websocket("/ws/{code}")
 async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) -> None:
     code = code.upper()
@@ -3362,6 +3805,21 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 if option_id == session.current_quiz.correct_option_id:
                     state.quiz_correct_answers += 1
                 state.last_active_at = time.time()
+                try:
+                    question_id = current_assessment_question_id(session)
+                    safe_store_assessment_response(
+                        AssessmentResponse(
+                            student_id=client_id,
+                            question_id=question_id,
+                            session_id=code,
+                            timestamp=now_iso(),
+                            raw_answer=option_id,
+                            is_correct=(option_id == session.current_quiz.correct_option_id),
+                        )
+                    )
+                except Exception:
+                    # Keep the live classroom flow resilient even if analytics persistence fails.
+                    pass
                 insert_event(code, "quiz_answer", {"client_id": client_id, "option_id": option_id})
                 record_engagement_point(session, "quiz_answer")
 

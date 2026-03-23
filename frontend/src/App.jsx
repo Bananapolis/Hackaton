@@ -1404,14 +1404,14 @@ function App() {
     send('break_control', { action: 'cancel' })
   }
 
-  async function downloadPdfReport(sessionCodeForFile) {
+  async function downloadReportBundle(sessionCodeForFile) {
     const response = await fetch(
-      `${config.apiBase}/api/sessions/${encodeURIComponent(sessionCodeForFile)}/report.pdf`
+      `${config.apiBase}/api/sessions/${encodeURIComponent(sessionCodeForFile)}/report-bundle.zip`
     )
 
     if (!response.ok) {
       const message = await response.text()
-      throw new Error(message || 'Failed to download PDF report')
+      throw new Error(message || 'Failed to download report bundle')
     }
 
     const reportBlob = await response.blob()
@@ -1420,7 +1420,7 @@ function App() {
     const contentDisposition = response.headers.get('Content-Disposition') || ''
     const fileNameMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
     link.href = blobUrl
-    link.download = fileNameMatch?.[1] || `session-${sessionCodeForFile}-analytics-report.pdf`
+    link.download = fileNameMatch?.[1] || `session-${sessionCodeForFile}-reports-bundle.zip`
     document.body.appendChild(link)
     link.click()
     link.remove()
@@ -1438,12 +1438,12 @@ function App() {
       const report = await postJson(`/api/sessions/${encodeURIComponent(normalizedCode)}/end`, {})
       setAnalytics(report.analytics || null)
 
-      setEndSessionProgressMessage('Generating and downloading analytics PDF...')
+      setEndSessionProgressMessage('Generating and downloading report bundle (3 files)...')
       setStatus('Generating analytics report...')
-      await downloadPdfReport(normalizedCode)
+      await downloadReportBundle(normalizedCode)
 
       setEndSessionProgressMessage('')
-      setStatus('Session ended. Full analytics PDF report downloaded.')
+      setStatus('Session ended. Reports bundle downloaded (legacy PDF, Quizes Analyticss, quizzes XLSX).')
       setShowAwardsPanel(true)
     } catch (err) {
       setError(err.message)
