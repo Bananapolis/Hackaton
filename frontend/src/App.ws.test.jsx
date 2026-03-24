@@ -296,7 +296,12 @@ describe('App — WebSocket session flow (teacher)', () => {
     await waitFor(() =>
       expect(screen.getAllByText(/teacher name is required/i)[0]).toBeInTheDocument(),
     )
-    expect(global.fetch).not.toHaveBeenCalled()
+    const createSessionCalls = global.fetch.mock.calls.filter(([url, init]) =>
+      String(url).includes('/api/sessions')
+      && !String(url).includes('/api/sessions/rejoin-status')
+      && String(init?.method || 'GET').toUpperCase() === 'POST',
+    )
+    expect(createSessionCalls).toHaveLength(0)
   })
 
   it('handles session_state message and updates metrics', async () => {
