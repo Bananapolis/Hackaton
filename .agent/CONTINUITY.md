@@ -1,5 +1,15 @@
 # Continuity Log
 
+## 2026-03-24
+
+- Created [CLAUDE.md](../CLAUDE.md) — comprehensive AI agent onboarding document covering repo
+  layout, local dev commands, test commands, WebSocket message protocol, runtime vs. persistent
+  state, AI quiz generation pattern, answer-gating rules, rejoin flow, code conventions, common
+  pitfalls, and a checklist of files to update after material changes.
+- Rewrote [AGENTS.md](../AGENTS.md) to add project-specific architecture guardrails (event loop
+  safety, answer gating, state separation), link to CLAUDE.md, and expand the definition-of-done
+  with concrete coverage thresholds.
+
 ## 2026-03-22
 
 - Added authenticated "rejoin after refresh/close" support across backend and frontend:
