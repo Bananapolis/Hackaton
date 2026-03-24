@@ -1,4 +1,4 @@
-@startuml
+@startuml deployment
 !theme plain
 
 node "Client Side" {
@@ -6,24 +6,68 @@ node "Client Side" {
   [Electron Desktop App] as DesktopApp
 }
 
-node "Deployment Environment / VPS" {
-  [Caddy Reverse Proxy] as Caddy
-  
-  node "Docker Compose" {
-    [Frontend (Nginx)] as FrontendContainer
-    [Backend (FastAPI/Python)] as BackendContainer
-  }
+node "GitHub" {
+  [GitHub Actions CI/CD] as CICD
+  note right of CICD
+    1. test-backend (pytest)
+    2. test-frontend (vitest)
+    3. deploy via SSH (main → app/)
+    4. deploy-dev via SSH (dev → app-dev/)
+  end note
 }
 
-database "SQLite Database" as SQLite
-cloud "OpenAI API Service" as OpenAI
+node "VPS" {
+  [Caddy Reverse Proxy\n(ZeroSSL TLS)] as Caddy
+  note right of Caddy
+    vialive.libreuni.com → web:80
+    dev.vialive.libreuni.com → web-dev:80
+  end note
 
+  node "Docker Compose (production)" {
+    [Frontend (Nginx)] as FrontendContainer
+    [Backend (FastAPI/Python)] as BackendContainer
+    [Coturn TURN Server\n:3478 tcp/udp] as TurnContainer
+  }
+
+  node "Docker Compose dev\n(shared vialive network)" {
+    [Frontend-dev (Nginx)] as FrontendDev
+    [Backend-dev (FastAPI/Python)] as BackendDev
+  }
+
+  database "SQLite\n(data.sqlite3)" as SQLite
+  database "SQLite Dev\n(data-dev.sqlite3)" as SQLiteDev
+}
+
+cloud "Gemini API\n(primary AI)" as Gemini
+cloud "OpenAI-compatible API\n(optional fallback)" as OpenAI
+cloud "Google OAuth" as GoogleOAuth
+cloud "GitHub OAuth" as GitHubOAuth
+
+' Client traffic
 Browser --> Caddy : HTTPS
 DesktopApp --> Caddy : HTTPS
 
-Caddy --> FrontendContainer : Proxy Pass
-Caddy --> BackendContainer : Proxy Pass
+' Caddy routing
+Caddy --> FrontendContainer : prod
+Caddy --> FrontendDev : dev
 
+' Frontend proxies API calls to backend (via Nginx)
+FrontendContainer --> BackendContainer : internal
+FrontendDev --> BackendDev : internal
+
+' WebRTC ICE/TURN
+Browser ..> TurnContainer : STUN/TURN\n(UDP/TCP 3478\n+ 49160-49200)
+
+' Backend persistence
 BackendContainer ..> SQLite : Read/Write
-BackendContainer ..> OpenAI : REST API
+BackendDev ..> SQLiteDev : Read/Write
+
+' External services
+BackendContainer ..> Gemini : REST API (AI quiz gen)
+BackendContainer ..> OpenAI : REST API (fallback)
+BackendContainer ..> GoogleOAuth : OAuth2
+BackendContainer ..> GitHubOAuth : OAuth2
+
+' CI/CD deployment
+CICD --> VPS : SSH deploy\n(scripts/deploy-update.sh\n/ deploy-dev.sh)
 @enduml
