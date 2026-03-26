@@ -71,6 +71,8 @@ fi
 
 git pull --ff-only
 
+export VITE_APP_VERSION="$(git rev-parse --short HEAD) · $(git log -1 --format=%cd --date=short)"
+
 docker compose -f docker-compose.dev.yml -p app-dev up -d --build > /tmp/docker_deploy_dev.log 2>&1
 
 echo "=== DEPLOY-DEV END: $(date) ===" >> /tmp/deploy_debug.log

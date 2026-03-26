@@ -30,6 +30,7 @@ services:
         BACKEND_HOST: backend-dev
         VITE_RTC_ICE_SERVERS: ${VITE_RTC_ICE_SERVERS-}
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID-}
+        VITE_APP_VERSION: ${VITE_APP_VERSION-}
     container_name: web-dev
     depends_on:
       - backend-dev
