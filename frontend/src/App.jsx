@@ -2188,7 +2188,7 @@ function App() {
                         type="button"
                         disabled={!joined}
                         onClick={() => (isScreenSharing ? stopShare() : startShare())}
-                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isScreenSharing ? 'bg-rose-600 hover:bg-rose-500' : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200'}`}
+                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isScreenSharing ? 'bg-rose-600 hover:bg-rose-500' : 'bg-slate-900 hover:bg-slate-800'}`}
                         title={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
                         aria-label={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
                       >
