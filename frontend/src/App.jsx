@@ -58,6 +58,8 @@ const DEFAULT_SESSION_SETTINGS = {
   quizzes_enabled: true,
   screen_explain_enabled: true,
   notifications_enabled: true,
+  student_rewind_enabled: true,
+  student_screenshot_enabled: true,
 }
 const quizPromptPresets = [
   {
@@ -1650,6 +1652,7 @@ function App() {
 
   async function captureLiveScreenAsPdf() {
     if (isTeacher || !joined) return
+    if (!sessionSettings.student_screenshot_enabled) return
 
     try {
       setError('')
@@ -1784,6 +1787,7 @@ function App() {
 
   function openStudentReplayPanel() {
     if (isTeacher || !joined) return
+    if (!sessionSettings.student_rewind_enabled) return
     const capturedNow = tryCaptureReplayFrame()
 
     setError('')
@@ -2392,26 +2396,30 @@ function App() {
                           <Icon name="question" className="h-5 w-5" />
                         </button>
                       ) : null}
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={captureLiveScreenAsPdf}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-lg text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Take screenshot (PDF)"
-                        aria-label="Take screenshot (PDF)"
-                      >
-                        <Icon name="camera" className="h-5 w-5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={openStudentReplayPanel}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-violet-700 text-lg text-white transition hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="View last minute"
-                        aria-label="View last minute"
-                      >
-                        <Icon name="history" className="h-5 w-5" />
-                      </button>
+                      {sessionSettings.student_screenshot_enabled && (
+                        <button
+                          type="button"
+                          disabled={!joined}
+                          onClick={captureLiveScreenAsPdf}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-lg text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Take screenshot (PDF)"
+                          aria-label="Take screenshot (PDF)"
+                        >
+                          <Icon name="camera" className="h-5 w-5" />
+                        </button>
+                      )}
+                      {sessionSettings.student_rewind_enabled && (
+                        <button
+                          type="button"
+                          disabled={!joined}
+                          onClick={openStudentReplayPanel}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-violet-700 text-lg text-white transition hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="View last minute"
+                          aria-label="View last minute"
+                        >
+                          <Icon name="history" className="h-5 w-5" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={!joined}
@@ -2810,6 +2818,26 @@ function App() {
                     </div>
                     <button type="button" onClick={() => updateSessionSetting('screen_explain_enabled', !sessionSettings.screen_explain_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.screen_explain_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle screen explain">
                       <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.screen_explain_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Student replay</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can rewind the last 60 s</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('student_rewind_enabled', !sessionSettings.student_rewind_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.student_rewind_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle student replay">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.student_rewind_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Student screenshots</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can capture screen as PDF</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('student_screenshot_enabled', !sessionSettings.student_screenshot_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.student_screenshot_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle student screenshots">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.student_screenshot_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
                     </button>
                   </div>
 

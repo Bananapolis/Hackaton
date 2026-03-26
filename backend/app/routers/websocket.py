@@ -388,6 +388,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
                     "confusion_signals_enabled", "confusion_notification_threshold_percent",
                     "anonymous_questions_enabled", "quizzes_enabled",
                     "screen_explain_enabled", "notifications_enabled",
+                    "student_rewind_enabled", "student_screenshot_enabled",
                 }
                 for key in allowed_keys:
                     if key in payload:

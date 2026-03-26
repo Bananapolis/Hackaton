@@ -80,6 +80,8 @@ class RuntimeSession:
         "quizzes_enabled": True,
         "screen_explain_enabled": True,
         "notifications_enabled": True,
+        "student_rewind_enabled": True,
+        "student_screenshot_enabled": True,
     })
 
     def __post_init__(self) -> None:
