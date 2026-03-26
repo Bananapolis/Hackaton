@@ -1,4 +1,4 @@
-# Agent Guidelines — VIA Live
+# Agent Guidelines — Live Pulse
 
 > For Claude Code specifically, also read [CLAUDE.md](CLAUDE.md) — it contains the full
 > architectural overview, dev commands, and common pitfalls.

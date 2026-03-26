@@ -36,7 +36,7 @@ function Navigation({ pathname }) {
   return (
     <header className="startup-header">
       <a className="startup-brand" href="/">
-        <span>VIA</span>
+        <span>Live</span>
         <span style={{ color: 'var(--startup-accent)' }}>Pulse</span>
       </a>
       <nav className="startup-nav" aria-label="Main navigation">
@@ -84,7 +84,7 @@ function HomePage() {
           <p className="startup-kicker">Realtime Classroom Intelligence</p>
           <h1>Build a class where every student is heard, even when they stay silent.</h1>
           <p className="lead">
-            VIA Pulse transforms live teaching sessions into actionable signals. Confusion alerts,
+            Live Pulse transforms live teaching sessions into actionable signals. Confusion alerts,
             break sentiment, and instant AI quizzes help educators adapt in real time.
           </p>
           <div className="startup-actions">
@@ -105,19 +105,19 @@ function HomePage() {
 
         {/* Story card */}
         <aside className="startup-story-card">
-          <h2>Built for VIA University College</h2>
+          <h2>Empower every student</h2>
           <ul>
             <li>
-              <strong>1 in 3</strong>
-              <span>students feel too shy to signal confusion</span>
+              <strong>Active Participation</strong>
+              <span>Give every student a voice in real-time</span>
             </li>
             <li>
-              <strong>40 %</strong>
-              <span>of class time lost to undetected disengagement</span>
+              <strong>Instant Feedback</strong>
+              <span>Never lose track of student engagement</span>
             </li>
             <li>
-              <strong>2×</strong>
-              <span>quiz engagement with anonymized participation</span>
+              <strong>AI Intelligence</strong>
+              <span>Generate quizzes instantly to test understanding</span>
             </li>
           </ul>
         </aside>
@@ -189,7 +189,7 @@ function HomePage() {
             "The feedback loop that used to happen only after class now happens during it — that
             changes everything."
           </blockquote>
-          <p>Faculty pilot, VIA University College</p>
+          <p>Early adopter faculty</p>
         </div>
       </section>
 
@@ -221,7 +221,7 @@ function MissionPage() {
           spots in classrooms by making student engagement measurable in real time.
         </p>
         <p>
-          VIA Pulse was born to support educators who need practical tools, not extra complexity.
+          Live Pulse was born to support educators who need practical tools, not extra complexity.
           Every feature is built to reduce friction while increasing student confidence and
           participation.
         </p>
@@ -249,7 +249,7 @@ function ContactPage() {
     <main className="startup-main startup-main-compact">
       <section className="startup-panel startup-panel-contact">
         <p className="startup-kicker">Contact</p>
-        <h1>Talk to the team behind VIA Pulse.</h1>
+        <h1>Talk to the team behind Live Pulse.</h1>
         <p>
           We collaborate with universities, bootcamps, and training teams that want stronger class
           engagement. Reach out and we will respond within one business day.
@@ -288,7 +288,7 @@ function ContactPage() {
 function Footer() {
   return (
     <footer className="startup-footer">
-      <p>© {new Date().getFullYear()} VIA Pulse · VIA University College · Banegårdsgade 2, 8700 Horsens</p>
+      <p>© {new Date().getFullYear()} Live Pulse · Banegårdsgade 2, 8700 Horsens</p>
       <p>
         <a href="/our-mission">Our Mission</a>
         {' · '}

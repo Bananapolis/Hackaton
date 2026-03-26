@@ -1,8 +1,8 @@
-# Project Documentation: VIA Live (MVP)
+# Project Documentation: Live Pulse (MVP)
 
 ## 1. Executive Summary
 
-This project is a browser-based, live screen-sharing application designed to solve the lack of student engagement and accommodate shy students in educational settings. Tailored for the faculty at VIA University College, the platform overlays real-time, anonymous student feedback (confusion alerts, break requests) and AI-generated interactive elements (quizzes) directly onto a live presentation feed.
+This project is a browser-based, live screen-sharing application designed to solve the lack of student engagement and accommodate shy students in educational settings. The platform overlays real-time, anonymous student feedback (confusion alerts, break requests) and AI-generated interactive elements (quizzes) directly onto a live presentation feed.
 
 **Primary Objective:** Deliver a fully functional, deployed Minimum Viable Product (MVP) within a 24-hour hackathon timeframe.
 

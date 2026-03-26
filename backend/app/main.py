@@ -15,7 +15,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="VIA Live", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Live Pulse", version="1.0.0", lifespan=lifespan)
 
 allowed_origins = parse_allowed_origins(
     os.getenv("ALLOWED_ORIGINS", config.settings.allowed_origins)

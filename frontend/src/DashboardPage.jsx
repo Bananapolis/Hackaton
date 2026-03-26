@@ -149,7 +149,7 @@ export function DashboardPage() {
       {/* Header */}
       <header className="startup-header">
         <a className="startup-brand" href="/">
-          <span>VIA</span>
+          <span>Live</span>
           <span style={{ color: 'var(--startup-accent)' }}>Pulse</span>
         </a>
         <div className="startup-dashboard-header-right">
@@ -303,7 +303,7 @@ export function DashboardPage() {
       </main>
 
       <footer className="startup-footer">
-        <p>© {new Date().getFullYear()} VIA Pulse · VIA University College</p>
+        <p>© {new Date().getFullYear()} Live Pulse</p>
         <p>
           <a href="/our-mission">Our Mission</a>
           {' · '}

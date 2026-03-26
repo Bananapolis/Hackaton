@@ -1,14 +1,13 @@
-# CLAUDE.md — VIA Live Agent Onboarding
+# CLAUDE.md — Live Pulse Agent Onboarding
 
-This file is the primary onboarding document for AI agents working on the **VIA Live** codebase.
+This file is the primary onboarding document for AI agents working on the **Live Pulse** codebase.
 Read this before making any changes. Then read [README.md](README.md) for user-facing context.
 
 ---
 
 ## What this project is
 
-**VIA Live** is a browser-based live classroom engagement platform built for a hackathon at VIA
-University College. A teacher hosts a session and shares their screen; students join via a URL or
+**Live Pulse** is a browser-based live classroom engagement platform built for a hackathon. A teacher hosts a session and shares their screen; students join via a URL or
 QR code and interact through real-time engagement signals, anonymous questions, and AI-generated
 quizzes. The backend is a single FastAPI process backed by SQLite. The frontend is a React SPA.
 

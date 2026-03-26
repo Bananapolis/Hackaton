@@ -135,7 +135,7 @@ export function LoginPage() {
     <div className="startup-site-shell startup-login-shell">
       <header className="startup-header">
         <a className="startup-brand" href="/">
-          <span>VIA</span>
+          <span>Live</span>
           <span style={{ color: 'var(--startup-accent)' }}>Pulse</span>
         </a>
         <nav className="startup-nav" aria-label="Main navigation">
@@ -153,7 +153,7 @@ export function LoginPage() {
           <p className="startup-login-subtitle">
             {mode === 'login'
               ? 'Sign in to access your sessions, files, and saved quizzes.'
-              : 'Get started with VIA Pulse — it only takes a moment.'}
+              : 'Get started with Live Pulse — it only takes a moment.'}
           </p>
 
           <div className="startup-login-tabs">
@@ -249,7 +249,7 @@ export function LoginPage() {
       </main>
 
       <footer className="startup-footer">
-        <p>© {new Date().getFullYear()} VIA Pulse · VIA University College</p>
+        <p>© {new Date().getFullYear()} Live Pulse</p>
         <p>
           <a href="/our-mission">Our Mission</a>
           {' · '}

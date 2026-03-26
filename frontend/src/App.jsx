@@ -1928,7 +1928,7 @@ function App() {
       <div className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col px-3 py-3 lg:px-6 lg:py-5">
         <header className="app-header mb-4 flex flex-wrap items-center justify-between gap-3 ui-fade-up">
           <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-2.5 shadow-[0_18px_35px_-24px_rgba(15,23,42,0.65)] backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/75">
-            <div className="hero-subtext text-[11px] uppercase tracking-[0.08em]">VIA Live</div>
+            <div className="hero-subtext text-[11px] uppercase tracking-[0.08em]">Live Pulse</div>
             <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
               <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               {roleLabel}

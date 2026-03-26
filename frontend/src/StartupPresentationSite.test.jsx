@@ -58,7 +58,7 @@ describe('StartupPresentationSite rendering', () => {
 
   it('renders contact page for /contact', () => {
     render(<StartupPresentationSite pathname="/contact" />)
-    expect(screen.getByText(/talk to the team behind VIA Pulse/i)).toBeInTheDocument()
+    expect(screen.getByText(/talk to the team behind Live Pulse/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /bananapolis/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /93920729/i })).toBeInTheDocument()
   })
@@ -78,7 +78,7 @@ describe('StartupPresentationSite navigation', () => {
   it('always renders brand name and auth CTA link', () => {
     const { container } = render(<StartupPresentationSite pathname="/" />)
     const header = container.querySelector('.startup-header')
-    expect(within(header).getByRole('link', { name: /VIA/i })).toBeInTheDocument()
+    expect(within(header).getByRole('link', { name: /Live/i })).toBeInTheDocument()
     // CTA is either "Sign In" or "Dashboard" depending on localStorage
     expect(within(header).getByRole('link', { name: /sign in|dashboard/i })).toBeInTheDocument()
   })
