@@ -1,15 +1,9 @@
-const presentationRoutes = ['/home', '/our-mission', '/contact']
+const presentationRoutes = ['/', '/our-mission', '/contact']
 
 function normalizePath(pathname) {
-  if (!pathname) {
-    return '/'
-  }
-
+  if (!pathname) return '/'
   const compact = pathname.trim()
-  if (compact.length > 1 && compact.endsWith('/')) {
-    return compact.slice(0, -1)
-  }
-
+  if (compact.length > 1 && compact.endsWith('/')) return compact.slice(0, -1)
   return compact || '/'
 }
 
@@ -17,73 +11,199 @@ export function isStartupPresentationPath(pathname) {
   return presentationRoutes.includes(normalizePath(pathname))
 }
 
+function getAuthCta() {
+  try {
+    return localStorage.getItem('auth-token-v1') ? 'Dashboard' : 'Sign In'
+  } catch {
+    return 'Sign In'
+  }
+}
+
+function getAuthCtaHref() {
+  try {
+    return localStorage.getItem('auth-token-v1') ? '/dashboard' : '/login'
+  } catch {
+    return '/login'
+  }
+}
+
 function Navigation({ pathname }) {
   const normalizedPath = normalizePath(pathname)
+  const ctaLabel = getAuthCta()
+  const ctaHref = getAuthCtaHref()
 
   return (
     <header className="startup-header">
-      <a className="startup-brand" href="/home">
-        VIA Pulse
+      <a className="startup-brand" href="/">
+        <span>VIA</span>
+        <span style={{ color: 'var(--startup-accent)' }}>Pulse</span>
       </a>
       <nav className="startup-nav" aria-label="Main navigation">
-        <a className={normalizedPath === '/home' ? 'active' : ''} href="/home">
-          Home
-        </a>
-        <a className={normalizedPath === '/our-mission' ? 'active' : ''} href="/our-mission">
-          Our Mission
-        </a>
-        <a className={normalizedPath === '/contact' ? 'active' : ''} href="/contact">
-          Contact
-        </a>
+        <a className={normalizedPath === '/' ? 'active' : ''} href="/">Home</a>
+        <a className={normalizedPath === '/our-mission' ? 'active' : ''} href="/our-mission">Our Mission</a>
+        <a className={normalizedPath === '/contact' ? 'active' : ''} href="/contact">Contact</a>
       </nav>
-      <a className="startup-cta" href="/">
-        Open Product
-      </a>
+      <a className="startup-cta" href={ctaHref}>{ctaLabel}</a>
     </header>
+  )
+}
+
+function QuickJoinForm() {
+  function handleSubmit(event) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const code = form.elements.code.value.trim().toUpperCase()
+    if (!code) return
+    window.location.href = `/session?code=${encodeURIComponent(code)}`
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="startup-quickjoin-form">
+      <input
+        name="code"
+        className="startup-quickjoin-input"
+        placeholder="Enter session code"
+        maxLength={6}
+        autoCapitalize="characters"
+        spellCheck={false}
+      />
+      <button type="submit" className="startup-btn startup-btn-primary">
+        Join
+      </button>
+    </form>
   )
 }
 
 function HomePage() {
   return (
     <main className="startup-main">
-      <section className="startup-hero">
-        <p className="startup-kicker">Realtime Classroom Intelligence</p>
-        <h1>Build a class where every student is heard, even when they stay silent.</h1>
-        <p>
-          VIA Pulse transforms live teaching sessions into actionable signals. Confusion alerts,
-          break sentiment, and instant quizzes help educators adapt in real time.
-        </p>
-        <div className="startup-actions">
-          <a className="startup-btn startup-btn-primary" href="/contact">
-            Book a Demo
-          </a>
-          <a className="startup-btn startup-btn-secondary" href="/our-mission">
-            Learn Our Mission
-          </a>
-        </div>
-      </section>
+      {/* Hero */}
+      <div className="startup-hero-grid">
+        <section className="startup-hero">
+          <p className="startup-kicker">Realtime Classroom Intelligence</p>
+          <h1>Build a class where every student is heard, even when they stay silent.</h1>
+          <p className="lead">
+            VIA Pulse transforms live teaching sessions into actionable signals. Confusion alerts,
+            break sentiment, and instant AI quizzes help educators adapt in real time.
+          </p>
+          <div className="startup-actions">
+            <a className="startup-btn startup-btn-primary" href="/login">
+              Get Started Free
+            </a>
+            <a className="startup-btn startup-btn-secondary" href="/our-mission">
+              Learn More
+            </a>
+          </div>
+          <div className="startup-ribbon">
+            <p>No installs for students</p>
+            <p>AI-generated quizzes</p>
+            <p>Real-time signals</p>
+            <p>Session PDF reports</p>
+          </div>
+        </section>
 
-      <section className="startup-grid" aria-label="Core startup value">
+        {/* Story card */}
+        <aside className="startup-story-card">
+          <h2>Built for VIA University College</h2>
+          <ul>
+            <li>
+              <strong>1 in 3</strong>
+              <span>students feel too shy to signal confusion</span>
+            </li>
+            <li>
+              <strong>40 %</strong>
+              <span>of class time lost to undetected disengagement</span>
+            </li>
+            <li>
+              <strong>2×</strong>
+              <span>quiz engagement with anonymized participation</span>
+            </li>
+          </ul>
+        </aside>
+      </div>
+
+      {/* Feature grid */}
+      <section className="startup-grid" aria-label="Core features" style={{ marginTop: '3rem' }}>
         <article>
           <h2>Signal, not noise</h2>
           <p>
-            A single dashboard shows confusion trend, participation pulse, and quiz performance in
-            one glance.
+            One dashboard: confusion trend, participation pulse, and quiz performance — all visible
+            to the teacher in a single glance without interrupting the lecture.
           </p>
         </article>
         <article>
           <h2>Designed for live teaching</h2>
           <p>
-            The platform overlays engagement tools over presentations without interrupting the class
-            flow.
+            Screen sharing overlays engagement tools directly over your presentations. No app
+            installs needed — students join via link or QR code in any browser.
           </p>
         </article>
         <article>
           <h2>From session to evidence</h2>
           <p>
-            Export session reports and measure class outcomes over time with lightweight analytics.
+            Export session reports as PDFs and review quiz accuracy, confusion peaks, and
+            participation data to improve future classes.
           </p>
         </article>
+      </section>
+
+      {/* How it works */}
+      <section style={{ marginTop: '3.5rem' }}>
+        <p className="startup-kicker">How it works</p>
+        <h2 style={{ margin: '0.7rem 0 0', fontSize: 'clamp(1.5rem, 2.5vw, 2rem)', color: 'var(--startup-ink)' }}>
+          Three steps to an engaged classroom
+        </h2>
+        <div className="startup-process">
+          <article>
+            <div className="startup-step">01</div>
+            <h3>Teacher starts a session</h3>
+            <p>
+              Sign in, create a session, and share the code or QR on screen. Students join instantly
+              — no accounts needed.
+            </p>
+          </article>
+          <article>
+            <div className="startup-step">02</div>
+            <h3>Students signal in real time</h3>
+            <p>
+              Anonymously mark confusion, vote for breaks, answer AI-generated quizzes, and ask
+              questions from any device.
+            </p>
+          </article>
+          <article>
+            <div className="startup-step">03</div>
+            <h3>Teacher adapts instantly</h3>
+            <p>
+              Live metrics and alerts surface when the class needs a pause or extra explanation.
+              All data is saved for post-session review.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      {/* Quote */}
+      <section style={{ marginTop: '3rem' }}>
+        <div className="startup-quote">
+          <blockquote>
+            "The feedback loop that used to happen only after class now happens during it — that
+            changes everything."
+          </blockquote>
+          <p>Faculty pilot, VIA University College</p>
+        </div>
+      </section>
+
+      {/* Quick join for students */}
+      <section style={{ marginTop: '3.5rem' }}>
+        <div className="startup-panel" style={{ maxWidth: '560px' }}>
+          <p className="startup-kicker">Students</p>
+          <h2 style={{ margin: '0.6rem 0 0.5rem', fontSize: '1.45rem', color: 'var(--startup-ink)' }}>
+            Got a session code?
+          </h2>
+          <p style={{ marginBottom: '1.1rem' }}>
+            Enter the six-character code from your teacher to join the live session in your browser.
+          </p>
+          <QuickJoinForm />
+        </div>
       </section>
     </main>
   )
@@ -126,7 +246,7 @@ function MissionPage() {
 function ContactPage() {
   return (
     <main className="startup-main startup-main-compact">
-      <section className="startup-panel">
+      <section className="startup-panel startup-panel-contact">
         <p className="startup-kicker">Contact</p>
         <h1>Talk to the team behind VIA Pulse.</h1>
         <p>
@@ -148,12 +268,34 @@ function ContactPage() {
             <a href="tel:+4593920729">+45 93920729</a>
           </p>
         </article>
-        <article>
-          <h2>Address</h2>
-          <p>Banegårdsgade 2, 8700 Horsens</p>
-        </article>
       </section>
+
+      <div className="startup-contact-cta">
+        <h2>Book a demo</h2>
+        <p>
+          Prefer a guided walkthrough? Send us an email and we will schedule a 20-minute demo
+          tailored to your institution.
+        </p>
+        <a href="mailto:Bananapolis@eduardfekete.com?subject=Demo Request" className="startup-btn startup-btn-primary">
+          Request a demo
+        </a>
+      </div>
     </main>
+  )
+}
+
+function Footer() {
+  return (
+    <footer className="startup-footer">
+      <p>© {new Date().getFullYear()} VIA Pulse · VIA University College · Banegårdsgade 2, 8700 Horsens</p>
+      <p>
+        <a href="/our-mission">Our Mission</a>
+        {' · '}
+        <a href="/contact">Contact</a>
+        {' · '}
+        <a href="/login">Sign In</a>
+      </p>
+    </footer>
   )
 }
 
@@ -161,16 +303,14 @@ export function StartupPresentationSite({ pathname }) {
   const normalizedPath = normalizePath(pathname)
 
   let page = <HomePage />
-  if (normalizedPath === '/our-mission') {
-    page = <MissionPage />
-  } else if (normalizedPath === '/contact') {
-    page = <ContactPage />
-  }
+  if (normalizedPath === '/our-mission') page = <MissionPage />
+  else if (normalizedPath === '/contact') page = <ContactPage />
 
   return (
     <div className="startup-site-shell">
       <Navigation pathname={normalizedPath} />
       {page}
+      <Footer />
     </div>
   )
 }
