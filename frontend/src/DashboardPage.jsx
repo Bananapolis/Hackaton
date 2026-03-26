@@ -49,6 +49,8 @@ function setThemePersist(t) {
   try {
     localStorage.setItem('ui-theme', t)
     document.documentElement.classList.toggle('dark', t === 'dark')
+    // Dispatch custom event to sync with App.jsx if needed
+    window.dispatchEvent(new CustomEvent('theme-change', { detail: { theme: t } }))
   } catch {}
 }
 

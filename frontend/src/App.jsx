@@ -473,6 +473,16 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const handleThemeChange = (e) => {
+      if (e.detail?.theme) {
+        setTheme(e.detail.theme)
+      }
+    }
+    window.addEventListener('theme-change', handleThemeChange)
+    return () => window.removeEventListener('theme-change', handleThemeChange)
+  }, [])
+
+  useEffect(() => {
     if (!joined) {
       setShowSessionPanel(true)
 
@@ -2001,7 +2011,16 @@ function App() {
             </button>
             <button
               type="button"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => {
+                if (joined) {
+                  if (window.confirm('Do you want to leave the active session and go to the dashboard?')) {
+                    disconnect()
+                    navigate('/dashboard')
+                  }
+                } else {
+                  navigate('/dashboard')
+                }
+              }}
               className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
               title="Back to dashboard"
               aria-label="Back to dashboard"
@@ -2010,7 +2029,11 @@ function App() {
             </button>
             <button
               type="button"
-              onClick={signOut}
+              onClick={() => {
+                if (window.confirm('Are you sure you want to sign out? This will end your session.')) {
+                  signOut()
+                }
+              }}
               className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
               title="Sign out"
               aria-label="Sign out"
