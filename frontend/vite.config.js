@@ -4,12 +4,13 @@ import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
 function getAppVersion() {
+  if (process.env.VITE_APP_VERSION) return process.env.VITE_APP_VERSION
   try {
     const hash = execSync('git rev-parse --short HEAD').toString().trim()
     const date = execSync('git log -1 --format=%cd --date=short').toString().trim()
     return `${hash} · ${date}`
   } catch {
-    return 'dev'
+    return 'unknown'
   }
 }
 

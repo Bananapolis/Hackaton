@@ -108,6 +108,8 @@ fi
 
 git pull --ff-only
 
+export VITE_APP_VERSION="$(git rev-parse --short HEAD) · $(git log -1 --format=%cd --date=short)"
+
 # Redirect docker compose output to prevent hanging SSH sessions.
 docker compose up -d --build > /tmp/docker_deploy.log 2>&1
 
