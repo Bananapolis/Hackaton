@@ -1305,15 +1305,12 @@ function App() {
   async function startShare() {
     if (!isTeacher) return
 
-    // Screen sharing requires Secure Context (HTTPS or localhost) and a desktop browser
+    // Screen sharing requires Secure Context (HTTPS or localhost) and a supporting browser
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent)
       const isSecure = window.isSecureContext
-      const msg = isMobile
-        ? 'Screen sharing is not supported on mobile devices.'
-        : isSecure
-          ? 'Screen sharing not supported by this browser.'
-          : 'Screen sharing blocked by browser security. Please reload using HTTPS or Localhost.'
+      const msg = isSecure
+        ? 'Screen sharing not supported by this browser.'
+        : 'Screen sharing blocked by browser security. Please reload using HTTPS or Localhost.'
       setError(msg)
       return
     }
