@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useGoogleLogin } from '@react-oauth/google'
 import {
   AlertTriangle,
+  Bell,
+  BellOff,
   Camera,
   CheckCircle,
   Coffee,
@@ -36,6 +38,7 @@ import { StatCard } from './components/StatCard'
 
 const rtcConfig = config.rtcConfig
 const sessionPreferencesStorageKey = 'session-preferences-v1'
+const featureSettingsStorageKey = 'session-feature-settings-v1'
 const authTokenStorageKey = 'auth-token-v1'
 const authUserStorageKey = 'auth-user-v1'
 const REJOIN_STATUS_POLL_MS = 10_000
@@ -46,6 +49,16 @@ const STUDENT_REPLAY_WINDOW_MS = 60_000
 const STUDENT_REPLAY_CAPTURE_INTERVAL_MS = 2_000
 const STUDENT_REPLAY_MAX_WIDTH = 960
 const STUDENT_REPLAY_JPEG_QUALITY = 0.62
+const DEFAULT_SESSION_SETTINGS = {
+  break_voting_enabled: true,
+  break_vote_threshold_percent: 40,
+  confusion_signals_enabled: true,
+  confusion_notification_threshold_percent: 65,
+  anonymous_questions_enabled: true,
+  quizzes_enabled: true,
+  screen_explain_enabled: true,
+  notifications_enabled: true,
+}
 const quizPromptPresets = [
   {
     id: 'default',
@@ -264,6 +277,8 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     camera: Camera,
     history: History,
     checkCircle: CheckCircle,
+    bell: Bell,
+    bellOff: BellOff,
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -376,6 +391,15 @@ function App() {
   const [isScreenMaximized, setIsScreenMaximized] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [confusionFlash, setConfusionFlash] = useState(false)
+  const [sessionPanelTab, setSessionPanelTab] = useState('session')
+  const [sessionSettings, setSessionSettings] = useState(() => {
+    try {
+      const raw = storageGetItem(featureSettingsStorageKey)
+      return raw ? { ...DEFAULT_SESSION_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SESSION_SETTINGS
+    } catch {
+      return DEFAULT_SESSION_SETTINGS
+    }
+  })
 
   const wsRef = useRef(null)
   const endingSessionRef = useRef(false)
@@ -623,7 +647,7 @@ function App() {
 
     if (
       confusionNotificationArmedRef.current &&
-      confusionPercent >= CONFUSION_NOTIFICATION_THRESHOLD_PERCENT
+      confusionPercent >= (sessionSettings.confusion_notification_threshold_percent ?? CONFUSION_NOTIFICATION_THRESHOLD_PERCENT)
     ) {
       notifyTeacher(
         'High confusion level detected',
@@ -633,7 +657,7 @@ function App() {
       confusionNotificationArmedRef.current = false
     }
 
-    if (confusionPercent <= CONFUSION_NOTIFICATION_RESET_PERCENT) {
+    if (confusionPercent <= (sessionSettings.confusion_notification_threshold_percent ?? CONFUSION_NOTIFICATION_THRESHOLD_PERCENT) - 20) {
       confusionNotificationArmedRef.current = true
     }
   }, [isTeacher, joined, metrics.confusion_count, metrics.confusion_level_percent])
@@ -712,6 +736,7 @@ function App() {
 
   function notifyTeacher(title, body, tag) {
     if (typeof window === 'undefined') return
+    if (!sessionSettings.notifications_enabled) return
     if (!(window.Notification && Notification.permission === 'granted')) return
 
     try {
@@ -1060,6 +1085,20 @@ function App() {
         } else {
           setBreakEndTime(null)
         }
+        if (nextRole === 'teacher') {
+          // Sync stored feature settings to server immediately on join
+          const stored = (() => {
+            try {
+              const raw = storageGetItem(featureSettingsStorageKey)
+              return raw ? { ...DEFAULT_SESSION_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SESSION_SETTINGS
+            } catch {
+              return DEFAULT_SESSION_SETTINGS
+            }
+          })()
+          wsRef.current?.send(JSON.stringify({ type: 'update_settings', payload: stored }))
+        } else if (message.payload.settings) {
+          setSessionSettings({ ...DEFAULT_SESSION_SETTINGS, ...message.payload.settings })
+        }
       }
 
       if (message.type === 'session_state') {
@@ -1082,6 +1121,9 @@ function App() {
         }
         if (nextState.focus_period_ends_at !== undefined) {
           setFocusPeriodEndsAt(nextState.focus_period_ends_at || 0)
+        }
+        if (nextState.settings) {
+          setSessionSettings({ ...DEFAULT_SESSION_SETTINGS, ...nextState.settings })
         }
       }
 
@@ -1268,6 +1310,15 @@ function App() {
   function send(type, payload = {}) {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
     wsRef.current.send(JSON.stringify({ type, payload }))
+  }
+
+  function updateSessionSetting(key, value) {
+    const newSettings = { ...sessionSettings, [key]: value }
+    setSessionSettings(newSettings)
+    storageSetItem(featureSettingsStorageKey, JSON.stringify(newSettings))
+    if (joined && isTeacher) {
+      send('update_settings', newSettings)
+    }
   }
 
   function notifyScreenShareStoppedOnce() {
@@ -1995,7 +2046,7 @@ function App() {
             >
               <Icon name="notes" className="h-5 w-5" />
             </button>
-            {isTeacher ? (
+            {isTeacher && sessionSettings.anonymous_questions_enabled ? (
               <button
                 type="button"
                 onClick={() => setShowQuestionsPanel(true)}
@@ -2203,19 +2254,21 @@ function App() {
                       >
                         <Icon name="screen" className="h-5 w-5" />
                       </button>
-                      <button
-                        type="button"
-                        disabled={!joined || quizGenerationPending}
-                        onClick={() => {
-                          setError('')
-                          setShowQuizPromptPanel(true)
-                        }}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-sky-700 text-lg text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        title={quizGenerationPending ? 'Generating quiz...' : 'Generate quiz'}
-                        aria-label={quizGenerationPending ? 'Generating quiz' : 'Generate quiz'}
-                      >
-                        <Icon name="quiz" className="h-5 w-5" />
-                      </button>
+                      {sessionSettings.quizzes_enabled ? (
+                        <button
+                          type="button"
+                          disabled={!joined || quizGenerationPending}
+                          onClick={() => {
+                            setError('')
+                            setShowQuizPromptPanel(true)
+                          }}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-sky-700 text-lg text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          title={quizGenerationPending ? 'Generating quiz...' : 'Generate quiz'}
+                          aria-label={quizGenerationPending ? 'Generating quiz' : 'Generate quiz'}
+                        >
+                          <Icon name="quiz" className="h-5 w-5" />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         disabled={!joined}
@@ -2273,64 +2326,72 @@ function App() {
                     </>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={() => {
-                          send('confusion')
-                          setStatus('Confusion signal sent')
-                          setConfusionFlash(true)
-                          setTimeout(() => setConfusionFlash(false), 1500)
-                        }}
-                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${confusionFlash ? 'bg-amber-500 ring-2 ring-amber-300/70 ring-offset-1 ring-offset-slate-900' : 'bg-slate-800 hover:bg-slate-700'}`}
-                        title="Signal Confusion to Teacher"
-                        aria-label="Signal Confusion to Teacher"
-                      >
-                        <Icon name="confusion" className="h-5 w-5" />
-                      </button>
-                      <div className="flex flex-col items-center gap-0.5">
+                      {sessionSettings.confusion_signals_enabled ? (
                         <button
                           type="button"
-                          disabled={!breakVoteButtonActive}
+                          disabled={!joined}
                           onClick={() => {
-                            send('break_vote')
-                            setStatus('Break vote sent')
+                            send('confusion')
+                            setStatus('Confusion signal sent')
+                            setConfusionFlash(true)
+                            setTimeout(() => setConfusionFlash(false), 1500)
                           }}
-                          className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${breakVoteButtonActive ? 'bg-sky-700 hover:bg-sky-600' : 'bg-slate-600'}`}
-                          title={focusCountdownLabel ?? (breakIsActive ? 'Break in progress' : 'Request break')}
-                          aria-label="Request break"
+                          className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${confusionFlash ? 'bg-amber-500 ring-2 ring-amber-300/70 ring-offset-1 ring-offset-slate-900' : 'bg-slate-800 hover:bg-slate-700'}`}
+                          title="Signal Confusion to Teacher"
+                          aria-label="Signal Confusion to Teacher"
                         >
-                          <Icon name="break" className="h-5 w-5" />
+                          <Icon name="confusion" className="h-5 w-5" />
                         </button>
-                        {focusCountdownLabel && (
-                          <span className="text-[9px] font-medium tabular-nums text-slate-400 dark:text-slate-500">
-                            {Math.floor(focusSecondsLeft / 60)}:{String(focusSecondsLeft % 60).padStart(2, '0')}
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        disabled={!joined || explainLoading}
-                        onClick={explainCurrentScreen}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-sky-800 text-lg text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Explain the screen"
-                        aria-label="Explain the screen"
-                      >
-                        <Icon name="quiz" className="h-5 w-5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={() => {
-                          setError('')
-                          setShowAskQuestionPanel(true)
-                        }}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-amber-600 text-lg text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Ask anonymous question"
-                        aria-label="Ask anonymous question"
-                      >
-                        <Icon name="question" className="h-5 w-5" />
-                      </button>
+                      ) : null}
+                      {sessionSettings.break_voting_enabled ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <button
+                            type="button"
+                            disabled={!breakVoteButtonActive}
+                            onClick={() => {
+                              send('break_vote')
+                              setStatus('Break vote sent')
+                            }}
+                            className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${breakVoteButtonActive ? 'bg-sky-700 hover:bg-sky-600' : 'bg-slate-600'}`}
+                            title={focusCountdownLabel ?? (breakIsActive ? 'Break in progress' : 'Request break')}
+                            aria-label="Request break"
+                          >
+                            <Icon name="break" className="h-5 w-5" />
+                          </button>
+                          {focusCountdownLabel && (
+                            <span className="text-[9px] font-medium tabular-nums text-slate-400 dark:text-slate-500">
+                              {Math.floor(focusSecondsLeft / 60)}:{String(focusSecondsLeft % 60).padStart(2, '0')}
+                            </span>
+                          )}
+                        </div>
+                      ) : null}
+                      {sessionSettings.screen_explain_enabled ? (
+                        <button
+                          type="button"
+                          disabled={!joined || explainLoading}
+                          onClick={explainCurrentScreen}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-sky-800 text-lg text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Explain the screen"
+                          aria-label="Explain the screen"
+                        >
+                          <Icon name="quiz" className="h-5 w-5" />
+                        </button>
+                      ) : null}
+                      {sessionSettings.anonymous_questions_enabled ? (
+                        <button
+                          type="button"
+                          disabled={!joined}
+                          onClick={() => {
+                            setError('')
+                            setShowAskQuestionPanel(true)
+                          }}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-amber-600 text-lg text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Ask anonymous question"
+                          aria-label="Ask anonymous question"
+                        >
+                          <Icon name="question" className="h-5 w-5" />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         disabled={!joined}
@@ -2508,164 +2569,279 @@ function App() {
                 </button>
               </div>
 
-              <label className="mb-1 block text-sm font-medium">Mode</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
-                disabled={joined}
-              >
-                <option value="student">Join existing session</option>
-                <option value="teacher">Host a new session</option>
-              </select>
-
-              <label className="mb-1 block text-sm font-medium">Name</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
-                placeholder={isTeacher ? 'Teacher name' : 'Student name'}
-                disabled={joined}
-              />
-
-              <label className="mb-1 block text-sm font-medium">Session code</label>
-              <div className="mb-3 flex gap-2">
-                <input
-                  value={sessionCode}
-                  onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
-                  placeholder={isTeacher ? 'Auto-generated for host' : 'ABC123'}
-                  disabled={joined || isTeacher}
-                />
-                <button
-                  type="button"
-                  onClick={copySessionCode}
-                  disabled={!normalizedCode}
-                  className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  title="Copy session code"
-                  aria-label="Copy session code"
-                >
-                  <Icon name="copy" className="h-5 w-5" />
-                </button>
-              </div>
-
-              <label className="mb-1 block text-sm font-medium">Student join URL</label>
-              <div className="mb-3 flex gap-2">
-                <input
-                  value={activeJoinUrl}
-                  readOnly
-                  className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700 shadow-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                  placeholder="Join URL appears when a session code is set"
-                />
-                <button
-                  type="button"
-                  onClick={copyJoinLink}
-                  disabled={!activeJoinUrl}
-                  className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  title="Copy student join URL"
-                  aria-label="Copy student join URL"
-                >
-                  <Icon name="copy" className="h-5 w-5" />
-                </button>
-              </div>
-
-              {isTeacher && activeJoinUrl ? (
-                <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
-                  <div className="mb-2 text-center text-sm font-semibold text-slate-700 dark:text-slate-100">Students: scan to join</div>
-                  <div className="flex justify-center">
-                    <SessionQRCode value={activeJoinUrl} size={420} className="h-[300px] w-[300px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
-                  </div>
-                  <div className="mt-3 text-center text-4xl font-black tracking-widest text-slate-900 dark:text-slate-100">{activeSessionCode}</div>
-                </div>
-              ) : null}
-
-              {!joined ? (
-                <div className="space-y-2">
-                  {hasRejoinCandidate ? (
-                    <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-700/80 dark:bg-emerald-900/25 dark:text-emerald-200">
-                      <div className="font-semibold">Recent session found</div>
-                      <div className="mt-1">
-                        {rejoinCandidate.role === 'teacher' ? 'Host' : 'Student'} in {rejoinCandidate.session_code} as {rejoinCandidate.name}
-                      </div>
-                      <div className="mt-1 text-[11px] opacity-80">
-                        Last active {Math.max(0, Math.round(rejoinCandidate.seconds_since_last_activity || 0))}s ago.
-                      </div>
-                      <button
-                        type="button"
-                        onClick={rejoinLastSession}
-                        className="mt-2 w-full rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
-                      >
-                        Rejoin recent session
-                      </button>
-                    </div>
-                  ) : null}
-                  {isTeacher ? (
+              {isTeacher && (
+                <div className="mb-4 flex rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm dark:border-slate-700 dark:bg-slate-800/60">
+                  {['session', 'features'].map((tab) => (
                     <button
+                      key={tab}
                       type="button"
-                      onClick={createSession}
-                      className="w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200"
+                      onClick={() => setSessionPanelTab(tab)}
+                      className={`flex-1 rounded-lg py-1.5 font-medium capitalize transition ${sessionPanelTab === tab ? 'bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-slate-100' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                     >
-                      Host session
+                      {tab}
                     </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={connectWebSocket}
-                      className="w-full rounded-lg bg-sky-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600"
-                    >
-                      Join session
-                    </button>
-                  )}
-                  {rejoinLookupPending ? (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
-                      Checking for rejoin options...
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {isTeacher ? (
-                    <button
-                      type="button"
-                      onClick={endSessionAndDownloadReport}
-                      disabled={endingSession}
-                      className="w-full rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {endingSession ? 'Ending session...' : 'End session + download report'}
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={disconnect}
-                    className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
-                  >
-                    Leave session
-                  </button>
+                  ))}
                 </div>
               )}
 
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
-                <div className="font-medium text-slate-700 dark:text-slate-100">Status</div>
-                <div className="mt-1">{status}</div>
-                <div className="mt-1">Client: {clientId || '-'}</div>
-              </div>
+              {(!isTeacher || sessionPanelTab === 'session') && (
+                <>
+                  <label className="mb-1 block text-sm font-medium">Mode</label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
+                    disabled={joined}
+                  >
+                    <option value="student">Join existing session</option>
+                    <option value="teacher">Host a new session</option>
+                  </select>
 
-              {error ? (
-                <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">
-                  {error}
-                </div>
-              ) : null}
+                  <label className="mb-1 block text-sm font-medium">Name</label>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
+                    placeholder={isTeacher ? 'Teacher name' : 'Student name'}
+                    disabled={joined}
+                  />
 
-              {endingSession ? (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/80 dark:bg-amber-900/30 dark:text-amber-100"
-                >
-                  <div className="font-semibold">Preparing analytics report...</div>
-                  <div className="mt-1">{endSessionProgressMessage || 'Please wait while we finalize your session report.'}</div>
+                  <label className="mb-1 block text-sm font-medium">Session code</label>
+                  <div className="mb-3 flex gap-2">
+                    <input
+                      value={sessionCode}
+                      onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
+                      placeholder={isTeacher ? 'Auto-generated for host' : 'ABC123'}
+                      disabled={joined || isTeacher}
+                    />
+                    <button
+                      type="button"
+                      onClick={copySessionCode}
+                      disabled={!normalizedCode}
+                      className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                      title="Copy session code"
+                      aria-label="Copy session code"
+                    >
+                      <Icon name="copy" className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <label className="mb-1 block text-sm font-medium">Student join URL</label>
+                  <div className="mb-3 flex gap-2">
+                    <input
+                      value={activeJoinUrl}
+                      readOnly
+                      className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700 shadow-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                      placeholder="Join URL appears when a session code is set"
+                    />
+                    <button
+                      type="button"
+                      onClick={copyJoinLink}
+                      disabled={!activeJoinUrl}
+                      className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                      title="Copy student join URL"
+                      aria-label="Copy student join URL"
+                    >
+                      <Icon name="copy" className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  {isTeacher && activeJoinUrl ? (
+                    <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
+                      <div className="mb-2 text-center text-sm font-semibold text-slate-700 dark:text-slate-100">Students: scan to join</div>
+                      <div className="flex justify-center">
+                        <SessionQRCode value={activeJoinUrl} size={420} className="h-[300px] w-[300px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
+                      </div>
+                      <div className="mt-3 text-center text-4xl font-black tracking-widest text-slate-900 dark:text-slate-100">{activeSessionCode}</div>
+                    </div>
+                  ) : null}
+
+                  {!joined ? (
+                    <div className="space-y-2">
+                      {hasRejoinCandidate ? (
+                        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-700/80 dark:bg-emerald-900/25 dark:text-emerald-200">
+                          <div className="font-semibold">Recent session found</div>
+                          <div className="mt-1">
+                            {rejoinCandidate.role === 'teacher' ? 'Host' : 'Student'} in {rejoinCandidate.session_code} as {rejoinCandidate.name}
+                          </div>
+                          <div className="mt-1 text-[11px] opacity-80">
+                            Last active {Math.max(0, Math.round(rejoinCandidate.seconds_since_last_activity || 0))}s ago.
+                          </div>
+                          <button
+                            type="button"
+                            onClick={rejoinLastSession}
+                            className="mt-2 w-full rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                          >
+                            Rejoin recent session
+                          </button>
+                        </div>
+                      ) : null}
+                      {isTeacher ? (
+                        <button
+                          type="button"
+                          onClick={createSession}
+                          className="w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200"
+                        >
+                          Host session
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={connectWebSocket}
+                          className="w-full rounded-lg bg-sky-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600"
+                        >
+                          Join session
+                        </button>
+                      )}
+                      {rejoinLookupPending ? (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
+                          Checking for rejoin options...
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {isTeacher ? (
+                        <button
+                          type="button"
+                          onClick={endSessionAndDownloadReport}
+                          disabled={endingSession}
+                          className="w-full rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {endingSession ? 'Ending session...' : 'End session + download report'}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={disconnect}
+                        className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
+                      >
+                        Leave session
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
+                    <div className="font-medium text-slate-700 dark:text-slate-100">Status</div>
+                    <div className="mt-1">{status}</div>
+                    <div className="mt-1">Client: {clientId || '-'}</div>
+                  </div>
+
+                  {error ? (
+                    <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">
+                      {error}
+                    </div>
+                  ) : null}
+
+                  {endingSession ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/80 dark:bg-amber-900/30 dark:text-amber-100"
+                    >
+                      <div className="font-semibold">Preparing analytics report...</div>
+                      <div className="mt-1">{endSessionProgressMessage || 'Please wait while we finalize your session report.'}</div>
+                    </div>
+                  ) : null}
+                </>
+              )}
+
+              {isTeacher && sessionPanelTab === 'features' && (
+                <div className="space-y-2">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Student tools</div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Confusion signals</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can signal when confused</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('confusion_signals_enabled', !sessionSettings.confusion_signals_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.confusion_signals_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle confusion signals">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.confusion_signals_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  {sessionSettings.confusion_signals_enabled && (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Alert at</span>
+                        <span className="text-sm font-semibold tabular-nums text-sky-600">{sessionSettings.confusion_notification_threshold_percent}%</span>
+                      </div>
+                      <input type="range" min="10" max="100" step="5" value={sessionSettings.confusion_notification_threshold_percent} onChange={(e) => updateSessionSetting('confusion_notification_threshold_percent', Number(e.target.value))} className="w-full accent-sky-600" />
+                      <div className="mt-1 flex justify-between text-[10px] text-slate-400"><span>10%</span><span>100%</span></div>
+                    </div>
+                  )}
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Break voting</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can vote for a break</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('break_voting_enabled', !sessionSettings.break_voting_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.break_voting_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle break voting">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.break_voting_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  {sessionSettings.break_voting_enabled && (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Alert at</span>
+                        <span className="text-sm font-semibold tabular-nums text-sky-600">{sessionSettings.break_vote_threshold_percent}%</span>
+                      </div>
+                      <input type="range" min="10" max="100" step="5" value={sessionSettings.break_vote_threshold_percent} onChange={(e) => updateSessionSetting('break_vote_threshold_percent', Number(e.target.value))} className="w-full accent-sky-600" />
+                      <div className="mt-1 flex justify-between text-[10px] text-slate-400"><span>10%</span><span>100%</span></div>
+                    </div>
+                  )}
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Anonymous questions</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can submit questions</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('anonymous_questions_enabled', !sessionSettings.anonymous_questions_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.anonymous_questions_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle anonymous questions">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.anonymous_questions_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Screen explain</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can request AI explanation</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('screen_explain_enabled', !sessionSettings.screen_explain_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.screen_explain_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle screen explain">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.screen_explain_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="mb-2 mt-4 text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Teacher tools</div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">AI quizzes</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Generate and launch quiz questions</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('quizzes_enabled', !sessionSettings.quizzes_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.quizzes_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle AI quizzes">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.quizzes_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Browser notifications</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Alert when thresholds are reached</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('notifications_enabled', !sessionSettings.notifications_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.notifications_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle browser notifications">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.notifications_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  {!joined && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/25 dark:text-amber-200">
+                      Settings will be applied when you start the session.
+                    </div>
+                  )}
                 </div>
-              ) : null}
+              )}
             </aside>
           </div>
         ) : null}

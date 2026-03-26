@@ -168,6 +168,8 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
             elif msg_type == "confusion":
                 if role != "student":
                     continue
+                if not session.settings.get("confusion_signals_enabled", True):
+                    continue
                 try:
                     now_epoch = time.time()
                     client_state.last_confusion_vote_at = now_epoch
@@ -187,6 +189,8 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
 
             elif msg_type == "break_vote":
                 if role != "student":
+                    continue
+                if not session.settings.get("break_voting_enabled", True):
                     continue
 
                 now = time.time()
@@ -245,7 +249,8 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
                     },
                 )
 
-                if ratio >= config.BREAK_THRESHOLD_PERCENT:
+                threshold_pct = session.settings.get("break_vote_threshold_percent", config.BREAK_THRESHOLD_PERCENT * 100)
+                if ratio >= threshold_pct / 100:
                     teacher = state.get_teacher(session)
                     if teacher:
                         await send_json(
@@ -375,6 +380,24 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
                 database.insert_event(code, "note_update", {"len": len(session.notes)})
                 await broadcast(session, {"type": "notes", "payload": {"text": session.notes}})
 
+            elif msg_type == "update_settings":
+                if role != "teacher":
+                    continue
+                allowed_keys = {
+                    "break_voting_enabled", "break_vote_threshold_percent",
+                    "confusion_signals_enabled", "confusion_notification_threshold_percent",
+                    "anonymous_questions_enabled", "quizzes_enabled",
+                    "screen_explain_enabled", "notifications_enabled",
+                }
+                for key in allowed_keys:
+                    if key in payload:
+                        val = payload[key]
+                        if key.endswith("_enabled") and isinstance(val, bool):
+                            session.settings[key] = val
+                        elif key.endswith("_percent") and isinstance(val, (int, float)):
+                            session.settings[key] = max(10, min(100, int(val)))
+                await broadcast(session, {"type": "session_state", "payload": state.session_state_payload(session)})
+
             elif msg_type == "screen_share_stopped":
                 if role != "teacher":
                     continue
@@ -390,6 +413,8 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
 
             elif msg_type == "ask_question":
                 if role != "student":
+                    continue
+                if not session.settings.get("anonymous_questions_enabled", True):
                     continue
 
                 text = str(payload.get("text", "")).strip()

@@ -71,6 +71,16 @@ class RuntimeSession:
     final_report_insights: dict[str, Any] | None = None
     engagement_timeline: list[dict[str, Any]] = field(default_factory=list)
     recent_presence: dict[str, RecentPresence] = field(default_factory=dict)
+    settings: dict[str, Any] = field(default_factory=lambda: {
+        "break_voting_enabled": True,
+        "break_vote_threshold_percent": 40,
+        "confusion_signals_enabled": True,
+        "confusion_notification_threshold_percent": 65,
+        "anonymous_questions_enabled": True,
+        "quizzes_enabled": True,
+        "screen_explain_enabled": True,
+        "notifications_enabled": True,
+    })
 
     def __post_init__(self) -> None:
         if self.focus_period_ends_at == 0.0:
@@ -172,6 +182,7 @@ def session_state_payload(session: RuntimeSession) -> dict[str, Any]:
         "quiz": session.current_quiz.model_dump() if session.current_quiz else None,
         "quiz_state": quiz_state_dict,
         "metrics": metrics_payload(session),
+        "settings": session.settings,
     }
 
 
