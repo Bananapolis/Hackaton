@@ -1,8 +1,22 @@
+import { execSync } from 'child_process'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
+function getAppVersion() {
+  try {
+    const hash = execSync('git rev-parse --short HEAD').toString().trim()
+    const date = execSync('git log -1 --format=%cd --date=short').toString().trim()
+    return `${hash} · ${date}`
+  } catch {
+    return 'dev'
+  }
+}
+
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(getAppVersion()),
+  },
   plugins: [react(), basicSsl()],
   server: {
     host: '0.0.0.0',

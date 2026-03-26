@@ -1956,6 +1956,7 @@ function App() {
 
           {error ? <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">{error}</div> : null}
         </div>
+        <div className="mt-4 text-center font-mono text-[10px] text-slate-400 dark:text-slate-600">{__APP_VERSION__}</div>
       </div>
     )
   }
@@ -1973,6 +1974,7 @@ function App() {
               <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               {roleLabel}
             </div>
+            <div className="mt-0.5 font-mono text-[9px] text-slate-400 dark:text-slate-600">{__APP_VERSION__}</div>
           </div>
           <div className="mobile-topbar-scroll flex w-full items-center gap-1.5 overflow-x-auto rounded-2xl border border-slate-200/90 bg-white/90 p-1.5 shadow-[0_16px_32px_-24px_rgba(15,23,42,0.9)] backdrop-blur-xl sm:w-auto dark:border-slate-700 dark:bg-slate-900/75">
             <button
