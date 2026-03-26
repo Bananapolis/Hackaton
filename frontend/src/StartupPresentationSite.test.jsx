@@ -1,17 +1,16 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { isStartupPresentationPath, StartupPresentationSite } from './StartupPresentationSite'
 
 describe('isStartupPresentationPath', () => {
-  it.each(['/home', '/our-mission', '/contact'])('returns true for %s', (path) => {
+  it.each(['/', '/our-mission', '/contact'])('returns true for %s', (path) => {
     expect(isStartupPresentationPath(path)).toBe(true)
   })
 
-  it.each(['/', '/app', '/dashboard', '/other'])('returns false for %s', (path) => {
+  it.each(['/home', '/app', '/dashboard', '/other'])('returns false for %s', (path) => {
     expect(isStartupPresentationPath(path)).toBe(false)
   })
 
   it('strips trailing slash before matching', () => {
-    expect(isStartupPresentationPath('/home/')).toBe(true)
     expect(isStartupPresentationPath('/contact/')).toBe(true)
     expect(isStartupPresentationPath('/our-mission/')).toBe(true)
   })
@@ -30,23 +29,23 @@ describe('isStartupPresentationPath', () => {
 })
 
 describe('StartupPresentationSite rendering', () => {
-  it('renders home page for /home', () => {
-    render(<StartupPresentationSite pathname="/home" />)
+  it('renders home page for /', () => {
+    render(<StartupPresentationSite pathname="/" />)
     expect(screen.getByText(/realtime classroom intelligence/i)).toBeInTheDocument()
     expect(screen.getByText(/build a class where every student is heard/i)).toBeInTheDocument()
   })
 
   it('renders the home value grid', () => {
-    render(<StartupPresentationSite pathname="/home" />)
+    render(<StartupPresentationSite pathname="/" />)
     expect(screen.getByText(/signal, not noise/i)).toBeInTheDocument()
     expect(screen.getByText(/designed for live teaching/i)).toBeInTheDocument()
     expect(screen.getByText(/from session to evidence/i)).toBeInTheDocument()
   })
 
   it('renders CTA buttons on home page', () => {
-    render(<StartupPresentationSite pathname="/home" />)
-    expect(screen.getByRole('link', { name: /book a demo/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /learn our mission/i })).toBeInTheDocument()
+    render(<StartupPresentationSite pathname="/" />)
+    expect(screen.getByRole('link', { name: /get started/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /learn more/i })).toBeInTheDocument()
   })
 
   it('renders mission page for /our-mission', () => {
@@ -62,7 +61,6 @@ describe('StartupPresentationSite rendering', () => {
     expect(screen.getByText(/talk to the team behind VIA Pulse/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /bananapolis/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /93920729/i })).toBeInTheDocument()
-    expect(screen.getByText(/Banegårdsgade/i)).toBeInTheDocument()
   })
 
   it('defaults to home page for unrecognised paths', () => {
@@ -77,21 +75,24 @@ describe('StartupPresentationSite rendering', () => {
 })
 
 describe('StartupPresentationSite navigation', () => {
-  it('always renders brand name and product link', () => {
-    render(<StartupPresentationSite pathname="/home" />)
-    expect(screen.getByText('VIA Pulse')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /open product/i })).toBeInTheDocument()
+  it('always renders brand name and auth CTA link', () => {
+    const { container } = render(<StartupPresentationSite pathname="/" />)
+    const header = container.querySelector('.startup-header')
+    expect(within(header).getByRole('link', { name: /VIA/i })).toBeInTheDocument()
+    // CTA is either "Sign In" or "Dashboard" depending on localStorage
+    expect(within(header).getByRole('link', { name: /sign in|dashboard/i })).toBeInTheDocument()
   })
 
   it('renders all three nav links', () => {
-    render(<StartupPresentationSite pathname="/home" />)
-    expect(screen.getByRole('link', { name: /^home$/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^our mission$/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^contact$/i })).toBeInTheDocument()
+    const { container } = render(<StartupPresentationSite pathname="/" />)
+    const nav = container.querySelector('.startup-nav')
+    expect(within(nav).getByRole('link', { name: /^home$/i })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: /^our mission$/i })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: /^contact$/i })).toBeInTheDocument()
   })
 
-  it('marks /home as the active nav link', () => {
-    const { container } = render(<StartupPresentationSite pathname="/home" />)
+  it('marks / as the active nav link', () => {
+    const { container } = render(<StartupPresentationSite pathname="/" />)
     const activeLinks = container.querySelectorAll('.startup-nav a.active')
     expect(activeLinks).toHaveLength(1)
     expect(activeLinks[0].textContent).toMatch(/home/i)

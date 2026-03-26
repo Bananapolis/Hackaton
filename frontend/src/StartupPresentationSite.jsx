@@ -8,6 +8,7 @@ function normalizePath(pathname) {
 }
 
 export function isStartupPresentationPath(pathname) {
+  if (!pathname) return false
   return presentationRoutes.includes(normalizePath(pathname))
 }
 
