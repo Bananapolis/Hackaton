@@ -302,7 +302,19 @@ select {
   background:
     radial-gradient(circle at 14% -8%, rgba(15, 118, 110, 0.1), transparent 44%),
     radial-gradient(circle at 88% 108%, rgba(217, 119, 6, 0.1), transparent 45%),
-    linear-gradient(165deg, #0d1117 0%, #111827 60%, #0d1117 100%);
+    linear-gradient(165deg, #0d1117 0%, #111827 60%, #0d1117 100%) !important;
+}
+
+.dark .startup-site-shell h1,
+.dark .startup-site-shell h2,
+.dark .startup-site-shell h3 {
+  color: var(--startup-ink);
+}
+
+.dark .startup-site-shell p,
+.dark .startup-site-shell span,
+.dark .startup-site-shell li {
+  color: var(--startup-muted);
 }
 
 .startup-header {
@@ -487,7 +499,7 @@ select {
 .startup-btn-secondary {
   color: var(--startup-ink);
   border: 1px solid var(--startup-line);
-  background: rgba(255, 255, 255, 0.52);
+  background: var(--startup-surface);
 }
 
 .startup-grid,
@@ -508,11 +520,11 @@ select {
 .startup-ribbon p {
   margin: 0;
   font-size: 0.9rem;
-  color: #3f3d35;
+  color: var(--startup-muted);
   padding: 0.46rem 0.72rem;
   border-radius: 999px;
   border: 1px solid var(--startup-line);
-  background: rgba(255, 255, 255, 0.46);
+  background: var(--startup-surface);
 }
 
 .startup-grid article,
@@ -555,8 +567,8 @@ select {
 .startup-process article {
   padding: 0.95rem 0.95rem 1rem;
   border-radius: 14px;
-  border: 1px dashed rgba(31, 31, 24, 0.22);
-  background: rgba(255, 255, 255, 0.38);
+  border: 1px dashed var(--startup-line);
+  background: var(--startup-surface);
 }
 
 .startup-process h3,
@@ -570,7 +582,7 @@ select {
   font-size: 1.72rem;
   font-weight: 500;
   line-height: 1;
-  color: #5f5d52;
+  color: var(--startup-muted);
 }
 
 .startup-quote {
@@ -583,12 +595,12 @@ select {
   margin: 0;
   font-size: clamp(1.1rem, 1.5vw, 1.34rem);
   line-height: 1.42;
-  color: #2d2c24;
+  color: var(--startup-ink);
 }
 
 .startup-quote p {
   margin: 0.55rem 0 0;
-  color: #5e5d54;
+  color: var(--startup-muted);
   font-size: 0.95rem;
 }
 
@@ -603,7 +615,7 @@ select {
   padding: 0.95rem;
   border-radius: 14px;
   border: 1px solid var(--startup-line);
-  background: rgba(255, 255, 255, 0.46);
+  background: var(--startup-surface);
 }
 
 .startup-contact-grid {
@@ -1003,6 +1015,11 @@ select {
   border-color: rgba(15, 118, 110, 0.25);
 }
 
+.dark .startup-dashboard-action-primary {
+  background: linear-gradient(145deg, rgba(15, 118, 110, 0.2), rgba(15, 118, 110, 0.1));
+  border-color: rgba(15, 118, 110, 0.4);
+}
+
 .startup-dashboard-action-icon {
   color: var(--startup-accent);
   margin-bottom: 0.3rem;
@@ -1166,8 +1183,18 @@ select {
   color: var(--startup-accent);
 }
 
+.dark .startup-dashboard-session-btn-primary {
+  background: rgba(15, 118, 110, 0.3);
+  border-color: rgba(15, 118, 110, 0.5);
+  color: #38bdf8;
+}
+
 .startup-dashboard-session-btn-primary:hover {
   background: rgba(15, 118, 110, 0.18);
+}
+
+.dark .startup-dashboard-session-btn-primary:hover {
+  background: rgba(15, 118, 110, 0.4);
 }
 
 @media (max-width: 640px) {

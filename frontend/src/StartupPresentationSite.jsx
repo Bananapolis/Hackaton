@@ -1,4 +1,10 @@
+import { useState, useEffect } from 'react'
+
 const presentationRoutes = ['/', '/our-mission', '/contact']
+
+function getTheme() {
+  try { return localStorage.getItem('ui-theme') === 'dark' ? 'dark' : 'light' } catch { return 'light' }
+}
 
 function normalizePath(pathname) {
   if (!pathname) return '/'
@@ -300,7 +306,13 @@ function Footer() {
 }
 
 export function StartupPresentationSite({ pathname }) {
+  const [theme] = useState(() => getTheme())
   const normalizedPath = normalizePath(pathname)
+
+  // Apply theme
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+  }, [theme])
 
   let page = <HomePage />
   if (normalizedPath === '/our-mission') page = <MissionPage />

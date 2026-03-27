@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useGoogleLogin } from '@react-oauth/google'
 import { config } from './config'
 import { navigate } from './navigate'
@@ -6,6 +6,10 @@ import { navigate } from './navigate'
 const authTokenStorageKey = 'auth-token-v1'
 const authUserStorageKey = 'auth-user-v1'
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
+
+function getTheme() {
+  try { return localStorage.getItem('ui-theme') === 'dark' ? 'dark' : 'light' } catch { return 'light' }
+}
 
 async function parseErrorResponse(response) {
   const text = await response.text()
@@ -65,6 +69,13 @@ function GoogleButton({ onSuccess, onError, disabled }) {
 }
 
 export function LoginPage() {
+  const [theme] = useState(() => getTheme())
+
+  // Apply theme
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+  }, [theme])
+
   const returnUrl = (() => {
     try {
       const params = new URLSearchParams(window.location.search)

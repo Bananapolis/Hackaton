@@ -1934,7 +1934,7 @@ function App() {
     : ''
 
   return (
-    <div className="app-shell min-h-screen text-slate-900 transition-colors dark:text-slate-100">
+    <div className="app-shell min-h-screen bg-slate-50 text-slate-900 transition-colors dark:bg-[#020617] dark:text-slate-100">
       <div className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col px-3 py-3 lg:px-6 lg:py-5">
         <header className="app-header mb-4 flex flex-wrap items-center justify-between gap-3 ui-fade-up">
           <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-2.5 shadow-[0_18px_35px_-24px_rgba(15,23,42,0.65)] backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/75">
