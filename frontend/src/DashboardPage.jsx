@@ -277,7 +277,9 @@ export function DashboardPage() {
                     )}
                   </div>
                   <div className="startup-dashboard-session-footer">
-                    {!session.active ? (
+                    {session.is_live ? (
+                      <span className="startup-dashboard-session-live">Live</span>
+                    ) : !session.active ? (
                       <button
                         type="button"
                         onClick={() => downloadReport(session.code)}
@@ -285,12 +287,10 @@ export function DashboardPage() {
                       >
                         Download report
                       </button>
-                    ) : (
-                      <span className="startup-dashboard-session-live">Live</span>
-                    )}
+                    ) : null}
                     <button
                       type="button"
-                      onClick={() => navigate(`/session?code=${encodeURIComponent(session.code)}`)}
+                      onClick={() => navigate(`/session?code=${encodeURIComponent(session.code)}&role=student`)}
                       className="startup-dashboard-session-btn startup-dashboard-session-btn-primary"
                     >
                       Open →

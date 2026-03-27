@@ -170,4 +170,7 @@ def list_library_sessions(authorization: str | None = Header(default=None)) -> d
     )
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
+    for row in rows:
+        runtime = state.SESSIONS.get(row["code"])
+        row["is_live"] = bool(runtime and runtime.active)
     return {"sessions": rows}

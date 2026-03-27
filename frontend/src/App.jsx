@@ -559,10 +559,16 @@ function App() {
 
     const params = new URLSearchParams(window.location.search)
     const codeFromUrl = (params.get('code') || '').trim().toUpperCase()
-    if (!codeFromUrl) return
+    const roleFromUrl = params.get('role')
 
-    setSessionCode(codeFromUrl)
-    setStatus(`Session code ${codeFromUrl} loaded from URL`)
+    if (codeFromUrl) {
+      setSessionCode(codeFromUrl)
+      setStatus(`Session code ${codeFromUrl} loaded from URL`)
+    }
+
+    if (roleFromUrl === 'teacher' || roleFromUrl === 'student') {
+      setRole(roleFromUrl)
+    }
   }, [])
 
   useEffect(() => {
