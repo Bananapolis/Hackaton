@@ -1209,6 +1209,92 @@ select {
   background: rgba(45, 212, 191, 0.22);
 }
 
+.session-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.session-modal {
+  background: var(--startup-card);
+  border: 1px solid var(--startup-line);
+  border-radius: 18px;
+  padding: 1.75rem;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+.session-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.session-modal-code {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--startup-accent);
+}
+
+.session-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--startup-muted);
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 6px;
+  transition: background 120ms;
+  font-family: inherit;
+}
+
+.session-modal-close:hover {
+  background: var(--startup-surface);
+}
+
+.session-modal-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  color: var(--startup-ink);
+}
+
+.session-modal-label {
+  font-weight: 600;
+  color: var(--startup-muted);
+  min-width: 5rem;
+  display: inline-block;
+}
+
+.session-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.session-modal-actions .startup-btn {
+  width: 100%;
+  text-align: center;
+}
+
+.session-modal-actions .startup-dashboard-session-btn {
+  width: 100%;
+  text-align: center;
+}
+
 @media (max-width: 640px) {
   .startup-dashboard-actions {
     grid-template-columns: 1fr;

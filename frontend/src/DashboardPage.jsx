@@ -71,6 +71,7 @@ export function DashboardPage() {
   const [sessionsError, setSessionsError] = useState('')
   const [createPending, setCreatePending] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [selectedSession, setSelectedSession] = useState(null)
 
   // Redirect if no auth
   useEffect(() => {
@@ -138,6 +139,14 @@ export function DashboardPage() {
 
   function downloadReport(code) {
     window.open(`${config.apiBase}/api/sessions/${encodeURIComponent(code)}/report.pdf`, '_blank')
+  }
+
+  function openSession(session) {
+    if (session.is_live) {
+      navigate(`/session?code=${encodeURIComponent(session.code)}&role=student`)
+    } else {
+      setSelectedSession(session)
+    }
   }
 
   const displayName = user?.display_name || user?.email || 'there'
@@ -277,23 +286,14 @@ export function DashboardPage() {
                     )}
                   </div>
                   <div className="startup-dashboard-session-footer">
-                    {session.is_live ? (
-                      <span className="startup-dashboard-session-live">Live</span>
-                    ) : !session.active ? (
-                      <button
-                        type="button"
-                        onClick={() => downloadReport(session.code)}
-                        className="startup-dashboard-session-btn"
-                      >
-                        Download report
-                      </button>
-                    ) : null}
+                    {session.is_live && <span className="startup-dashboard-session-live">Live</span>}
                     <button
                       type="button"
-                      onClick={() => navigate(`/session?code=${encodeURIComponent(session.code)}&role=student`)}
+                      onClick={() => openSession(session)}
                       className="startup-dashboard-session-btn startup-dashboard-session-btn-primary"
+                      style={{ marginLeft: 'auto' }}
                     >
-                      Open →
+                      {session.is_live ? 'Join →' : 'Details →'}
                     </button>
                   </div>
                 </article>
@@ -303,6 +303,51 @@ export function DashboardPage() {
         </section>
 
       </main>
+
+      {selectedSession && (
+        <div className="session-modal-overlay" onClick={() => setSelectedSession(null)} role="dialog" aria-modal="true">
+          <div className="session-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="session-modal-header">
+              <span className="session-modal-code">{selectedSession.code}</span>
+              <button
+                type="button"
+                className="session-modal-close"
+                onClick={() => setSelectedSession(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="session-modal-meta">
+              <div><span className="session-modal-label">Date</span>{formatDate(selectedSession.created_at)}</div>
+              <div><span className="session-modal-label">Host</span>{selectedSession.teacher_name || '—'}</div>
+              {selectedSession.student_count != null && (
+                <div><span className="session-modal-label">Students</span>{selectedSession.student_count}</div>
+              )}
+              <div>
+                <span className="session-modal-label">Status</span>
+                {selectedSession.active ? 'Ended (no active connection)' : 'Ended'}
+              </div>
+            </div>
+            <div className="session-modal-actions">
+              <button
+                type="button"
+                className="startup-btn startup-btn-primary"
+                onClick={() => { downloadReport(selectedSession.code); setSelectedSession(null) }}
+              >
+                Download engagement report
+              </button>
+              <button
+                type="button"
+                className="startup-dashboard-session-btn"
+                onClick={() => setSelectedSession(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="startup-footer">
         <p>© {new Date().getFullYear()} Live Pulse</p>
