@@ -2660,7 +2660,7 @@ function App() {
                       ) : null}
                       <button
                         type="button"
-                        onClick={disconnect}
+                        onClick={() => { disconnect(); navigate('/dashboard') }}
                         className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
                       >
                         Leave session

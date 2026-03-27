@@ -122,7 +122,7 @@ export function DashboardPage() {
         body: { teacher_name: user.display_name || user.email || 'Teacher' },
       })
       if (data?.code) {
-        navigate(`/session?code=${encodeURIComponent(data.code)}`)
+        navigate(`/session?code=${encodeURIComponent(data.code)}&role=teacher`)
       }
     } catch (err) {
       setCreateError(err.message)
