@@ -2035,11 +2035,7 @@ function App() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm('Are you sure you want to sign out? This will end your session.')) {
-                  signOut()
-                }
-              }}
+              onClick={signOut}
               className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
               title="Sign out"
               aria-label="Sign out"

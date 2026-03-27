@@ -184,7 +184,11 @@ export function DashboardPage() {
           </button>
           <button
             type="button"
-            onClick={signOut}
+            onClick={() => {
+              if (window.confirm('Are you sure you want to sign out?')) {
+                signOut()
+              }
+            }}
             className="startup-dashboard-signout-btn"
           >
             Sign out
