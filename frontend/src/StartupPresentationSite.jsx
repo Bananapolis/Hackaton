@@ -288,7 +288,6 @@ function ContactPage() {
 function Footer() {
   return (
     <footer className="startup-footer">
-      <p>© {new Date().getFullYear()} Live Pulse · Banegårdsgade 2, 8700 Horsens</p>
       <p>
         <a href="/our-mission">Our Mission</a>
         {' · '}

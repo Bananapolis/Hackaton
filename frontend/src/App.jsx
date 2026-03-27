@@ -2067,26 +2067,26 @@ function App() {
         <main className="app-main grid min-h-0 flex-1 gap-4 ui-fade-up lg:grid-cols-[minmax(0,1fr)_340px]">
           <section
             ref={stageContainerRef}
-            className={`app-stage group/stage relative overflow-hidden border border-slate-300/65 bg-slate-950 shadow-[0_32px_70px_-40px_rgba(2,6,23,0.95)] ui-fade-up dark:border-slate-700/60 ${isScreenMaximized
+            className={`app-stage group/stage relative overflow-hidden border border-slate-300/65 bg-slate-200 shadow-[0_32px_70px_-40px_rgba(2,6,23,0.95)] ui-fade-up dark:border-slate-700/60 dark:bg-slate-950 ${isScreenMaximized
                 ? 'min-h-screen rounded-none border-0'
                 : 'min-h-[60vh] rounded-[28px]'
               }`}
           >
             <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-2">
-              <div className="rounded-full border border-white/20 bg-slate-950/75 px-3 py-1 text-xs font-medium text-slate-100 backdrop-blur" title={status}>
+              <div className="rounded-full border border-slate-300/60 bg-white/85 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur dark:border-white/20 dark:bg-slate-950/75 dark:text-slate-100" title={status}>
                 {shortStatus}
               </div>
-              <div className="rounded-full border border-sky-300/35 bg-sky-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-100" title="Session code">
+              <div className="rounded-full border border-sky-400/50 bg-sky-100/80 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-700 backdrop-blur dark:border-sky-300/35 dark:bg-sky-500/20 dark:text-sky-100" title="Session code">
                 {activeSessionCode || 'No active code'}
               </div>
-              <div className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs text-slate-200">{roleLabel}</div>
+              <div className="rounded-full border border-slate-300/60 bg-white/80 px-3 py-1 text-xs text-slate-600 backdrop-blur dark:border-white/20 dark:bg-white/10 dark:text-slate-200">{roleLabel}</div>
             </div>
 
             <div className="absolute right-3 top-14 z-20 flex gap-1.5 sm:right-4 sm:top-4">
               {compactMetrics.map((item) => (
                 <div
                   key={item.label}
-                  className="rounded-full border border-white/20 bg-slate-950/70 px-2.5 py-1 text-xs text-slate-100 backdrop-blur"
+                  className="rounded-full border border-slate-300/60 bg-white/85 px-2.5 py-1 text-xs text-slate-700 backdrop-blur dark:border-white/20 dark:bg-slate-950/70 dark:text-slate-100"
                   title={`${item.label}: ${item.value}`}
                 >
                   <span className="mr-1 inline-flex align-middle">
@@ -2097,7 +2097,7 @@ function App() {
               ))}
             </div>
 
-            <div className="relative h-full w-full bg-gradient-to-br from-slate-900 via-slate-950 to-slate-950">
+            <div className="relative h-full w-full bg-gradient-to-br from-slate-100 via-slate-200 to-slate-200 dark:from-slate-900 dark:via-slate-950 dark:to-slate-950">
               {isTeacher ? (
                 <video ref={localVideoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
               ) : (
@@ -2105,8 +2105,8 @@ function App() {
               )}
 
               {!joined ? (
-                <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/40">
-                  <div className="rounded-2xl border border-white/20 bg-black/65 px-5 py-3 text-sm text-white backdrop-blur">
+                <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-200/60 dark:bg-black/40">
+                  <div className="rounded-2xl border border-slate-300/60 bg-white/80 px-5 py-3 text-sm text-slate-700 backdrop-blur dark:border-white/20 dark:bg-black/65 dark:text-white">
                     Open Session settings to create or join a class.
                   </div>
                 </div>
@@ -2188,7 +2188,7 @@ function App() {
                         type="button"
                         disabled={!joined}
                         onClick={() => (isScreenSharing ? stopShare() : startShare())}
-                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isScreenSharing ? 'bg-rose-600 hover:bg-rose-500' : 'bg-slate-900 hover:bg-slate-800'}`}
+                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isScreenSharing ? 'bg-rose-600 hover:bg-rose-500' : 'bg-slate-600 hover:bg-slate-500 dark:bg-slate-700 dark:hover:bg-slate-600'}`}
                         title={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
                         aria-label={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
                       >

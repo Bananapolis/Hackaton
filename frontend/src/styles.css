@@ -279,6 +279,7 @@ select {
   --startup-ink: #1f1f18;
   --startup-muted: #5b5a4f;
   --startup-card: rgba(255, 251, 240, 0.72);
+  --startup-surface: rgba(255, 255, 255, 0.7);
   --startup-line: rgba(31, 31, 24, 0.12);
   --startup-accent: #0f766e;
   --startup-accent-alt: #d97706;
@@ -289,6 +290,19 @@ select {
     radial-gradient(circle at 88% 108%, rgba(217, 119, 6, 0.2), transparent 45%),
     linear-gradient(165deg, #f9f6ef 0%, var(--startup-bg) 60%, #f0eadc 100%);
   font-family: 'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif;
+}
+
+.dark .startup-site-shell {
+  --startup-bg: #0d1117;
+  --startup-ink: #e6e3db;
+  --startup-muted: #9a9790;
+  --startup-card: rgba(22, 27, 34, 0.82);
+  --startup-surface: rgba(22, 27, 34, 0.7);
+  --startup-line: rgba(230, 227, 219, 0.1);
+  background:
+    radial-gradient(circle at 14% -8%, rgba(15, 118, 110, 0.1), transparent 44%),
+    radial-gradient(circle at 88% 108%, rgba(217, 119, 6, 0.1), transparent 45%),
+    linear-gradient(165deg, #0d1117 0%, #111827 60%, #0d1117 100%);
 }
 
 .startup-header {
@@ -380,7 +394,7 @@ select {
   padding: 1.1rem;
   border-radius: 16px;
   border: 1px solid var(--startup-line);
-  background: linear-gradient(160deg, rgba(255, 251, 240, 0.88), rgba(255, 255, 255, 0.58));
+  background: var(--startup-card);
   backdrop-filter: blur(6px);
 }
 
@@ -399,20 +413,22 @@ select {
 }
 
 .startup-story-card li {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.35rem;
-  align-items: baseline;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 
 .startup-story-card strong {
-  font-size: 1.35rem;
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--startup-ink);
-  line-height: 1;
+  line-height: 1.2;
 }
 
 .startup-story-card span {
+  font-size: 0.88rem;
   color: var(--startup-muted);
+  line-height: 1.4;
 }
 
 .startup-kicker {
@@ -688,7 +704,7 @@ select {
   padding: 0.65rem 0.9rem;
   border-radius: 999px;
   border: 1px solid var(--startup-line);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--startup-surface);
   font-size: 1rem;
   font-family: inherit;
   letter-spacing: 0.12em;
@@ -729,7 +745,7 @@ select {
   padding: 2rem 2rem 1.6rem;
   border-radius: 20px;
   border: 1px solid var(--startup-line);
-  background: linear-gradient(160deg, rgba(255, 251, 240, 0.92), rgba(255, 255, 255, 0.72));
+  background: var(--startup-card);
   backdrop-filter: blur(10px);
   box-shadow: 0 24px 56px -28px rgba(0, 0, 0, 0.2);
   animation: fade-up 480ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
@@ -757,7 +773,7 @@ select {
   grid-template-columns: 1fr 1fr;
   gap: 0;
   border-radius: 10px;
-  background: rgba(31, 31, 24, 0.07);
+  background: var(--startup-line);
   padding: 3px;
   margin-bottom: 1.2rem;
 }
@@ -775,7 +791,7 @@ select {
 }
 
 .startup-login-tabs button.active {
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--startup-surface);
   color: var(--startup-ink);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
@@ -791,7 +807,7 @@ select {
   padding: 0.65rem 0.9rem;
   border-radius: 10px;
   border: 1px solid var(--startup-line);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--startup-surface);
   font-size: 0.93rem;
   font-family: inherit;
   color: var(--startup-ink);
@@ -856,7 +872,7 @@ select {
   padding: 0.62rem 1rem;
   border-radius: 10px;
   border: 1px solid var(--startup-line);
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--startup-surface);
   color: var(--startup-ink);
   font-size: 0.9rem;
   font-weight: 500;
@@ -867,7 +883,7 @@ select {
 }
 
 .startup-login-oauth-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--startup-card);
   transform: translateY(-1px);
 }
 
@@ -919,14 +935,14 @@ select {
   height: 2rem;
   border-radius: 8px;
   border: 1px solid var(--startup-line);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--startup-surface);
   color: var(--startup-muted);
   cursor: pointer;
   transition: background 160ms, color 160ms;
 }
 
 .startup-dashboard-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--startup-card);
   color: var(--startup-ink);
 }
 
@@ -944,7 +960,7 @@ select {
 }
 
 .startup-dashboard-signout-btn:hover {
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--startup-card);
   color: var(--startup-ink);
 }
 
@@ -1028,7 +1044,7 @@ select {
   padding: 0.6rem 0.85rem;
   border-radius: 999px;
   border: 1px solid var(--startup-line);
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--startup-surface);
   font-size: 0.95rem;
   font-family: inherit;
   letter-spacing: 0.12em;
@@ -1131,7 +1147,7 @@ select {
   padding: 0.38rem 0.75rem;
   border-radius: 8px;
   border: 1px solid var(--startup-line);
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--startup-surface);
   color: var(--startup-ink);
   font-size: 0.82rem;
   font-weight: 500;
@@ -1141,7 +1157,7 @@ select {
 }
 
 .startup-dashboard-session-btn:hover {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--startup-card);
 }
 
 .startup-dashboard-session-btn-primary {
