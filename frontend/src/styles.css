@@ -283,26 +283,38 @@ select {
   --startup-line: rgba(31, 31, 24, 0.12);
   --startup-accent: #0f766e;
   --startup-accent-alt: #d97706;
+  --startup-bg-grad-a: rgba(15, 118, 110, 0.18);
+  --startup-bg-grad-b: rgba(217, 119, 6, 0.2);
+  --startup-bg-grad-c1: #f9f6ef;
+  --startup-bg-grad-c2: #f0eadc;
+
   min-height: 100vh;
   color: var(--startup-ink);
   background:
-    radial-gradient(circle at 14% -8%, rgba(15, 118, 110, 0.18), transparent 44%),
-    radial-gradient(circle at 88% 108%, rgba(217, 119, 6, 0.2), transparent 45%),
-    linear-gradient(165deg, #f9f6ef 0%, var(--startup-bg) 60%, #f0eadc 100%);
+    radial-gradient(circle at 14% -8%, var(--startup-bg-grad-a), transparent 44%),
+    radial-gradient(circle at 88% 108%, var(--startup-bg-grad-b), transparent 45%),
+    linear-gradient(165deg, var(--startup-bg-grad-c1) 0%, var(--startup-bg) 60%, var(--startup-bg-grad-c2) 100%);
   font-family: 'Space Grotesk', 'Avenir Next', 'Segoe UI', sans-serif;
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
 .dark .startup-site-shell {
   --startup-bg: #0d1117;
-  --startup-ink: #e6e3db;
-  --startup-muted: #9a9790;
-  --startup-card: rgba(22, 27, 34, 0.82);
-  --startup-surface: rgba(22, 27, 34, 0.7);
-  --startup-line: rgba(230, 227, 219, 0.1);
+  --startup-ink: #f1f5f9;
+  --startup-muted: #94a3b8;
+  --startup-card: rgba(30, 41, 59, 0.7);
+  --startup-surface: rgba(15, 23, 42, 0.6);
+  --startup-line: rgba(255, 255, 255, 0.1);
+  --startup-accent: #2dd4bf;
+  --startup-accent-alt: #fbbf24;
+  --startup-bg-grad-a: rgba(45, 212, 191, 0.15);
+  --startup-bg-grad-b: rgba(30, 41, 59, 0.5);
+  --startup-bg-grad-c1: #020617;
+  --startup-bg-grad-c2: #0f172a;
   background:
-    radial-gradient(circle at 14% -8%, rgba(15, 118, 110, 0.1), transparent 44%),
-    radial-gradient(circle at 88% 108%, rgba(217, 119, 6, 0.1), transparent 45%),
-    linear-gradient(165deg, #0d1117 0%, #111827 60%, #0d1117 100%) !important;
+    radial-gradient(circle at 14% -8%, var(--startup-bg-grad-a), transparent 44%),
+    radial-gradient(circle at 88% 108%, var(--startup-bg-grad-b), transparent 45%),
+    linear-gradient(165deg, var(--startup-bg-grad-c1) 0%, var(--startup-bg) 60%, var(--startup-bg-grad-c2) 100%) !important;
 }
 
 .dark .startup-site-shell h1,
@@ -1011,13 +1023,13 @@ select {
 }
 
 .startup-dashboard-action-primary {
-  background: linear-gradient(145deg, rgba(15, 118, 110, 0.1), rgba(15, 118, 110, 0.04));
-  border-color: rgba(15, 118, 110, 0.25);
+  background: linear-gradient(145deg, rgba(15, 118, 110, 0.08), rgba(15, 118, 110, 0.03));
+  border-color: var(--startup-accent);
 }
 
 .dark .startup-dashboard-action-primary {
-  background: linear-gradient(145deg, rgba(15, 118, 110, 0.2), rgba(15, 118, 110, 0.1));
-  border-color: rgba(15, 118, 110, 0.4);
+  background: linear-gradient(145deg, rgba(45, 212, 191, 0.12), rgba(45, 212, 191, 0.04));
+  border-color: var(--startup-accent);
 }
 
 .startup-dashboard-action-icon {
@@ -1178,23 +1190,23 @@ select {
 }
 
 .startup-dashboard-session-btn-primary {
-  background: rgba(15, 118, 110, 0.1);
-  border-color: rgba(15, 118, 110, 0.25);
+  background: rgba(15, 118, 110, 0.08);
+  border-color: var(--startup-accent);
   color: var(--startup-accent);
 }
 
 .dark .startup-dashboard-session-btn-primary {
-  background: rgba(15, 118, 110, 0.3);
-  border-color: rgba(15, 118, 110, 0.5);
-  color: #38bdf8;
+  background: rgba(45, 212, 191, 0.12);
+  border-color: var(--startup-accent);
+  color: var(--startup-accent);
 }
 
 .startup-dashboard-session-btn-primary:hover {
-  background: rgba(15, 118, 110, 0.18);
+  background: rgba(15, 118, 110, 0.15);
 }
 
 .dark .startup-dashboard-session-btn-primary:hover {
-  background: rgba(15, 118, 110, 0.4);
+  background: rgba(45, 212, 191, 0.22);
 }
 
 @media (max-width: 640px) {
