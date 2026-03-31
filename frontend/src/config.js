@@ -27,6 +27,16 @@ function inferWsBase() {
   return `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
 }
 
+function inferWhipBase() {
+  if (typeof window === 'undefined') return 'http://localhost:8889'
+  // Use same host as backend/frontend but on port 8889
+  const host = window.location.hostname
+  const protocol = window.location.protocol
+  return `${protocol}//${host}:8889`
+}
+
+const WHIP_BASE = inferWhipBase()
+
 function normalizeIceServer(server) {
   if (!server || typeof server !== 'object') return null
 
@@ -71,6 +81,8 @@ function inferRtcIceServers() {
 export const config = {
   apiBase: API_BASE,
   wsBase: inferWsBase(),
+  whipBase: WHIP_BASE,
+  whepBase: WHIP_BASE, // WHIP/WHEP usually same port in MediaMTX
   rtcConfig: {
     iceServers: inferRtcIceServers(),
   },

@@ -393,6 +393,8 @@ function App() {
   const [quizGenerationPending, setQuizGenerationPending] = useState(false)
   const [isScreenMaximized, setIsScreenMaximized] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [isStreamBridgeActive, setIsStreamBridgeActive] = useState(false)
+  const [showAndroidBridgeModal, setShowAndroidBridgeModal] = useState(false)
   const [confusionFlash, setConfusionFlash] = useState(false)
   const [sessionPanelTab, setSessionPanelTab] = useState('session')
   const [sessionSettings, setSessionSettings] = useState(() => {
@@ -1242,6 +1244,26 @@ function App() {
         }
       }
 
+      if (message.type === 'stream_bridge_active') {
+        setIsStreamBridgeActive(message.payload?.active ?? false)
+        if (message.payload?.active) {
+          setIsScreenSharing(true)
+          setStatus('External screen bridge active')
+        } else {
+          setIsScreenSharing(false)
+          setStatus('External screen bridge stopped')
+        }
+      }
+
+      if (message.type === 'screen_share_stopped') {
+        setIsScreenSharing(false)
+        setIsStreamBridgeActive(false)
+        if (!isTeacher && remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = null
+        }
+        setStatus('Screen sharing stopped')
+      }
+
       if (message.type === 'student_joined' && isTeacher) {
         const studentId = message.payload.student_id
         await createOfferForStudent(studentId)
@@ -1370,14 +1392,72 @@ function App() {
     if (!isTeacher) return
     notifyScreenShareStoppedOnce()
     cleanupLocalScreenShare()
+    if (isStreamBridgeActive) {
+      toggleStreamBridge(false)
+    }
     setStatus('Screen sharing stopped')
   }
+
+  useEffect(() => {
+    if (isTeacher || !joined || !isStreamBridgeActive) return undefined
+
+    let pc = null
+    const whepUrl = `${config.whepBase}/live/${activeLibrarySessionCode.toLowerCase()}/whep`
+
+    async function connectWhep() {
+      try {
+        pc = new RTCPeerConnection(config.rtcConfig)
+
+        pc.ontrack = (event) => {
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = event.streams[0]
+          }
+        }
+
+        pc.addTransceiver('video', { direction: 'recvonly' })
+        pc.addTransceiver('audio', { direction: 'recvonly' })
+
+        const offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+
+        const response = await fetch(whepUrl, {
+          method: 'POST',
+          body: offer.sdp,
+          headers: { 'Content-Type': 'application/sdp' },
+        })
+
+        if (!response.ok) throw new Error('WHEP offer failed')
+
+        const answerSdp = await response.text()
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }))
+        setStatus('External stream connected')
+      } catch (err) {
+        console.error('WHEP error:', err)
+        setError('External stream connection failed. Ensure host has started broadcasting.')
+      }
+    }
+
+    // Small delay to allow MediaMTX to register the path if it just started
+    const timer = setTimeout(connectWhep, 1500)
+
+    return () => {
+      clearTimeout(timer)
+      pc?.close()
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
+    }
+  }, [isTeacher, joined, isStreamBridgeActive, activeLibrarySessionCode])
 
   async function startShare() {
     if (!isTeacher) return
 
     const ua = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : ''
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+
+    // On Android, we prefer the MediaMTX bridge for screen+audio support
+    if (isMobile && /Android/i.test(ua)) {
+      setShowAndroidBridgeModal(true)
+      return
+    }
 
     // Screen sharing requires Secure Context (HTTPS or localhost) and a supporting browser
     if (!navigator.mediaDevices?.getDisplayMedia) {
@@ -1387,7 +1467,8 @@ function App() {
         : 'Screen sharing blocked by browser security. Please reload using HTTPS or Localhost.'
 
       if (isSecure && isMobile) {
-        msg = 'Screen sharing from mobile browsers is often restricted. Please try using a desktop browser for hosting if possible.'
+        setShowAndroidBridgeModal(true)
+        return
       }
       setError(msg)
       return
@@ -1445,9 +1526,22 @@ function App() {
       console.error('[StartShare] Error:', err)
       let errorMsg = err.message || 'Check permissions'
       if (isMobile && (err.name === 'NotAllowedError' || err.name === 'NotSupportedError')) {
-        errorMsg = 'This device or browser does not allow screen sharing. Try Chrome on Desktop.'
+        setShowAndroidBridgeModal(true)
+        return
       }
       setError('Screen share failed: ' + errorMsg)
+    }
+  }
+
+  function toggleStreamBridge(active) {
+    setIsStreamBridgeActive(active)
+    setIsScreenSharing(active)
+    send('stream_bridge_active', { active })
+    if (active) {
+      setStatus('External stream bridge active')
+      setShowAndroidBridgeModal(false)
+    } else {
+      setStatus('External stream bridge stopped')
     }
   }
 
@@ -1965,12 +2059,73 @@ function App() {
     navigate('/login?return=' + encodeURIComponent('/session' + window.location.search))
     return null
   }
+
+  const whipUrl = `${config.whipBase}/live/${activeLibrarySessionCode.toLowerCase()}/whip`
+  const larixLink = `larix://?url=${encodeURIComponent(whipUrl)}`
+
   const stageControlsVisibilityClass = isScreenMaximized
     ? 'sm:opacity-0 sm:pointer-events-none sm:transition-opacity sm:duration-200 sm:group-hover/stage:opacity-100 sm:group-hover/stage:pointer-events-auto sm:group-focus-within/stage:opacity-100 sm:group-focus-within/stage:pointer-events-auto'
     : ''
 
   return (
     <div className="app-shell min-h-screen bg-slate-50 text-slate-900 transition-colors dark:bg-[#020617] dark:text-slate-100">
+      {showAndroidBridgeModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Android Screen Sharing</h3>
+              <button
+                type="button"
+                onClick={() => setShowAndroidBridgeModal(false)}
+                className="rounded-full p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                To share your screen with sound on Android, we use a bridge via <strong>Larix Broadcaster</strong>.
+              </p>
+
+              <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                <ol className="list-decimal space-y-2 pl-4 text-xs text-slate-700 dark:text-slate-300">
+                  <li>Install <strong>Larix Broadcaster</strong> from Play Store.</li>
+                  <li>Click the button below to configure it automatically.</li>
+                  <li>In Larix, select <strong>Screen Capture</strong> and start.</li>
+                  <li>Come back here and click <strong>Activate Stream</strong>.</li>
+                </ol>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <a
+                  href={larixLink}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 font-semibold text-white transition hover:bg-sky-500"
+                >
+                  <Icon name="settings" className="h-4 w-4" />
+                  Configure Larix
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => toggleStreamBridge(true)}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition hover:bg-emerald-500"
+                >
+                  <Icon name="screen" className="h-4 w-4" />
+                  Activate Stream Bridge
+                </button>
+              </div>
+
+              <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+                <p className="mb-2 text-[10px] uppercase tracking-wider text-slate-500">Manual WHIP URL</p>
+                <code className="block break-all rounded-lg bg-slate-100 p-2 text-[10px] dark:bg-black/40 dark:text-slate-400">
+                  {whipUrl}
+                </code>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col px-3 py-3 lg:px-6 lg:py-5">
         <header className="app-header mb-4 flex flex-wrap items-center justify-between gap-3 ui-fade-up">
           <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-2.5 shadow-[0_18px_35px_-24px_rgba(15,23,42,0.65)] backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/75">

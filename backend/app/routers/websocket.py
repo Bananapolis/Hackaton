@@ -412,6 +412,20 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
                     role="student",
                 )
 
+            elif msg_type == "stream_bridge_active":
+                if role != "teacher":
+                    continue
+                active = bool(payload.get("active", False))
+                database.insert_event(code, "stream_bridge_active", {"active": active})
+                await broadcast(
+                    session,
+                    {
+                        "type": "stream_bridge_active",
+                        "payload": {"active": active},
+                    },
+                    role="student",
+                )
+
             elif msg_type == "ask_question":
                 if role != "student":
                     continue

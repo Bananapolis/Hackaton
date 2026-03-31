@@ -33,6 +33,18 @@ services:
       - "49160-49200:49160-49200/udp"
     restart: unless-stopped
 
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    environment:
+      MTX_WEBRTC: "yes"
+      MTX_WEBRTCADDITIONALHOSTS: ${EXTERNAL_IP:-127.0.0.1}
+    ports:
+      - "1935:1935"
+      - "8888:8888"
+      - "8889:8889"
+      - "8189:8189/udp"
+    restart: unless-stopped
+
   web:
     build:
       context: ./frontend
