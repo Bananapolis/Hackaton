@@ -1376,21 +1376,47 @@ function App() {
   async function startShare() {
     if (!isTeacher) return
 
+    const ua = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : ''
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+
     // Screen sharing requires Secure Context (HTTPS or localhost) and a supporting browser
     if (!navigator.mediaDevices?.getDisplayMedia) {
       const isSecure = window.isSecureContext
-      const msg = isSecure
+      let msg = isSecure
         ? 'Screen sharing not supported by this browser.'
         : 'Screen sharing blocked by browser security. Please reload using HTTPS or Localhost.'
+
+      if (isSecure && isMobile) {
+        msg = 'Screen sharing from mobile browsers is often restricted. Please try using a desktop browser for hosting if possible.'
+      }
       setError(msg)
       return
     }
 
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
-      })
+      // On mobile, audio sharing is often not supported with getDisplayMedia
+      // and can cause the entire call to fail on some Android versions.
+      let stream
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: !isMobile,
+        })
+      } catch (firstErr) {
+        // If the first request failed, only retry without audio if it wasn't a user cancellation
+        // and only if we were actually trying to get audio.
+        const wasPermissionError = firstErr.name === 'NotAllowedError'
+        if (!isMobile && !wasPermissionError) {
+          console.warn('[StartShare] First attempt failed, trying without audio:', firstErr)
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: false,
+          })
+        } else {
+          throw firstErr
+        }
+      }
+
       localStreamRef.current = stream
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
@@ -1417,7 +1443,11 @@ function App() {
       }
     } catch (err) {
       console.error('[StartShare] Error:', err)
-      setError('Screen share failed: ' + (err.message || 'Check permissions'))
+      let errorMsg = err.message || 'Check permissions'
+      if (isMobile && (err.name === 'NotAllowedError' || err.name === 'NotSupportedError')) {
+        errorMsg = 'This device or browser does not allow screen sharing. Try Chrome on Desktop.'
+      }
+      setError('Screen share failed: ' + errorMsg)
     }
   }
 
