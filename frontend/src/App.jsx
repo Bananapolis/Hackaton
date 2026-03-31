@@ -2060,8 +2060,7 @@ function App() {
     return null
   }
 
-  const whipUrl = `${config.whipBase}/live/${activeLibrarySessionCode.toLowerCase()}/whip`
-  const larixLink = `larix://?url=${encodeURIComponent(whipUrl)}`
+  const whipUrl = `${config.whipBase}`
 
   const stageControlsVisibilityClass = isScreenMaximized
     ? 'sm:opacity-0 sm:pointer-events-none sm:transition-opacity sm:duration-200 sm:group-hover/stage:opacity-100 sm:group-hover/stage:pointer-events-auto sm:group-focus-within/stage:opacity-100 sm:group-focus-within/stage:pointer-events-auto'
@@ -2085,27 +2084,27 @@ function App() {
 
             <div className="space-y-4">
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                To share your screen with sound on Android, we use a bridge via <strong>Larix Broadcaster</strong>.
+                To share your screen with sound on Android, use the companion <strong>ViaLive Broadcaster</strong> app.
               </p>
 
               <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/50">
                 <ol className="list-decimal space-y-2 pl-4 text-xs text-slate-700 dark:text-slate-300">
-                  <li>Install <strong>Larix Broadcaster</strong> from Play Store.</li>
-                  <li>Click the button below to configure it automatically.</li>
-                  <li>In Larix, select <strong>Screen Capture</strong> and start.</li>
-                  <li>Come back here and click <strong>Activate Stream</strong>.</li>
+                  <li>Open the <strong>ViaLive Broadcaster</strong> app on your device.</li>
+                  <li>Enter the WHIP Server URL below.</li>
+                  <li>Enter your Session Code: <strong>{activeSessionCode}</strong>.</li>
+                  <li>Tap <strong>Start Broadcast</strong> in the app.</li>
+                  <li>Finally, click <strong>Activate Stream Bridge</strong> below.</li>
                 </ol>
               </div>
 
-              <div className="flex flex-col gap-3">
-                <a
-                  href={larixLink}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 font-semibold text-white transition hover:bg-sky-500"
-                >
-                  <Icon name="settings" className="h-4 w-4" />
-                  Configure Larix
-                </a>
+              <div className="mt-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">WHIP Server URL</p>
+                <code className="block break-all text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  {whipUrl}
+                </code>
+              </div>
 
+              <div className="mt-4 flex flex-col gap-3">
                 <button
                   type="button"
                   onClick={() => toggleStreamBridge(true)}
@@ -2114,13 +2113,6 @@ function App() {
                   <Icon name="screen" className="h-4 w-4" />
                   Activate Stream Bridge
                 </button>
-              </div>
-
-              <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
-                <p className="mb-2 text-[10px] uppercase tracking-wider text-slate-500">Manual WHIP URL</p>
-                <code className="block break-all rounded-lg bg-slate-100 p-2 text-[10px] dark:bg-black/40 dark:text-slate-400">
-                  {whipUrl}
-                </code>
               </div>
             </div>
           </div>
