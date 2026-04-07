@@ -534,30 +534,8 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
                         ),
                         timeout=config.AI_QUIZ_GENERATION_TIMEOUT_SECONDS,
                     )
-                except asyncio.TimeoutError:
-                    reason = f"Quiz generation timed out after {config.AI_QUIZ_GENERATION_TIMEOUT_SECONDS:.0f} seconds"
-                    database.insert_event(code, "quiz_generation_failed", {"reason": reason})
-                    await send_json(
-                        websocket,
-                        {
-                            "type": "error",
-                            "payload": {"message": f"Quiz generation failed: {reason}"},
-                        },
-                    )
-                    continue
-                except Exception as exc:
-                    reason = str(exc)[:500]
-                    database.insert_event(code, "quiz_generation_failed", {"reason": reason})
-                    await send_json(
-                        websocket,
-                        {
-                            "type": "error",
-                            "payload": {
-                                "message": f"Quiz generation failed: {reason}",
-                            },
-                        },
-                    )
-                    continue
+                except (asyncio.TimeoutError, Exception):
+                    quiz = ai.build_quiz_fallback(notes_input)
                 session.current_quiz = quiz
                 session.current_quiz_saved_id = None
                 session.quiz_answers.clear()

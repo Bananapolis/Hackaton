@@ -114,11 +114,7 @@ def build_quiz_with_ai(
     style_preset: str = "default",
     custom_prompt: str = "",
 ) -> QuizPayload:
-    _cache_key = database.ai_cache_key("quiz", notes or "", style_preset, custom_prompt or "")
-    _cached = database.ai_cache_get(_cache_key)
-    if _cached is not None:
-        return QuizPayload(**json.loads(_cached))
-
+    # No cache for quizzes — teachers always want a fresh question.
     gemini_api_key = config.settings.gemini_api_key
     errors: list[str] = []
 
@@ -133,6 +129,7 @@ def build_quiz_with_ai(
                     model_name,
                     parts,
                     {"temperature": 0.2, "responseMimeType": "application/json"},
+                    timeout=10.0,
                 )
                 if not text_output:
                     raise ValueError("Gemini returned an empty response")
@@ -142,7 +139,6 @@ def build_quiz_with_ai(
                         text_output = text_output[4:].strip()
                 parsed = json.loads(text_output)
                 quiz = QuizPayload(**parsed)
-                database.ai_cache_set(_cache_key, json.dumps(parsed), ttl_seconds=3600)
                 return quiz
             except httpx.HTTPStatusError as exc:
                 errors.append(
@@ -159,22 +155,17 @@ def build_quiz_with_ai(
     if api_key and OpenAI is not None:
         client = OpenAI(api_key=api_key, base_url=base_url)
         prompt = compose_quiz_generation_prompt(style_preset, custom_prompt)
-        user_content: list[dict[str, Any]] = [
-            {
-                "type": "input_text",
-                "text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}",
-            }
-        ]
         try:
-            response = client.responses.create(
+            response = client.chat.completions.create(
                 model=model,
-                input=[
+                messages=[
                     {"role": "system", "content": "You produce concise, educational quizzes in strict JSON."},
-                    {"role": "user", "content": user_content},
+                    {"role": "user", "content": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}"},
                 ],
                 temperature=0.2,
+                response_format={"type": "json_object"},
             )
-            text_output = response.output_text.strip()
+            text_output = (response.choices[0].message.content or "").strip()
             if not text_output:
                 raise ValueError("OpenAI-compatible provider returned an empty response")
             if text_output.startswith("```"):
@@ -183,20 +174,16 @@ def build_quiz_with_ai(
                     text_output = text_output[4:].strip()
             parsed = json.loads(text_output)
             quiz = QuizPayload(**parsed)
-            database.ai_cache_set(_cache_key, json.dumps(parsed), ttl_seconds=3600)
             return quiz
         except Exception as exc:
             errors.append(f"OpenAI-compatible error: {str(exc)[:300]}")
     elif api_key and OpenAI is None:
         errors.append("OpenAI-compatible API key is set but OpenAI SDK is unavailable")
 
-    if not gemini_api_key and not api_key:
-        raise RuntimeError("No AI provider configured. Set GEMINI_API_KEY (recommended).")
-
-    if errors:
-        raise RuntimeError("; ".join(errors))
-
-    raise RuntimeError("Quiz generation failed with unknown AI error")
+    # All AI providers failed — use the static fallback so the teacher always gets a question.
+    import logging
+    logging.getLogger(__name__).warning("AI quiz generation failed, using fallback. Errors: %s", errors)
+    return build_quiz_fallback(notes)
 
 
 def build_screen_explanation_with_ai(notes: str) -> str:
