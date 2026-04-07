@@ -391,6 +391,7 @@ function App() {
   const [selectedQuizPreset, setSelectedQuizPreset] = useState('default')
   const [quizCustomPrompt, setQuizCustomPrompt] = useState('')
   const [quizGenerationPending, setQuizGenerationPending] = useState(false)
+  const [quizModelUsed, setQuizModelUsed] = useState('')
   const [isScreenMaximized, setIsScreenMaximized] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [isStreamBridgeActive, setIsStreamBridgeActive] = useState(false)
@@ -1176,10 +1177,15 @@ function App() {
       }
 
       if (message.type === 'quiz') {
+        const modelUsed = message.payload?.model_used || ''
         setQuiz(message.payload)
+        setQuizModelUsed(modelUsed)
         setQuizState({ hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null })
         setSelectedQuizOptionId('')
         setQuizGenerationPending(false)
+        if (isTeacher) {
+          setStatus(modelUsed ? `Quiz ready · ${modelUsed}` : 'Quiz ready')
+        }
       }
 
       if (message.type === 'quiz_state') {
@@ -1298,16 +1304,37 @@ function App() {
     setStatus(`Quiz answer submitted: ${optionId}`)
   }
 
-  function generateQuizFromCurrentScreen() {
+  async function generateQuizFromCurrentScreen() {
     if (!joined || !isTeacher) return
     const customPrompt = quizCustomPrompt.trim()
     setQuizGenerationPending(true)
     setShowQuizPromptPanel(false)
-    setStatus('Generating quiz from notes…')
+    setStatus('Generating quiz from screen…')
+
+    let image_data = ''
+    const videoEl = localVideoRef.current
+    if (videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+      try {
+        const MAX_W = 1280
+        const scale = Math.min(1, MAX_W / videoEl.videoWidth)
+        const w = Math.round(videoEl.videoWidth * scale)
+        const h = Math.round(videoEl.videoHeight * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(videoEl, 0, 0, w, h)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.75)
+        image_data = dataUrl.split(',')[1] || ''
+      } catch (_) {
+        // If capture fails, fall back to text-only generation
+      }
+    }
+
     send('generate_quiz', {
       notes,
       quiz_preset: selectedQuizPreset,
       quiz_custom_prompt: customPrompt,
+      image_data,
     })
   }
 

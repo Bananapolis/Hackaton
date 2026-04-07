@@ -113,16 +113,34 @@ def build_quiz_with_ai(
     notes: str,
     style_preset: str = "default",
     custom_prompt: str = "",
-) -> QuizPayload:
+    image_data: str = "",
+) -> tuple[QuizPayload, str]:
+    """Return (quiz, model_used). Never raises — falls back to a static quiz on total failure."""
     # No cache for quizzes — teachers always want a fresh question.
     gemini_api_key = config.settings.gemini_api_key
     errors: list[str] = []
 
     if gemini_api_key:
         prompt = compose_quiz_generation_prompt(style_preset, custom_prompt)
-        parts: list[dict[str, Any]] = [
-            {"text": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}"}
-        ]
+        context_note = (
+            "The teacher's current screen is shown in the attached image. "
+            "Base the question strictly on what is visible in the image, using the lecture notes only as supplementary context."
+            if image_data
+            else ""
+        )
+        text_part: dict[str, Any] = {
+            "text": (
+                f"{context_note}\n\nLecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}"
+                if context_note
+                else f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}"
+            )
+        }
+        parts: list[dict[str, Any]] = [text_part]
+        if image_data:
+            parts = [
+                {"inlineData": {"mimeType": "image/jpeg", "data": image_data}},
+                text_part,
+            ]
         for model_name in _gemini_models_to_try():
             try:
                 text_output = _call_gemini(
@@ -139,7 +157,7 @@ def build_quiz_with_ai(
                         text_output = text_output[4:].strip()
                 parsed = json.loads(text_output)
                 quiz = QuizPayload(**parsed)
-                return quiz
+                return quiz, model_name
             except httpx.HTTPStatusError as exc:
                 errors.append(
                     f"Gemini model {model_name} HTTP {exc.response.status_code}: "
@@ -149,22 +167,45 @@ def build_quiz_with_ai(
                 errors.append(f"Gemini model {model_name} error: {str(exc)[:300]}")
 
     api_key = config.settings.openai_api_key
-    model = config.settings.openai_model
+    # Always use gpt-4o for vision requests; fall back to configured model for text-only.
+    vision_model = "gpt-4o"
+    text_model = config.settings.openai_model
+    model = vision_model if image_data else text_model
     base_url = config.settings.openai_base_url or None
 
     if api_key and OpenAI is not None:
         client = OpenAI(api_key=api_key, base_url=base_url)
         prompt = compose_quiz_generation_prompt(style_preset, custom_prompt)
+        context_note = (
+            "The teacher's current screen is shown in the attached image. "
+            "Base the question strictly on what is visible in the image, using the lecture notes only as supplementary context."
+            if image_data
+            else ""
+        )
+        full_text = (
+            f"{context_note}\n\nLecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}"
+            if context_note
+            else f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}"
+        )
+        if image_data:
+            user_content: Any = [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}", "detail": "high"}},
+                {"type": "text", "text": full_text},
+            ]
+        else:
+            user_content = full_text
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": "You produce concise, educational quizzes in strict JSON."},
-                    {"role": "user", "content": f"Lecture notes:\n{notes or 'No notes provided.'}\n\n{prompt}"},
+                    {"role": "user", "content": user_content},
                 ],
-                temperature=0.2,
-                response_format={"type": "json_object"},
-            )
+                "temperature": 0.2,
+            }
+            if not image_data:
+                kwargs["response_format"] = {"type": "json_object"}
+            response = client.chat.completions.create(**kwargs)
             text_output = (response.choices[0].message.content or "").strip()
             if not text_output:
                 raise ValueError("OpenAI-compatible provider returned an empty response")
@@ -174,16 +215,16 @@ def build_quiz_with_ai(
                     text_output = text_output[4:].strip()
             parsed = json.loads(text_output)
             quiz = QuizPayload(**parsed)
-            return quiz
+            return quiz, model
         except Exception as exc:
-            errors.append(f"OpenAI-compatible error: {str(exc)[:300]}")
+            errors.append(f"OpenAI ({model}) error: {str(exc)[:300]}")
     elif api_key and OpenAI is None:
         errors.append("OpenAI-compatible API key is set but OpenAI SDK is unavailable")
 
     # All AI providers failed — use the static fallback so the teacher always gets a question.
     import logging
     logging.getLogger(__name__).warning("AI quiz generation failed, using fallback. Errors: %s", errors)
-    return build_quiz_fallback(notes)
+    return build_quiz_fallback(notes), "fallback"
 
 
 def build_screen_explanation_with_ai(notes: str) -> str:

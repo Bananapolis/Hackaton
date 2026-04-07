@@ -524,18 +524,21 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
                 notes_input = notes_override if notes_override else session.notes
                 style_preset = str(payload.get("quiz_preset", "default")).strip().lower() or "default"
                 custom_prompt = str(payload.get("quiz_custom_prompt", "")).strip()
+                image_data = str(payload.get("image_data", "")).strip()
                 try:
-                    quiz = await asyncio.wait_for(
+                    quiz, model_used = await asyncio.wait_for(
                         asyncio.to_thread(
                             ai.build_quiz_with_ai,
                             notes_input,
                             style_preset,
                             custom_prompt,
+                            image_data,
                         ),
                         timeout=config.AI_QUIZ_GENERATION_TIMEOUT_SECONDS,
                     )
                 except (asyncio.TimeoutError, Exception):
                     quiz = ai.build_quiz_fallback(notes_input)
+                    model_used = "fallback"
                 session.current_quiz = quiz
                 session.current_quiz_saved_id = None
                 session.quiz_answers.clear()
@@ -570,7 +573,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
                         "custom_prompt": custom_prompt,
                     },
                 )
-                await broadcast(session, {"type": "quiz", "payload": quiz.model_dump()})
+                await broadcast(session, {"type": "quiz", "payload": {**quiz.model_dump(), "model_used": model_used}})
                 await broadcast(
                     session,
                     {
