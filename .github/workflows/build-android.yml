@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'mobile/**'
+      - '.github/workflows/build-android.yml'
     branches:
       - main
       - dev
@@ -14,6 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
 
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +40,10 @@ jobs:
       - name: Expo prebuild (generates native Android project)
         working-directory: mobile
         run: npx expo prebuild --platform android --no-install
+
+      - name: Bundle JS into the APK (so it works without a dev server)
+        working-directory: mobile/android
+        run: echo "bundleInDebug=true" >> gradle.properties
 
       - name: Build debug APK
         working-directory: mobile/android
