@@ -41,7 +41,15 @@ export default function App() {
     }
 
     try {
-      const stream = await mediaDevices.getDisplayMedia({ video: true, audio: true });
+      // Try with audio first; fall back to video-only because internal audio
+      // capture is unsupported on many Android versions and rejects the whole call.
+      let stream;
+      try {
+        stream = await mediaDevices.getDisplayMedia({ video: true, audio: true });
+      } catch (audioErr) {
+        console.warn('getDisplayMedia with audio failed, retrying video-only:', audioErr);
+        stream = await mediaDevices.getDisplayMedia({ video: true, audio: false });
+      }
       streamRef.current = stream;
 
       const pc = new RTCPeerConnection({

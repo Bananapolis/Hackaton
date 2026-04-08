@@ -29,10 +29,9 @@ function inferWsBase() {
 
 function inferWhipBase() {
   if (typeof window === 'undefined') return 'http://localhost:8889'
-  // Use same host as backend/frontend but on port 8889
-  const host = window.location.hostname
-  const protocol = window.location.protocol
-  return `${protocol}//${host}:8889`
+  // Use same origin — Caddy (prod) and Vite (dev) both proxy /live/* to MediaMTX:8889.
+  // This avoids the plain-HTTP-on-8889 vs HTTPS mismatch that breaks WHIP/WHEP.
+  return window.location.origin
 }
 
 const WHIP_BASE = inferWhipBase()

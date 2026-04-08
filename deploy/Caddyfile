@@ -7,7 +7,15 @@ vialive.libreuni.com {
     issuer acme https://acme.zerossl.com/v2/DV90
   }
   encode gzip zstd
-  reverse_proxy web:80
+
+  # WHIP (Android broadcaster) and WHEP (student viewer) — proxy to MediaMTX over plain HTTP
+  handle /live/* {
+    reverse_proxy mediamtx:8889
+  }
+
+  handle {
+    reverse_proxy web:80
+  }
 }
 
 dev.vialive.libreuni.com {
@@ -15,5 +23,12 @@ dev.vialive.libreuni.com {
     issuer acme https://acme.zerossl.com/v2/DV90
   }
   encode gzip zstd
-  reverse_proxy web-dev:80
+
+  handle /live/* {
+    reverse_proxy mediamtx:8889
+  }
+
+  handle {
+    reverse_proxy web-dev:80
+  }
 }

@@ -37,6 +37,9 @@ services:
     image: bluenviron/mediamtx:latest
     environment:
       MTX_WEBRTC: "yes"
+      # IMPORTANT: set EXTERNAL_IP in backend/.env to the server's public IP.
+      # Without it MediaMTX emits 127.0.0.1 ICE candidates and WebRTC streams
+      # connect but show a black screen on external clients.
       MTX_WEBRTCADDITIONALHOSTS: ${EXTERNAL_IP:-127.0.0.1}
     ports:
       - "1935:1935"
