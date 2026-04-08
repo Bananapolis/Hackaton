@@ -1,0 +1,60 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'mobile/**'
+    branches:
+      - main
+      - dev
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm install
+
+      - name: Expo prebuild (generates native Android project)
+        working-directory: mobile
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build debug APK
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: cp mobile/android/app/build/outputs/apk/debug/app-debug.apk vialive-broadcaster.apk
+
+      - name: Publish to GitHub Release (tag android-latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: ViaLive Broadcaster — Android
+          body: |
+            Latest Android APK. Download and sideload on your Android device.
+
+            **Install steps:**
+            1. Download `vialive-broadcaster.apk` on your Android device
+            2. Open it — tap **Install** (allow unknown sources if prompted)
+            3. When the teacher session shows the Android modal, tap **Open in ViaLive Broadcaster**
+          files: vialive-broadcaster.apk
+          make_latest: true

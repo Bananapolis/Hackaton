@@ -2127,16 +2127,16 @@ function App() {
               <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/50">
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Step 1 — Get the app</p>
                 <div className="flex flex-col gap-2">
+                  {/* Android intent:// URL — opens the app if installed, falls back to APK download if not */}
                   <a
-                    href={`vialive://broadcast?server=${encodeURIComponent(whipUrl)}&code=${encodeURIComponent(activeSessionCode)}`}
+                    href={`intent://broadcast?server=${encodeURIComponent(whipUrl)}&code=${encodeURIComponent(activeSessionCode)}#Intent;scheme=vialive;package=com.vialive.broadcaster;S.browser_fallback_url=${encodeURIComponent('https://github.com/Bananapolis/Hackaton/releases/download/android-latest/vialive-broadcaster.apk')};end`}
                     className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 active:scale-95"
                   >
                     <Icon name="screen" className="h-4 w-4" />
                     Open in ViaLive Broadcaster
                   </a>
                   <a
-                    href="/vialive-broadcaster.apk"
-                    download
+                    href="https://github.com/Bananapolis/Hackaton/releases/download/android-latest/vialive-broadcaster.apk"
                     className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                   >
                     Download APK (Android)
