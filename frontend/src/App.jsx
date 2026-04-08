@@ -1507,8 +1507,9 @@ function App() {
       let stream
       try {
         stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
+          video: { displaySurface: 'monitor' },
           audio: !isMobile,
+          preferCurrentTab: false,
         })
       } catch (firstErr) {
         // If the first request failed, only retry without audio if it wasn't a user cancellation
@@ -1517,8 +1518,9 @@ function App() {
         if (!isMobile && !wasPermissionError) {
           console.warn('[StartShare] First attempt failed, trying without audio:', firstErr)
           stream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,
+            video: { displaySurface: 'monitor' },
             audio: false,
+            preferCurrentTab: false,
           })
         } else {
           throw firstErr
@@ -1531,7 +1533,14 @@ function App() {
       }
       screenShareStopNotifiedRef.current = false
       setIsScreenSharing(true)
-      setStatus('Screen sharing started')
+
+      const videoTrack = stream.getVideoTracks()[0]
+      const surface = videoTrack?.getSettings().displaySurface
+      if (surface === 'browser') {
+        setStatus('⚠️ Tab sharing active — presentations in that tab cannot go fullscreen. Share a Window or Entire Screen instead.')
+      } else {
+        setStatus('Screen sharing started')
+      }
 
       for (const track of stream.getTracks()) {
         track.onended = () => {
@@ -2111,34 +2120,53 @@ function App() {
 
             <div className="space-y-4">
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                To share your screen with sound on Android, use the companion <strong>ViaLive Broadcaster</strong> app.
+                Android browsers cannot share your screen directly. Use the companion <strong>ViaLive Broadcaster</strong> app instead.
               </p>
 
+              {/* Step 1: Get the app */}
               <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/50">
-                <ol className="list-decimal space-y-2 pl-4 text-xs text-slate-700 dark:text-slate-300">
-                  <li>Open the <strong>ViaLive Broadcaster</strong> app on your device.</li>
-                  <li>Enter the WHIP Server URL below.</li>
-                  <li>Enter your Session Code: <strong>{activeSessionCode}</strong>.</li>
-                  <li>Tap <strong>Start Broadcast</strong> in the app.</li>
-                  <li>Finally, click <strong>Activate Stream Bridge</strong> below.</li>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Step 1 — Get the app</p>
+                <div className="flex flex-col gap-2">
+                  <a
+                    href={`vialive://broadcast?server=${encodeURIComponent(whipUrl)}&code=${encodeURIComponent(activeSessionCode)}`}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 active:scale-95"
+                  >
+                    <Icon name="screen" className="h-4 w-4" />
+                    Open in ViaLive Broadcaster
+                  </a>
+                  <a
+                    href="/vialive-broadcaster.apk"
+                    download
+                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    Download APK (Android)
+                  </a>
+                </div>
+              </div>
+
+              {/* Step 2: WHIP URL info */}
+              <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Step 2 — If opening manually</p>
+                <ol className="list-decimal space-y-1.5 pl-4 text-xs text-slate-700 dark:text-slate-300">
+                  <li>Open the app and enter the WHIP Server URL shown below.</li>
+                  <li>Enter session code: <strong>{activeSessionCode}</strong></li>
+                  <li>Tap <strong>Start Broadcast</strong>.</li>
                 </ol>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                  <p className="mb-0.5 text-[10px] uppercase tracking-wider text-slate-400">WHIP Server URL</p>
+                  <code className="block break-all text-xs font-semibold text-slate-800 dark:text-slate-200">{whipUrl}</code>
+                </div>
               </div>
 
-              <div className="mt-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-                <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">WHIP Server URL</p>
-                <code className="block break-all text-xs font-semibold text-slate-800 dark:text-slate-200">
-                  {whipUrl}
-                </code>
-              </div>
-
-              <div className="mt-4 flex flex-col gap-3">
+              {/* Step 3: Activate bridge */}
+              <div className="flex flex-col gap-2">
                 <button
                   type="button"
                   onClick={() => toggleStreamBridge(true)}
                   className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition hover:bg-emerald-500"
                 >
                   <Icon name="screen" className="h-4 w-4" />
-                  Activate Stream Bridge
+                  Step 3 — Activate Stream Bridge
                 </button>
               </div>
             </div>

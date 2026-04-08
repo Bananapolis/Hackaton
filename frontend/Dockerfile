@@ -14,7 +14,9 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN npm run build
+# Copy pre-built APK into dist if one exists (place at frontend/downloads/vialive-broadcaster.apk before building)
+RUN npm run build && \
+    if ls downloads/*.apk 2>/dev/null; then cp downloads/*.apk dist/; fi
 
 FROM nginx:1.27.5
 
