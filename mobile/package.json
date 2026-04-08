@@ -18,6 +18,7 @@
     "react-native-webrtc": "^124.0.7"
   },
   "devDependencies": {
+    "@react-native-community/cli": "latest",
     "eas-cli": "latest"
   },
   "private": true
