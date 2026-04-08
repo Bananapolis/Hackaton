@@ -41,9 +41,16 @@ jobs:
         working-directory: mobile
         run: npx expo prebuild --platform android --no-install
 
-      - name: Bundle JS into the APK (so it works without a dev server)
-        working-directory: mobile/android
-        run: echo "bundleInDebug=true" >> gradle.properties
+      - name: Bundle JavaScript into assets (so the APK works without a Metro dev server)
+        working-directory: mobile
+        run: |
+          mkdir -p android/app/src/main/assets
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res
 
       - name: Build debug APK
         working-directory: mobile/android
