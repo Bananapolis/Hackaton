@@ -1557,10 +1557,16 @@ function App() {
               // Track may already exist on PC
             }
           }
-          studentPc.createOffer()
-            .then((offer) => studentPc.setLocalDescription(offer).then(() => offer))
-            .then((offer) => { send('signal', { target_id: studentId, description: offer }) })
-            .catch((err) => { console.error('[Bridge] Failed to offer to student:', err) })
+          const offerToStudent = async () => {
+            try {
+              const offer = await studentPc.createOffer()
+              await studentPc.setLocalDescription(offer)
+              send('signal', { target_id: studentId, description: offer })
+            } catch (err) {
+              console.error('[Bridge] Failed to offer to student:', err)
+            }
+          }
+          void offerToStudent()
         }
       }
 
@@ -2090,6 +2096,7 @@ function App() {
             autoPlay
             muted
             playsInline
+            aria-label="Bridge camera preview"
             className="w-full aspect-video bg-black rounded-2xl object-cover"
           />
 
@@ -2742,7 +2749,7 @@ function App() {
 
             {isTeacher && joined ? (
               <div className={`rounded-2xl border p-3 ${bridgeStreamActive ? 'border-emerald-300 bg-emerald-50/90 dark:border-emerald-600/50 dark:bg-emerald-900/20' : bridgeClientId ? 'border-sky-200/90 bg-sky-50/90 dark:border-sky-500/40 dark:bg-sky-900/20' : 'border-slate-200/80 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-800/50'}`}>
-                <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Android Bridge</div>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Camera Bridge</div>
                 {bridgeStreamActive ? (
                   <div className="mb-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">✓ Bridge stream active</div>
                 ) : bridgeClientId ? (
@@ -2909,7 +2916,7 @@ function App() {
 
               {isTeacher && joined ? (
                 <div className={`mb-3 rounded-2xl border p-3 ${bridgeStreamActive ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-600/50 dark:bg-emerald-900/20' : bridgeClientId ? 'border-sky-200 bg-sky-50 dark:border-sky-500/40 dark:bg-sky-900/20' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/80'}`}>
-                  <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Android Bridge</div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Camera Bridge</div>
 
                   {bridgeStreamActive ? (
                     <div className="mb-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">✓ Bridge stream active</div>
@@ -2917,7 +2924,7 @@ function App() {
                     <div className="mb-2 text-sm text-sky-700 dark:text-sky-300">Bridge device connected — ready to activate</div>
                   ) : (
                     <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">
-                      Open the bridge link on your Android phone to stream its camera.
+                      Open the bridge link on your phone to stream its camera.
                     </div>
                   )}
 
