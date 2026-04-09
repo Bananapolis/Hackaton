@@ -2765,7 +2765,7 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
     role = role.lower().strip()
     name = name.strip()
 
-    if role not in {"teacher", "student"} or not name:
+    if role not in {"teacher", "student", "bridge"} or not name:
         await websocket.close(code=1008, reason="Invalid role or name")
         return
 
@@ -2831,6 +2831,16 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                 {
                     "type": "student_joined",
                     "payload": {"student_id": client_id, "name": name},
+                },
+            )
+    elif role == "bridge":
+        teacher = get_teacher(session)
+        if teacher:
+            await send_json(
+                teacher.websocket,
+                {
+                    "type": "bridge_connected",
+                    "payload": {"bridge_id": client_id, "name": name},
                 },
             )
     elif role == "teacher":
@@ -3468,5 +3478,15 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str) 
                     {
                         "type": "student_left",
                         "payload": {"student_id": client_id},
+                    },
+                )
+        elif role == "bridge":
+            teacher = get_teacher(session)
+            if teacher:
+                await send_json(
+                    teacher.websocket,
+                    {
+                        "type": "bridge_disconnected",
+                        "payload": {"bridge_id": client_id},
                     },
                 )

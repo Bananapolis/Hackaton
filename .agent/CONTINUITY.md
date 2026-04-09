@@ -1,5 +1,13 @@
 # Continuity Log
 
+## 2026-04-09
+
+- Implemented Camera Bridge (formerly called "Android Bridge") feature to allow any phone/tablet to stream its camera into a live session:
+  - backend in [backend/app/main.py](backend/app/main.py): added `bridge` as a valid WebSocket role; bridge join notifies teacher via `bridge_connected`; bridge disconnect notifies teacher via `bridge_disconnected`.
+  - frontend in [frontend/src/App.jsx](frontend/src/App.jsx): added bridge mode detection from `?bridge=1` URL param; a phone opening `/?code=XXXXX&bridge=1` gets a minimal mobile camera-streaming page (no auth needed); added `connectBridgeWebSocket()`, `activateBridge()`, `stopBridge()`, and modified `handleSignal()` to correctly route bridge WebRTC signals; teacher side shows Camera Bridge QR code + Activate Bridge button in both the aside panel and session settings panel; `activateBridge()` creates a recvonly WebRTC PC toward the bridge and, on receiving the bridge stream, re-offers it to all currently connected students.
+  - full error handling added throughout: camera permission denied, missing session code, WebSocket failures, WebRTC connection state failures.
+  - all 25 frontend tests and 15 backend tests continue to pass.
+
 ## 2026-03-22
 
 - Added self-hosted TURN relay infrastructure to remove dependency on external TURN providers:
