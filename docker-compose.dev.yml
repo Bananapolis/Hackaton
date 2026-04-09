@@ -23,6 +23,21 @@ services:
       - ./backend/data-dev.sqlite3:/app/data.sqlite3
     restart: unless-stopped
 
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    environment:
+      MTX_WEBRTC: "yes"
+      # IMPORTANT: set EXTERNAL_IP in backend/.env to the server's public IP.
+      # Without it MediaMTX emits 127.0.0.1 ICE candidates and WebRTC streams
+      # connect but show a black screen on external clients.
+      MTX_WEBRTCADDITIONALHOSTS: ${EXTERNAL_IP:-127.0.0.1}
+    ports:
+      - "1935:1935"
+      - "8888:8888"
+      - "8889:8889"
+      - "8189:8189/udp"
+    restart: unless-stopped
+
   web-dev:
     build:
       context: ./frontend

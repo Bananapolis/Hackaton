@@ -37,9 +37,10 @@ Make sure `dev.vialive.libreuni.com` has a DNS A record pointing to the same ser
 
 ## How it works
 
-- `docker-compose.dev.yml` runs `backend-dev` + `web-dev` containers
+- `docker-compose.dev.yml` runs `backend-dev`, `web-dev`, and `mediamtx` containers
 - Both join the shared `vialive` Docker network alongside the production stack
 - Caddy (running in production) routes `dev.vialive.libreuni.com` → `web-dev:80`
+- Caddy also routes `/live/*` to `mediamtx:8889` for the Android broadcaster / WHEP viewer bridge
 - Dev has its own SQLite database (`backend/data-dev.sqlite3`) — separate from production
 
 ## Local development

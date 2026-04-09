@@ -1,5 +1,11 @@
 # Continuity Log
 
+## 2026-04-09
+
+- Fixed the dev stack crash loop by restoring the missing [mediamtx](../docker-compose.dev.yml) service in the dev compose file. The frontend nginx config proxies `/live/*` to MediaMTX unconditionally, so `web-dev` was restarting because the upstream did not exist on the shared `vialive` network.
+- Updated [scripts/deploy-dev.sh](../scripts/deploy-dev.sh) to export `EXTERNAL_IP` from [backend/.env](../backend/.env) before `docker compose` runs, so MediaMTX keeps advertising the public address needed for Android WebRTC streaming instead of falling back to `127.0.0.1`.
+- Reflected the staging stack change in [docs/dev-environment.md](../docs/dev-environment.md).
+
 ## 2026-03-24
 
 - Created [CLAUDE.md](../CLAUDE.md) — comprehensive AI agent onboarding document covering repo

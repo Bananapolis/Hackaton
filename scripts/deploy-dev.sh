@@ -65,6 +65,13 @@ if [[ -z "${VITE_RTC_ICE_SERVERS:-}" ]]; then
   echo "[deploy-dev] WARNING: VITE_RTC_ICE_SERVERS is empty." >> /tmp/deploy_debug.log
 fi
 
+if [[ -z "${EXTERNAL_IP:-}" && -f "$REPO_ROOT/backend/.env" ]]; then
+  external_ip="$(read_env_value "EXTERNAL_IP" "$REPO_ROOT/backend/.env" || true)"
+  if [[ -n "$external_ip" ]]; then
+    export EXTERNAL_IP="$external_ip"
+  fi
+fi
+
 if ! git diff --quiet -- . ":(exclude)backend/.env"; then
   git reset --hard HEAD
 fi
