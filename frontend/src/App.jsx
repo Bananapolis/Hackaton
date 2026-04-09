@@ -373,6 +373,15 @@ function App() {
   const [isScreenMaximized, setIsScreenMaximized] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [confusionFlash, setConfusionFlash] = useState(false)
+  // Bridge state (teacher side: which bridge device is connected; bridge side: camera/status)
+  const [isBridgeMode] = useState(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('bridge') === '1'
+  )
+  const [bridgeClientId, setBridgeClientId] = useState('')
+  const [bridgeActivating, setBridgeActivating] = useState(false)
+  const [bridgeStreamActive, setBridgeStreamActive] = useState(false)
+  const [bridgeCameraReady, setBridgeCameraReady] = useState(false)
+  const [bridgeError, setBridgeError] = useState('')
 
   const wsRef = useRef(null)
   const endingSessionRef = useRef(false)
@@ -388,6 +397,11 @@ function App() {
   const lastAnonymousQuestionPendingRef = useRef(0)
   const screenShareStopNotifiedRef = useRef(false)
   const replayCaptureCanvasRef = useRef(null)
+  // Bridge refs
+  const bridgePcRef = useRef(null)
+  const bridgeCameraStreamRef = useRef(null)
+  const bridgeLocalVideoRef = useRef(null)
+  const bridgeTeacherIdRef = useRef('')
 
   const isTeacher = role === 'teacher'
   const normalizedCode = sessionCode.trim().toUpperCase()
@@ -404,6 +418,17 @@ function App() {
     return url.toString()
   }, [normalizedCode])
   const activeJoinUrl = joined ? joinUrl : ''
+  const bridgeUrl = useMemo(() => {
+    if (!normalizedCode || !joined) return ''
+    if (typeof window === 'undefined') return `?code=${encodeURIComponent(normalizedCode)}&bridge=1`
+    const url = new URL(window.location.href)
+    url.searchParams.set('code', normalizedCode)
+    url.searchParams.set('bridge', '1')
+    url.searchParams.delete('oauth_token')
+    url.searchParams.delete('oauth_user')
+    url.searchParams.delete('oauth_error')
+    return url.toString()
+  }, [normalizedCode, joined])
 
   useEffect(() => {
     endingSessionRef.current = endingSession
@@ -417,6 +442,8 @@ function App() {
       }
       peerConnectionsRef.current.clear()
       localStreamRef.current?.getTracks().forEach((track) => track.stop())
+      bridgePcRef.current?.close()
+      bridgeCameraStreamRef.current?.getTracks().forEach((track) => track.stop())
     }
   }, [])
 
@@ -1133,6 +1160,23 @@ function App() {
         }
       }
 
+      if (message.type === 'bridge_connected' && isTeacher) {
+        const bridgeId = message.payload.bridge_id
+        setBridgeClientId(bridgeId)
+        setStatus('Bridge device connected. Click "Activate Bridge" to start streaming.')
+      }
+
+      if (message.type === 'bridge_disconnected' && isTeacher) {
+        setBridgeClientId('')
+        setBridgeStreamActive(false)
+        setBridgeActivating(false)
+        if (bridgePcRef.current) {
+          bridgePcRef.current.close()
+          bridgePcRef.current = null
+        }
+        setStatus('Bridge device disconnected')
+      }
+
       if (message.type === 'signal') {
         await handleSignal(message.payload)
       }
@@ -1332,6 +1376,104 @@ function App() {
 
   async function handleSignal(payload) {
     const fromId = payload.from_id
+
+    // Bridge mode (phone side): route all signals to bridgePcRef
+    if (isBridgeMode) {
+      if (!bridgeTeacherIdRef.current) {
+        bridgeTeacherIdRef.current = fromId
+      }
+      let pc = bridgePcRef.current
+      if (!pc) {
+        pc = new RTCPeerConnection(rtcConfig)
+        bridgePcRef.current = pc
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            send('signal', { target_id: fromId, candidate: event.candidate })
+          }
+        }
+      }
+
+      if (payload.description) {
+        const description = new RTCSessionDescription(payload.description)
+        await pc.setRemoteDescription(description)
+
+        if (pc.candidateQueue) {
+          for (const queuedCandidate of pc.candidateQueue) {
+            await pc.addIceCandidate(queuedCandidate).catch(console.error)
+          }
+          pc.candidateQueue = []
+        }
+
+        if (description.type === 'offer') {
+          // Add camera tracks before answering so bridge stream is sent to teacher
+          const camStream = bridgeCameraStreamRef.current
+          if (camStream) {
+            for (const track of camStream.getTracks()) {
+              try {
+                pc.addTrack(track, camStream)
+              } catch {
+                // Track may already be added; ignore
+              }
+            }
+          } else {
+            setBridgeError('Camera not available. Please allow camera access and try again.')
+          }
+          const answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          send('signal', { target_id: fromId, description: answer })
+        }
+      }
+
+      if (payload.candidate) {
+        try {
+          const candidate = new RTCIceCandidate(payload.candidate)
+          if (pc.remoteDescription) {
+            await pc.addIceCandidate(candidate)
+          } else {
+            pc.candidateQueue = pc.candidateQueue || []
+            pc.candidateQueue.push(candidate)
+          }
+        } catch (err) {
+          console.error('Failed to add bridge ICE candidate', err)
+        }
+      }
+      return
+    }
+
+    // Teacher side: route signals from bridge device to bridgePcRef
+    if (isTeacher && fromId === bridgeClientId && bridgePcRef.current) {
+      const pc = bridgePcRef.current
+
+      if (payload.description) {
+        const description = new RTCSessionDescription(payload.description)
+        await pc.setRemoteDescription(description)
+
+        if (pc.candidateQueue) {
+          for (const queuedCandidate of pc.candidateQueue) {
+            await pc.addIceCandidate(queuedCandidate).catch(console.error)
+          }
+          pc.candidateQueue = []
+        }
+        // Bridge sends answer (not offer) back to teacher; no createAnswer needed here
+      }
+
+      if (payload.candidate) {
+        try {
+          const candidate = new RTCIceCandidate(payload.candidate)
+          if (pc.remoteDescription) {
+            await pc.addIceCandidate(candidate)
+          } else {
+            pc.candidateQueue = pc.candidateQueue || []
+            pc.candidateQueue.push(candidate)
+          }
+        } catch (err) {
+          console.error('Failed to add bridge ICE candidate (teacher side)', err)
+        }
+      }
+      return
+    }
+
+    // Normal student/teacher WebRTC flow
     const pc = await createPeerConnection(fromId)
 
     if (payload.description) {
@@ -1368,6 +1510,157 @@ function App() {
       }
     }
   }
+
+  async function activateBridge() {
+    if (!bridgeClientId) {
+      setError('No bridge device connected. Open the bridge URL on your phone first.')
+      return
+    }
+
+    setBridgeActivating(true)
+    setError('')
+
+    try {
+      // Clean up any existing bridge connection
+      if (bridgePcRef.current) {
+        bridgePcRef.current.close()
+        bridgePcRef.current = null
+      }
+
+      const pc = new RTCPeerConnection(rtcConfig)
+      bridgePcRef.current = pc
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          send('signal', { target_id: bridgeClientId, candidate: event.candidate })
+        }
+      }
+
+      pc.ontrack = (event) => {
+        const stream = event.streams[0] || new MediaStream([event.track])
+        localStreamRef.current = stream
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream
+        }
+        screenShareStopNotifiedRef.current = false
+        setIsScreenSharing(true)
+        setBridgeStreamActive(true)
+        setBridgeActivating(false)
+        setStatus('Bridge camera stream active')
+
+        // Offer the bridge stream to all currently connected students
+        for (const [studentId, studentPc] of peerConnectionsRef.current) {
+          for (const track of stream.getTracks()) {
+            try {
+              studentPc.addTrack(track, stream)
+            } catch {
+              // Track may already exist on PC
+            }
+          }
+          studentPc.createOffer()
+            .then((offer) => studentPc.setLocalDescription(offer).then(() => offer))
+            .then((offer) => { send('signal', { target_id: studentId, description: offer }) })
+            .catch((err) => { console.error('[Bridge] Failed to offer to student:', err) })
+        }
+      }
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'failed') {
+          setBridgeActivating(false)
+          setBridgeStreamActive(false)
+          setError('Bridge connection failed. Check that both devices are on the same network or TURN relay is configured.')
+        }
+      }
+
+      // Add recvonly transceivers so bridge knows we want video and audio
+      pc.addTransceiver('video', { direction: 'recvonly' })
+      pc.addTransceiver('audio', { direction: 'recvonly' })
+
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      send('signal', { target_id: bridgeClientId, description: offer })
+    } catch (err) {
+      setBridgeActivating(false)
+      setError('Failed to activate bridge: ' + (err instanceof Error ? err.message : 'Unknown error'))
+    }
+  }
+
+  function stopBridge() {
+    if (bridgePcRef.current) {
+      bridgePcRef.current.close()
+      bridgePcRef.current = null
+    }
+    setBridgeStreamActive(false)
+    setBridgeActivating(false)
+    cleanupLocalScreenShare()
+    setStatus('Bridge stream stopped')
+  }
+
+  async function connectBridgeWebSocket() {
+    setBridgeError('')
+    const params = new URLSearchParams(window.location.search)
+    const code = (params.get('code') || '').trim().toUpperCase()
+
+    if (!code) {
+      setBridgeError('Session code missing from URL. Ask the teacher for the bridge link.')
+      return
+    }
+
+    // Acquire camera stream first
+    if (!bridgeCameraStreamRef.current) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        bridgeCameraStreamRef.current = stream
+        setBridgeCameraReady(true)
+        if (bridgeLocalVideoRef.current) {
+          bridgeLocalVideoRef.current.srcObject = stream
+        }
+      } catch (err) {
+        setBridgeError('Camera access denied: ' + (err instanceof Error ? err.message : 'Permission denied'))
+        return
+      }
+    }
+
+    const wsUrl = `${config.wsBase}/ws/${code}?role=bridge&name=Bridge`
+    const ws = new WebSocket(wsUrl)
+    wsRef.current = ws
+
+    ws.onopen = () => {
+      setJoined(true)
+      setStatus('Bridge connected – waiting for teacher to activate')
+      setBridgeError('')
+    }
+
+    ws.onclose = () => {
+      setJoined(false)
+      setStatus('Bridge disconnected')
+      bridgePcRef.current?.close()
+      bridgePcRef.current = null
+    }
+
+    ws.onerror = () => {
+      setBridgeError('WebSocket connection failed. Check session code and try again.')
+      setJoined(false)
+    }
+
+    ws.onmessage = async (event) => {
+      try {
+        const message = JSON.parse(event.data)
+        if (message.type === 'welcome') {
+          setClientId(message.payload.client_id)
+        }
+        if (message.type === 'signal') {
+          await handleSignal(message.payload)
+        }
+        if (message.type === 'error') {
+          setBridgeError(message.payload?.message || 'Bridge error')
+        }
+      } catch (err) {
+        console.error('[Bridge] message parse error', err)
+      }
+    }
+  }
+
   function disconnect() {
     wsRef.current?.close()
     setJoined(false)
@@ -1778,6 +2071,79 @@ function App() {
   const roleLabel = isTeacher ? 'Host mode' : 'Join mode'
   const quizVisible = Boolean(quiz) && !quizState.hidden
   const quizReadonly = isTeacher || quizState.voting_closed
+
+  // Bridge mode: render a minimal standalone camera-streaming page (no auth required)
+  if (isBridgeMode) {
+    return (
+      <div className="min-h-screen bg-slate-900 p-4 text-white flex flex-col items-center justify-center">
+        <div className="w-full max-w-sm space-y-4">
+          <div className="text-center">
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 mb-1">VIA Live</div>
+            <h1 className="text-xl font-black">Camera Bridge</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              This page streams your camera to the live session.
+            </p>
+          </div>
+
+          <video
+            ref={bridgeLocalVideoRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-full aspect-video bg-black rounded-2xl object-cover"
+          />
+
+          {bridgeError ? (
+            <div className="rounded-xl bg-rose-900/60 border border-rose-700 px-4 py-3 text-sm text-rose-200">
+              {bridgeError}
+            </div>
+          ) : null}
+
+          <div className="rounded-xl bg-slate-800 px-4 py-3 text-sm text-slate-300">
+            <span className="font-medium text-slate-100">Status: </span>{status || 'Ready'}
+          </div>
+
+          {!joined ? (
+            <button
+              type="button"
+              onClick={connectBridgeWebSocket}
+              className="w-full rounded-xl bg-sky-600 py-3 text-sm font-semibold text-white transition hover:bg-sky-500 active:bg-sky-700"
+            >
+              Activate Bridge
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-xl bg-emerald-900/60 border border-emerald-700 px-4 py-3 text-center text-sm font-semibold text-emerald-300">
+                ✓ Bridge Active — streaming camera to session
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  bridgeCameraStreamRef.current?.getTracks().forEach((t) => t.stop())
+                  bridgeCameraStreamRef.current = null
+                  setBridgeCameraReady(false)
+                  bridgePcRef.current?.close()
+                  bridgePcRef.current = null
+                  wsRef.current?.close()
+                  setJoined(false)
+                  setStatus('Bridge disconnected')
+                }}
+                className="w-full rounded-xl bg-rose-700 py-3 text-sm font-semibold text-white transition hover:bg-rose-600"
+              >
+                Disconnect Bridge
+              </button>
+            </div>
+          )}
+
+          {!bridgeCameraReady && !joined ? (
+            <p className="text-center text-xs text-slate-500">
+              Camera permission will be requested when you tap Activate Bridge.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
 
   if (!authToken || !authUser) {
     return (
@@ -2374,6 +2740,49 @@ function App() {
               </div>
             ) : null}
 
+            {isTeacher && joined ? (
+              <div className={`rounded-2xl border p-3 ${bridgeStreamActive ? 'border-emerald-300 bg-emerald-50/90 dark:border-emerald-600/50 dark:bg-emerald-900/20' : bridgeClientId ? 'border-sky-200/90 bg-sky-50/90 dark:border-sky-500/40 dark:bg-sky-900/20' : 'border-slate-200/80 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-800/50'}`}>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Android Bridge</div>
+                {bridgeStreamActive ? (
+                  <div className="mb-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">✓ Bridge stream active</div>
+                ) : bridgeClientId ? (
+                  <div className="mb-2 text-sm text-sky-700 dark:text-sky-300">Bridge device connected</div>
+                ) : (
+                  <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                    Scan the bridge QR code on your phone to stream its camera.
+                  </div>
+                )}
+
+                {bridgeUrl ? (
+                  <div className="mb-2 flex justify-center">
+                    <SessionQRCode value={bridgeUrl} size={200} className="h-28 w-28 rounded-xl border border-slate-200 bg-white p-1.5 dark:border-slate-700" />
+                  </div>
+                ) : null}
+
+                <div className="flex gap-2">
+                  {bridgeStreamActive ? (
+                    <button
+                      type="button"
+                      onClick={stopBridge}
+                      className="flex-1 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-500"
+                    >
+                      Stop Bridge
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={activateBridge}
+                      disabled={!bridgeClientId || bridgeActivating}
+                      className="flex-1 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={!bridgeClientId ? 'Open the bridge link on your phone first' : 'Activate bridge stream'}
+                    >
+                      {bridgeActivating ? 'Activating…' : 'Activate Bridge'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
             <div className="mt-auto rounded-2xl border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-300">
               <div className="font-semibold text-slate-700 dark:text-slate-100">Status</div>
               <div className="mt-1">{status}</div>
@@ -2495,6 +2904,53 @@ function App() {
                     <SessionQRCode value={activeJoinUrl} size={420} className="h-[300px] w-[300px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
                   </div>
                   <div className="mt-3 text-center text-4xl font-black tracking-widest text-slate-900 dark:text-slate-100">{activeSessionCode}</div>
+                </div>
+              ) : null}
+
+              {isTeacher && joined ? (
+                <div className={`mb-3 rounded-2xl border p-3 ${bridgeStreamActive ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-600/50 dark:bg-emerald-900/20' : bridgeClientId ? 'border-sky-200 bg-sky-50 dark:border-sky-500/40 dark:bg-sky-900/20' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/80'}`}>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Android Bridge</div>
+
+                  {bridgeStreamActive ? (
+                    <div className="mb-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">✓ Bridge stream active</div>
+                  ) : bridgeClientId ? (
+                    <div className="mb-2 text-sm text-sky-700 dark:text-sky-300">Bridge device connected — ready to activate</div>
+                  ) : (
+                    <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">
+                      Open the bridge link on your Android phone to stream its camera.
+                    </div>
+                  )}
+
+                  {bridgeUrl ? (
+                    <div className="mb-2">
+                      <div className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Bridge URL (scan on phone):</div>
+                      <div className="flex justify-center">
+                        <SessionQRCode value={bridgeUrl} size={200} className="h-32 w-32 rounded-xl border border-slate-200 bg-white p-1.5 dark:border-slate-700" />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="flex gap-2">
+                    {bridgeStreamActive ? (
+                      <button
+                        type="button"
+                        onClick={stopBridge}
+                        className="flex-1 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-500"
+                      >
+                        Stop Bridge
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={activateBridge}
+                        disabled={!bridgeClientId || bridgeActivating}
+                        className="flex-1 rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        title={!bridgeClientId ? 'Open the bridge link on your phone first' : 'Activate bridge stream'}
+                      >
+                        {bridgeActivating ? 'Activating…' : 'Activate Bridge'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : null}
 
