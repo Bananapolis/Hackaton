@@ -50,6 +50,7 @@ const STUDENT_REPLAY_WINDOW_MS = 60_000
 const STUDENT_REPLAY_CAPTURE_INTERVAL_MS = 2_000
 const STUDENT_REPLAY_MAX_WIDTH = 960
 const STUDENT_REPLAY_JPEG_QUALITY = 0.62
+const ANDROID_APK_PATH = '/vialive-broadcaster.apk'
 const DEFAULT_SESSION_SETTINGS = {
   break_voting_enabled: true,
   break_vote_threshold_percent: 40,
@@ -2097,6 +2098,7 @@ function App() {
   }
 
   const whipUrl = `${config.whipBase}`
+  const androidApkUrl = typeof window === 'undefined' ? ANDROID_APK_PATH : `${window.location.origin}${ANDROID_APK_PATH}`
 
   const stageControlsVisibilityClass = isScreenMaximized
     ? 'sm:opacity-0 sm:pointer-events-none sm:transition-opacity sm:duration-200 sm:group-hover/stage:opacity-100 sm:group-hover/stage:pointer-events-auto sm:group-focus-within/stage:opacity-100 sm:group-focus-within/stage:pointer-events-auto'
@@ -2129,14 +2131,14 @@ function App() {
                 <div className="flex flex-col gap-2">
                   {/* Android intent:// URL — opens the app if installed, falls back to APK download if not */}
                   <a
-                    href={`intent://broadcast?server=${encodeURIComponent(whipUrl)}&code=${encodeURIComponent(activeSessionCode)}#Intent;scheme=vialive;package=com.vialive.broadcaster;S.browser_fallback_url=${encodeURIComponent('https://github.com/Bananapolis/Hackaton/releases/download/android-latest/vialive-broadcaster.apk')};end`}
+                    href={`intent://broadcast?server=${encodeURIComponent(whipUrl)}&code=${encodeURIComponent(activeSessionCode)}#Intent;scheme=vialive;package=com.vialive.broadcaster;S.browser_fallback_url=${encodeURIComponent(androidApkUrl)};end`}
                     className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 active:scale-95"
                   >
                     <Icon name="screen" className="h-4 w-4" />
                     Open in ViaLive Broadcaster
                   </a>
                   <a
-                    href="https://github.com/Bananapolis/Hackaton/releases/download/android-latest/vialive-broadcaster.apk"
+                    href={androidApkUrl}
                     className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                   >
                     Download APK (Android)

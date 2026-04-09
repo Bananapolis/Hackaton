@@ -72,6 +72,18 @@ if [[ -z "${EXTERNAL_IP:-}" && -f "$REPO_ROOT/backend/.env" ]]; then
   fi
 fi
 
+android_apk_url="https://github.com/Bananapolis/Hackaton/releases/download/android-latest/vialive-broadcaster.apk"
+android_apk_path="$REPO_ROOT/frontend/downloads/vialive-broadcaster.apk"
+android_apk_tmp="${android_apk_path}.tmp"
+mkdir -p "$REPO_ROOT/frontend/downloads"
+if curl --fail --location --retry 3 --retry-delay 2 --output "$android_apk_tmp" "$android_apk_url"; then
+  mv "$android_apk_tmp" "$android_apk_path"
+  echo "[deploy-dev] Synced Android APK into frontend/downloads." >> /tmp/deploy_debug.log
+else
+  rm -f "$android_apk_tmp"
+  echo "[deploy-dev] WARNING: Could not sync Android APK from GitHub; keeping any existing local copy." >> /tmp/deploy_debug.log
+fi
+
 if ! git diff --quiet -- . ":(exclude)backend/.env"; then
   git reset --hard HEAD
 fi

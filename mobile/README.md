@@ -39,7 +39,7 @@ When done, download the `.apk` from the EAS dashboard and place it at:
 frontend/downloads/vialive-broadcaster.apk
 ```
 
-Then rebuild the frontend Docker image — it will be served at `/vialive-broadcaster.apk`.
+Then rebuild the frontend Docker image. The web app serves that file from `/vialive-broadcaster.apk`, and the dev deploy script refreshes it from the latest GitHub release when available.
 
 ### Local build (requires Android SDK)
 
