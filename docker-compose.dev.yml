@@ -23,19 +23,22 @@ services:
       - ./backend/data-dev.sqlite3:/app/data.sqlite3
     restart: unless-stopped
 
-  mediamtx:
+  mediamtx-dev:
     image: bluenviron/mediamtx:latest
+    container_name: mediamtx-dev
     environment:
       MTX_WEBRTC: "yes"
       # IMPORTANT: set EXTERNAL_IP in backend/.env to the server's public IP.
       # Without it MediaMTX emits 127.0.0.1 ICE candidates and WebRTC streams
       # connect but show a black screen on external clients.
       MTX_WEBRTCADDITIONALHOSTS: ${EXTERNAL_IP:-127.0.0.1}
+      # Use a separate UDP port so dev and prod ICE candidates don't collide.
+      MTX_WEBRTCICEUDPMUXADDRESS: ":8190"
     ports:
-      - "1935:1935"
-      - "8888:8888"
-      - "8889:8889"
-      - "8189:8189/udp"
+      - "1936:1935"
+      - "8890:8888"
+      - "8891:8889"
+      - "8190:8190/udp"
     restart: unless-stopped
 
   web-dev:
@@ -43,6 +46,7 @@ services:
       context: ./frontend
       args:
         BACKEND_HOST: backend-dev
+        MEDIAMTX_HOST: mediamtx-dev
         VITE_RTC_ICE_SERVERS: ${VITE_RTC_ICE_SERVERS-}
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID-}
         VITE_APP_VERSION: ${VITE_APP_VERSION-}

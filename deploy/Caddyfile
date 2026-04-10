@@ -25,7 +25,7 @@ dev.vialive.libreuni.com {
   encode gzip zstd
 
   handle /live/* {
-    reverse_proxy mediamtx:8889
+    reverse_proxy mediamtx-dev:8889
   }
 
   handle {

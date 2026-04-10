@@ -52,6 +52,7 @@ services:
     build:
       context: ./frontend
       args:
+        MEDIAMTX_HOST: mediamtx
         VITE_RTC_ICE_SERVERS: ${VITE_RTC_ICE_SERVERS-}
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID-}
         VITE_APP_VERSION: ${VITE_APP_VERSION-}
