@@ -62,13 +62,24 @@ export default function App() {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      // Wait for ICE gathering to complete so the SDP contains actual
+      // a=candidate lines. Without this MediaMTX never receives reachable
+      // candidates, ICE fails, and the path is torn down before WHEP connects.
+      await new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') { resolve(); return; }
+        pc.onicegatheringstatechange = () => {
+          if (pc.iceGatheringState === 'complete') resolve();
+        };
+        setTimeout(resolve, 10000); // safety: send after 10 s regardless
+      });
+
       const cleanUrl = serverUrl.trim().replace(/\/$/, '');
       const whipUrl = `${cleanUrl}/live/${sessionCode.toLowerCase().trim()}/whip`;
 
       const response = await fetch(whipUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/sdp' },
-        body: offer.sdp,
+        body: pc.localDescription.sdp, // use SDP updated with gathered candidates
       });
 
       if (!response.ok) {

@@ -1433,7 +1433,11 @@ function App() {
     const whepUrl = `${config.whepBase}/live/${activeLibrarySessionCode.toLowerCase()}/whep`
 
     async function connectWhep() {
-      try {
+      const MAX_ATTEMPTS = 5
+      const BASE_DELAY_MS = 2000
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        pc?.close()
         pc = new RTCPeerConnection(config.rtcConfig)
 
         pc.ontrack = (event) => {
@@ -1445,27 +1449,45 @@ function App() {
         pc.addTransceiver('video', { direction: 'recvonly' })
         pc.addTransceiver('audio', { direction: 'recvonly' })
 
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
+        try {
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
 
-        const response = await fetch(whepUrl, {
-          method: 'POST',
-          body: offer.sdp,
-          headers: { 'Content-Type': 'application/sdp' },
-        })
+          // Wait for ICE gathering so the SDP sent to MediaMTX contains real
+          // a=candidate lines; without this ICE fails and no media flows.
+          await new Promise((resolve) => {
+            if (pc.iceGatheringState === 'complete') { resolve(); return }
+            pc.onicegatheringstatechange = () => {
+              if (pc.iceGatheringState === 'complete') resolve()
+            }
+            setTimeout(resolve, 5000) // safety: proceed after 5 s
+          })
 
-        if (!response.ok) throw new Error('WHEP offer failed')
+          const response = await fetch(whepUrl, {
+            method: 'POST',
+            body: pc.localDescription.sdp,
+            headers: { 'Content-Type': 'application/sdp' },
+          })
 
-        const answerSdp = await response.text()
-        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }))
-        setStatus('External stream connected')
-      } catch (err) {
-        console.error('WHEP error:', err)
-        setError('External stream connection failed. Ensure host has started broadcasting.')
+          if (!response.ok) throw new Error(`WHEP offer failed (${response.status})`)
+
+          const answerSdp = await response.text()
+          await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }))
+          setStatus('External stream connected')
+          return // success — stop retrying
+        } catch (err) {
+          console.error(`WHEP attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err)
+          if (attempt === MAX_ATTEMPTS) {
+            setError('External stream connection failed. Ensure host has started broadcasting.')
+          } else {
+            // Exponential backoff before next attempt
+            await new Promise((r) => setTimeout(r, BASE_DELAY_MS * attempt))
+          }
+        }
       }
     }
 
-    // Small delay to allow MediaMTX to register the path if it just started
+    // Initial delay to allow MediaMTX to register the WHIP path
     const timer = setTimeout(connectWhep, 1500)
 
     return () => {
