@@ -65,11 +65,12 @@ export default function App() {
       // Wait for ICE gathering to complete so the SDP contains actual
       // a=candidate lines. Without this MediaMTX never receives reachable
       // candidates, ICE fails, and the path is torn down before WHEP connects.
+      // Set handler BEFORE checking state to avoid a race condition.
       await new Promise((resolve) => {
-        if (pc.iceGatheringState === 'complete') { resolve(); return; }
         pc.onicegatheringstatechange = () => {
           if (pc.iceGatheringState === 'complete') resolve();
         };
+        if (pc.iceGatheringState === 'complete') resolve();
         setTimeout(resolve, 10000); // safety: send after 10 s regardless
       });
 

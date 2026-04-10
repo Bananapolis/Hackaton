@@ -1430,6 +1430,7 @@ function App() {
     if (isTeacher || !joined || !isStreamBridgeActive) return undefined
 
     let pc = null
+    let cancelled = false
     const whepUrl = `${config.whepBase}/live/${activeLibrarySessionCode.toLowerCase()}/whep`
 
     async function connectWhep() {
@@ -1437,11 +1438,12 @@ function App() {
       const BASE_DELAY_MS = 2000
 
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        if (cancelled) return
         pc?.close()
         pc = new RTCPeerConnection(config.rtcConfig)
 
         pc.ontrack = (event) => {
-          if (remoteVideoRef.current) {
+          if (!cancelled && remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = event.streams[0]
           }
         }
@@ -1455,13 +1457,16 @@ function App() {
 
           // Wait for ICE gathering so the SDP sent to MediaMTX contains real
           // a=candidate lines; without this ICE fails and no media flows.
+          // Set the handler BEFORE checking state to avoid a race condition.
           await new Promise((resolve) => {
-            if (pc.iceGatheringState === 'complete') { resolve(); return }
             pc.onicegatheringstatechange = () => {
               if (pc.iceGatheringState === 'complete') resolve()
             }
-            setTimeout(resolve, 5000) // safety: proceed after 5 s
+            if (pc.iceGatheringState === 'complete') resolve()
+            setTimeout(resolve, 5000) // safety: proceed after 5 s regardless
           })
+
+          if (cancelled) { pc?.close(); return }
 
           const response = await fetch(whepUrl, {
             method: 'POST',
@@ -1472,11 +1477,13 @@ function App() {
           if (!response.ok) throw new Error(`WHEP offer failed (${response.status})`)
 
           const answerSdp = await response.text()
+          if (cancelled) { pc?.close(); return }
           await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }))
-          setStatus('External stream connected')
+          if (!cancelled) setStatus('External stream connected')
           return // success — stop retrying
         } catch (err) {
           console.error(`WHEP attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err)
+          if (cancelled) return
           if (attempt === MAX_ATTEMPTS) {
             setError('External stream connection failed. Ensure host has started broadcasting.')
           } else {
@@ -1491,6 +1498,7 @@ function App() {
     const timer = setTimeout(connectWhep, 1500)
 
     return () => {
+      cancelled = true
       clearTimeout(timer)
       pc?.close()
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
