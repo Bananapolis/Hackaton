@@ -3,6 +3,9 @@ import { useGoogleLogin } from '@react-oauth/google'
 import { navigate } from './navigate'
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  BarChart3,
   Bell,
   BellOff,
   Camera,
@@ -36,6 +39,7 @@ import { CountdownBanner } from './components/CountdownBanner'
 import { QuizOverlay } from './components/QuizOverlay'
 import { SessionQRCode } from './components/SessionQRCode'
 import { StatCard } from './components/StatCard'
+import { TimelineChart } from './components/TimelineChart'
 
 const rtcConfig = config.rtcConfig
 const sessionPreferencesStorageKey = 'session-preferences-v1'
@@ -283,6 +287,9 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     checkCircle: CheckCircle,
     bell: Bell,
     bellOff: BellOff,
+    'arrow-left': ArrowLeft,
+    'arrow-right': ArrowRight,
+    chart: BarChart3,
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -385,6 +392,8 @@ function App() {
   const [showSessionPanel, setShowSessionPanel] = useState(true)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
   const [showAwardsPanel, setShowAwardsPanel] = useState(false)
+  const [analyticsView, setAnalyticsView] = useState('main')
+  const [expandedQuizId, setExpandedQuizId] = useState(null)
   const [screenExplanation, setScreenExplanation] = useState('')
   const [screenExplanationGeneratedAt, setScreenExplanationGeneratedAt] = useState('')
   const [explainLoading, setExplainLoading] = useState(false)
@@ -1729,6 +1738,8 @@ function App() {
     if (isTeacher && joined) {
       requestAnalytics()
     }
+    setAnalyticsView('main')
+    setExpandedQuizId(null)
     setShowAwardsPanel(true)
   }
 
@@ -3119,68 +3130,105 @@ function App() {
             onClick={(event) => handlePanelBackdropClick(event, () => setShowAwardsPanel(false))}
           >
             <section
-              className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Class awards</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowAwardsPanel(false)}
-                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  title="Close"
-                  aria-label="Close"
-                >
-                  <Icon name="close" className="h-4 w-4" />
-                </button>
+              <div className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/95 px-5 pb-3 pt-4 backdrop-blur dark:border-slate-700/80 dark:bg-slate-900/95">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {analyticsView !== 'main' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAnalyticsView('main')
+                          setExpandedQuizId(null)
+                        }}
+                        className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        title="Back"
+                        aria-label="Back to analytics dashboard"
+                      >
+                        <Icon name="arrow-left" className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                    <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">
+                      Analytics
+                      {analyticsView === 'quizzes' ? ' · Quizzes' : null}
+                      {analyticsView === 'graphs' ? ' · Visual' : null}
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAwardsPanel(false)}
+                    className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    title="Close"
+                    aria-label="Close"
+                  >
+                    <Icon name="close" className="h-4 w-4" />
+                  </button>
+                </div>
+                {analyticsView === 'main' && isTeacher ? (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAnalyticsView('quizzes')
+                        setExpandedQuizId(null)
+                      }}
+                      className="flex items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-sky-400 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon name="awards" className="h-4 w-4" />
+                        Quizzes
+                      </span>
+                      <Icon name="arrow-right" className="h-4 w-4 opacity-70" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnalyticsView('graphs')}
+                      className="flex items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-sky-400 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon name="chart" className="h-4 w-4" />
+                        Visual analytics
+                      </span>
+                      <Icon name="arrow-right" className="h-4 w-4 opacity-70" />
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                <StatCard label="Students" value={metrics.student_count} />
-                <StatCard label="Confusion level" value={confusionMetricDisplay} />
-                <StatCard label="Break votes" value={breakVotesMetricDisplay} help="Threshold: 40%" />
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                {analyticsView === 'main' ? (
+                  <AnalyticsMainView
+                    metrics={metrics}
+                    confusionMetricDisplay={confusionMetricDisplay}
+                    breakVotesMetricDisplay={breakVotesMetricDisplay}
+                    analytics={analytics}
+                    quizProgress={quizProgress}
+                    accuracyValue={accuracyValue}
+                    isTeacher={isTeacher}
+                    onOpenQuizzes={() => {
+                      setAnalyticsView('quizzes')
+                      setExpandedQuizId(null)
+                    }}
+                    onOpenGraphs={() => setAnalyticsView('graphs')}
+                  />
+                ) : null}
+                {analyticsView === 'quizzes' ? (
+                  <AnalyticsQuizView
+                    analytics={analytics}
+                    quizProgress={quizProgress}
+                    accuracyValue={accuracyValue}
+                    expandedQuizId={expandedQuizId}
+                    onToggleQuiz={(quizId) =>
+                      setExpandedQuizId((current) => (current === quizId ? null : quizId))
+                    }
+                  />
+                ) : null}
+                {analyticsView === 'graphs' ? (
+                  <AnalyticsGraphsView analytics={analytics} />
+                ) : null}
               </div>
-
-              {isTeacher ? (
-                <>
-                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
-                    <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
-                    <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
-                    <div>Accuracy: {accuracyValue}%</div>
-                  </div>
-
-                  <div className="mt-3 space-y-2">
-                    {awards.length ? (
-                      awards.map((award) => (
-                        <div
-                          key={award.id}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70"
-                        >
-                          <div className="font-semibold text-slate-900 dark:text-slate-100">{award.title}</div>
-                          <div className="text-slate-600 dark:text-slate-300">{award.description}</div>
-                          <div className="mt-1 text-sky-700 dark:text-sky-300">
-                            {award.winner_name ? `${award.winner_name} · ${award.value} ${award.unit}` : 'No winner yet'}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 dark:border-slate-600 dark:text-slate-300">
-                        No award data yet. Ask students to interact with quiz, confusion, or break actions.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
-                    <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
-                    <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
-                    <div>Accuracy: {accuracyValue}%</div>
-                    <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700">Engagement score: {analytics?.engagement?.score ?? 0}/100</div>
-                    <div>Quiz participation: {Math.round(100 * (analytics?.engagement?.quiz_participation_rate ?? 0))}%</div>
-                    <div>Break vote rate: {Math.round(100 * (analytics?.engagement?.break_vote_rate ?? 0))}%</div>
-                    <div>Confusion per student: {(analytics?.engagement?.confusion_per_student ?? 0).toFixed(2)}</div>
-                  </div>
-                </>
-              ) : null}
             </section>
           </div>
         ) : null}
@@ -3699,6 +3747,300 @@ function App() {
             </section>
           </div>
         ) : null}
+      </div>
+    </div>
+  )
+}
+
+function AnalyticsMainView({
+  metrics,
+  confusionMetricDisplay,
+  breakVotesMetricDisplay,
+  analytics,
+  quizProgress,
+  accuracyValue,
+  isTeacher,
+  onOpenQuizzes,
+  onOpenGraphs,
+}) {
+  const engagementScore = analytics?.engagement?.score ?? 0
+  const quizParticipation = Math.round(100 * (analytics?.engagement?.quiz_participation_rate ?? 0))
+  const breakVoteRate = Math.round(100 * (analytics?.engagement?.break_vote_rate ?? 0))
+  const confusionPerStudent = (analytics?.engagement?.confusion_per_student ?? 0).toFixed(2)
+  const totalAnswers = quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0
+  const correctAnswers = quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatCard label="Students" value={metrics.student_count} />
+        <button
+          type="button"
+          onClick={onOpenGraphs}
+          className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50 p-3.5 text-left shadow-[0_18px_30px_-28px_rgba(15,23,42,0.95)] transition hover:border-sky-400 hover:shadow-md dark:border-slate-700 dark:from-slate-800 dark:to-slate-900/80"
+          title="Open confusion timeline"
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+            Confusion level
+          </div>
+          <div className="mt-1 text-3xl font-bold text-slate-900 dark:text-white">
+            {confusionMetricDisplay}
+          </div>
+          <div className="mt-1 text-xs text-sky-600 dark:text-sky-300">View timeline ,</div>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenGraphs}
+          className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50 p-3.5 text-left shadow-[0_18px_30px_-28px_rgba(15,23,42,0.95)] transition hover:border-sky-400 hover:shadow-md dark:border-slate-700 dark:from-slate-800 dark:to-slate-900/80"
+          title="Open break votes timeline"
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+            Break votes
+          </div>
+          <div className="mt-1 text-3xl font-bold text-slate-900 dark:text-white">
+            {breakVotesMetricDisplay}
+          </div>
+          <div className="mt-1 text-xs text-sky-600 dark:text-sky-300">Threshold 40%, view trend</div>
+        </button>
+      </div>
+
+      {isTeacher ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={onOpenQuizzes}
+              className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-sky-400 hover:shadow-md dark:border-slate-700 dark:bg-slate-800/80"
+            >
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Quizzes</div>
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {totalAnswers} answers, {accuracyValue}% accuracy
+                </div>
+              </div>
+              <Icon name="arrow-right" className="h-5 w-5 text-sky-600 dark:text-sky-300" />
+            </button>
+            <button
+              type="button"
+              onClick={onOpenGraphs}
+              className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-sky-400 hover:shadow-md dark:border-slate-700 dark:bg-slate-800/80"
+            >
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Visual analytics</div>
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Confusion and break vote timelines
+                </div>
+              </div>
+              <Icon name="arrow-right" className="h-5 w-5 text-sky-600 dark:text-sky-300" />
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+              Session engagement
+            </div>
+            <div className="mt-1 grid gap-1 sm:grid-cols-2">
+              <div>Engagement score: {engagementScore}/100</div>
+              <div>Quiz participation: {quizParticipation}%</div>
+              <div>Break vote rate: {breakVoteRate}%</div>
+              <div>Confusion per student: {confusionPerStudent}</div>
+              <div>Quiz answers: {totalAnswers}</div>
+              <div>Correct answers: {correctAnswers}</div>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function AnalyticsQuizView({ analytics, quizProgress, accuracyValue, expandedQuizId, onToggleQuiz }) {
+  const students = Array.isArray(analytics?.students) ? analytics.students : []
+  const topStudents = [...students]
+    .sort((a, b) => Number(b.quiz_answers_submitted || 0) - Number(a.quiz_answers_submitted || 0))
+    .filter((student) => Number(student.quiz_answers_submitted || 0) > 0)
+    .slice(0, 3)
+
+  const currentQuiz = analytics?.current_quiz
+  const quizzes = currentQuiz
+    ? [
+        {
+          id: 'current',
+          question: currentQuiz.question || 'Current quiz',
+          total_answers: currentQuiz.total_answers ?? 0,
+          correct_option_id: currentQuiz.correct_option_id,
+          answer_revealed: currentQuiz.answer_revealed,
+          options: Array.isArray(currentQuiz.options) ? currentQuiz.options : [],
+        },
+      ]
+    : []
+
+  const hasAnyData = quizzes.length > 0 || topStudents.length > 0 || (quizProgress?.total_answers ?? 0) > 0
+
+  if (!hasAnyData) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+        No quiz data yet. Launch a quiz to start collecting responses.
+      </div>
+    )
+  }
+
+  const podiumOrder = [1, 0, 2]
+  const podiumHeights = ['h-14', 'h-20', 'h-10']
+
+  return (
+    <div className="space-y-4">
+      {topStudents.length > 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 dark:border-slate-700 dark:from-slate-800 dark:to-slate-900/80">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+            Top 3 participants
+          </div>
+          <div className="mt-3 flex items-end justify-center gap-3">
+            {podiumOrder.map((rankIndex, column) => {
+              const student = topStudents[rankIndex]
+              if (!student) {
+                return <div key={column} className="w-20" />
+              }
+              const medal = rankIndex === 0 ? 'gold' : rankIndex === 1 ? 'silver' : 'bronze'
+              const medalColor =
+                rankIndex === 0
+                  ? 'bg-amber-400 text-amber-900'
+                  : rankIndex === 1
+                    ? 'bg-slate-300 text-slate-800'
+                    : 'bg-orange-300 text-orange-900'
+              return (
+                <div key={column} className="flex w-24 flex-col items-center">
+                  <div
+                    className={`mb-1 grid h-8 w-8 place-items-center rounded-full text-xs font-bold ${medalColor}`}
+                  >
+                    {rankIndex + 1}
+                  </div>
+                  <div
+                    className="w-full truncate text-center text-xs font-semibold text-slate-900 dark:text-slate-100"
+                    title={student.name}
+                  >
+                    {student.name || 'Student'}
+                  </div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                    {student.quiz_answers_submitted} answers
+                  </div>
+                  <div
+                    className={`mt-1 w-full rounded-t-lg bg-gradient-to-t from-sky-500 to-sky-300 ${podiumHeights[column]} dark:from-sky-600 dark:to-sky-400`}
+                    aria-label={`${medal} place`}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="space-y-2">
+        {quizzes.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+            No active quiz. Per question breakdown will appear here.
+          </div>
+        ) : (
+          quizzes.map((quiz) => {
+            const isOpen = expandedQuizId === quiz.id
+            const totalAnswers = Number(quiz.total_answers || 0)
+            return (
+              <div
+                key={quiz.id}
+                className="rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/70"
+              >
+                <button
+                  type="button"
+                  onClick={() => onToggleQuiz(quiz.id)}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {quiz.question}
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                      {totalAnswers} answers, {accuracyValue}% accuracy
+                    </div>
+                  </div>
+                  <Icon
+                    name={isOpen ? 'arrow-left' : 'arrow-right'}
+                    className="h-4 w-4 text-slate-500 dark:text-slate-300"
+                  />
+                </button>
+                {isOpen ? (
+                  <div className="space-y-1.5 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+                    {quiz.options.length === 0 ? (
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        No per option data available.
+                      </div>
+                    ) : (
+                      quiz.options.map((option) => {
+                        const count = Number(option.count || 0)
+                        const pct = totalAnswers ? Math.round((count / totalAnswers) * 100) : 0
+                        const isCorrect = quiz.answer_revealed && option.is_correct
+                        return (
+                          <div key={option.id}>
+                            <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                              <span className="truncate">
+                                <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                  {option.id}.
+                                </span>{' '}
+                                {option.text || ''}
+                                {isCorrect ? ' ✓' : ''}
+                              </span>
+                              <span>
+                                {count} ({pct}%)
+                              </span>
+                            </div>
+                            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                              <div
+                                className={`h-full rounded-full ${isCorrect ? 'bg-emerald-500' : 'bg-sky-500'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+}
+
+function AnalyticsGraphsView({ analytics }) {
+  const timeline = Array.isArray(analytics?.timeline) ? analytics.timeline : []
+
+  if (timeline.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+        No timeline data captured yet. Interactions like confusion signals and break votes will populate these graphs live.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <TimelineChart
+        points={timeline}
+        valueKey="confusion_level_percent"
+        label="Confusion level over time"
+        color="#f97316"
+        unit="%"
+      />
+      <TimelineChart
+        points={timeline}
+        valueKey="break_votes"
+        label="Break votes over time"
+        color="#0284c7"
+      />
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+        Hover a line to inspect its value at that point in the session.
       </div>
     </div>
   )

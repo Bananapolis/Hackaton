@@ -676,11 +676,59 @@ async def websocket_room(websocket: WebSocket, code: str, role: str, name: str, 
             elif msg_type == "request_analytics":
                 if role != "teacher":
                     continue
+                base_analytics = analytics.analytics_for_session(session)
+                timeline_points = sorted(
+                    list(session.engagement_timeline),
+                    key=lambda item: float(item.get("recorded_at_epoch", 0)),
+                )
+                students_summary = []
+                for client in session.clients.values():
+                    if client.role != "student":
+                        continue
+                    students_summary.append(
+                        {
+                            "client_id": client.client_id,
+                            "name": client.name,
+                            "quiz_answers_submitted": int(
+                                getattr(client, "quiz_answers_submitted", 0) or 0
+                            ),
+                        }
+                    )
+                current_quiz_summary = None
+                if session.current_quiz:
+                    quiz = session.current_quiz
+                    total_quiz_answers = len(session.quiz_answers)
+                    options_stats = []
+                    for opt in quiz.options:
+                        count = sum(1 for v in session.quiz_answers.values() if v == opt.id)
+                        options_stats.append(
+                            {
+                                "id": opt.id,
+                                "text": getattr(opt, "text", ""),
+                                "count": count,
+                                "is_correct": opt.id == quiz.correct_option_id,
+                            }
+                        )
+                    current_quiz_summary = {
+                        "question": getattr(quiz, "question", ""),
+                        "options": options_stats,
+                        "total_answers": total_quiz_answers,
+                        "correct_option_id": quiz.correct_option_id
+                        if session.quiz_answer_revealed
+                        else None,
+                        "answer_revealed": session.quiz_answer_revealed,
+                    }
+                payload = {
+                    **base_analytics,
+                    "timeline": timeline_points,
+                    "students": students_summary,
+                    "current_quiz": current_quiz_summary,
+                }
                 await send_json(
                     websocket,
                     {
                         "type": "analytics",
-                        "payload": analytics.analytics_for_session(session),
+                        "payload": payload,
                     },
                 )
 
