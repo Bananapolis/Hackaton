@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ArrowRight,
   BarChart3,
+  Snowflake,
   Bell,
   BellOff,
   Camera,
@@ -290,6 +291,7 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     'arrow-left': ArrowLeft,
     'arrow-right': ArrowRight,
     chart: BarChart3,
+    snowflake: Snowflake,
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -404,6 +406,10 @@ function App() {
   const [quizModelUsed, setQuizModelUsed] = useState('')
   const [isScreenMaximized, setIsScreenMaximized] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [isScreenFrozen, setIsScreenFrozen] = useState(false)
+  const frozenCanvasRef = useRef(null)
+  const frozenStreamRef = useRef(null)
+  const originalVideoTrackRef = useRef(null)
   const [isStreamBridgeActive, setIsStreamBridgeActive] = useState(false)
   const [showAndroidBridgeModal, setShowAndroidBridgeModal] = useState(false)
   const [confusionFlash, setConfusionFlash] = useState(false)
@@ -1406,6 +1412,18 @@ function App() {
     screenShareStopNotifiedRef.current = true
   }
 
+  function releaseFreezeArtifacts() {
+    const frozenStream = frozenStreamRef.current
+    if (frozenStream) {
+      for (const track of frozenStream.getTracks()) {
+        if (track.readyState !== 'ended') track.stop()
+      }
+    }
+    frozenStreamRef.current = null
+    frozenCanvasRef.current = null
+    originalVideoTrackRef.current = null
+  }
+
   function cleanupLocalScreenShare() {
     const stream = localStreamRef.current
     if (stream) {
@@ -1422,8 +1440,114 @@ function App() {
       localVideoRef.current.srcObject = null
     }
 
+    releaseFreezeArtifacts()
+    setIsScreenFrozen(false)
     setIsScreenSharing(false)
   }
+
+  async function freezeScreen() {
+    if (!isTeacher) return
+    const stream = localStreamRef.current
+    const videoEl = localVideoRef.current
+    if (!stream || !videoEl) {
+      setError('Cannot freeze, screen share is not active.')
+      return
+    }
+    const liveTrack = stream.getVideoTracks()[0]
+    if (!liveTrack) {
+      setError('Cannot freeze, no video track available.')
+      return
+    }
+
+    try {
+      const settings = liveTrack.getSettings() || {}
+      const width = Number(settings.width) || videoEl.videoWidth || 1280
+      const height = Number(settings.height) || videoEl.videoHeight || 720
+
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, width)
+      canvas.height = Math.max(1, height)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas 2D context unavailable')
+      ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height)
+
+      if (typeof canvas.captureStream !== 'function') {
+        throw new Error('captureStream is not supported in this browser')
+      }
+      const frozenStream = canvas.captureStream(0)
+      const frozenTrack = frozenStream.getVideoTracks()[0]
+      if (!frozenTrack) throw new Error('Failed to create frozen video track')
+
+      for (const pc of peerConnectionsRef.current.values()) {
+        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video')
+        if (sender) {
+          try {
+            await sender.replaceTrack(frozenTrack)
+          } catch (err) {
+            console.warn('[FreezeScreen] replaceTrack failed', err)
+          }
+        }
+      }
+
+      frozenCanvasRef.current = canvas
+      frozenStreamRef.current = frozenStream
+      originalVideoTrackRef.current = liveTrack
+      setIsScreenFrozen(true)
+      setStatus('Screen frozen, students see a static snapshot')
+    } catch (err) {
+      console.error('[FreezeScreen] failed', err)
+      setError('Failed to freeze screen, ' + (err?.message || 'unknown error'))
+    }
+  }
+
+  async function unfreezeScreen() {
+    if (!isTeacher) return
+    const originalTrack = originalVideoTrackRef.current
+    const stream = localStreamRef.current
+    const liveTrack = originalTrack && originalTrack.readyState !== 'ended'
+      ? originalTrack
+      : stream?.getVideoTracks()[0]
+
+    if (!liveTrack) {
+      releaseFreezeArtifacts()
+      setIsScreenFrozen(false)
+      setStatus('Live stream unavailable, stopped freeze')
+      return
+    }
+
+    try {
+      for (const pc of peerConnectionsRef.current.values()) {
+        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video')
+        if (sender) {
+          try {
+            await sender.replaceTrack(liveTrack)
+          } catch (err) {
+            console.warn('[UnfreezeScreen] replaceTrack failed', err)
+          }
+        }
+      }
+    } finally {
+      releaseFreezeArtifacts()
+      setIsScreenFrozen(false)
+      setStatus('Live stream resumed')
+    }
+  }
+
+  function toggleFreezeScreen() {
+    if (isScreenFrozen) {
+      void unfreezeScreen()
+    } else {
+      void freezeScreen()
+    }
+  }
+
+  useEffect(() => {
+    if (!isScreenFrozen) return
+    if (!isTeacher || !joined || !isScreenSharing) {
+      releaseFreezeArtifacts()
+      setIsScreenFrozen(false)
+    }
+  }, [isScreenFrozen, isTeacher, joined, isScreenSharing])
 
   function stopShare() {
     if (!isTeacher) return
@@ -2359,7 +2483,31 @@ function App() {
               <div className="rounded-full border border-slate-300/60 bg-white/80 px-3 py-1 text-xs text-slate-600 backdrop-blur dark:border-white/20 dark:bg-white/10 dark:text-slate-200">{roleLabel}</div>
             </div>
 
-            <div className="absolute right-3 top-14 z-20 flex gap-1.5 sm:right-4 sm:top-4">
+            <div className="absolute right-3 top-14 z-20 flex items-center gap-1.5 sm:right-4 sm:top-4">
+              {isTeacher && isScreenSharing ? (
+                <button
+                  type="button"
+                  onClick={toggleFreezeScreen}
+                  aria-label={isScreenFrozen ? 'Resume live screen share' : 'Freeze screen share'}
+                  aria-pressed={isScreenFrozen}
+                  title={
+                    isScreenFrozen
+                      ? 'Resume live, students will see your screen again'
+                      : 'Freeze, students will see a static snapshot'
+                  }
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold shadow-lg backdrop-blur transition focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+                    isScreenFrozen
+                      ? 'border-rose-400 bg-rose-600/95 text-white ring-2 ring-rose-300/70 hover:bg-rose-500 focus:ring-rose-300 dark:ring-rose-400/60'
+                      : 'border-slate-300/70 bg-white/90 text-slate-800 hover:bg-white focus:ring-sky-400 dark:border-white/20 dark:bg-slate-900/80 dark:text-slate-100'
+                  }`}
+                >
+                  <Icon
+                    name={isScreenFrozen ? 'lock' : 'snowflake'}
+                    className="h-3.5 w-3.5"
+                  />
+                  <span>{isScreenFrozen ? 'Resume live' : 'Freeze'}</span>
+                </button>
+              ) : null}
               {compactMetrics.map((item) => (
                 <div
                   key={item.label}
@@ -2380,6 +2528,17 @@ function App() {
               ) : (
                 <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-contain" />
               )}
+
+              {isTeacher && isScreenFrozen ? (
+                <div className="pointer-events-none absolute inset-0 z-10 ring-2 ring-inset ring-rose-400/70">
+                  <div className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full border border-rose-300/70 bg-rose-600/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-lg backdrop-blur">
+                    <span className="mr-1 inline-flex align-middle">
+                      <Icon name="snowflake" className="h-3.5 w-3.5" />
+                    </span>
+                    Screen frozen
+                  </div>
+                </div>
+              ) : null}
 
               {!joined ? (
                 <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-200/60 dark:bg-black/40">
