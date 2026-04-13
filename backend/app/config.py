@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = ""
 
+    # TURN / WebRTC
+    turn_public_host: str = ""
+    turn_username: str = ""
+    turn_password: str = ""
+
     # OAuth
     github_client_id: str = ""
     github_client_secret: str = ""

@@ -41,8 +41,25 @@ export default function App() {
     }
 
     try {
-      // Try with audio first; fall back to video-only because internal audio
-      // capture is unsupported on many Android versions and rejects the whole call.
+      const cleanUrl = serverUrl.trim().replace(/\/$/, '');
+
+      // 1. Fetch ICE config (STUN + TURN) from the backend so the APK can relay
+      //    through TURN when a direct UDP path to MediaMTX is blocked.
+      let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+      try {
+        const iceRes = await fetch(`${cleanUrl}/api/ice-config`, { method: 'GET' });
+        if (iceRes.ok) {
+          const iceJson = await iceRes.json();
+          if (Array.isArray(iceJson.iceServers) && iceJson.iceServers.length > 0) {
+            iceServers = iceJson.iceServers;
+          }
+        }
+      } catch (iceErr) {
+        console.warn('Could not fetch ICE config, using STUN-only fallback:', iceErr);
+      }
+
+      // 2. Capture screen. Try with audio first; fall back to video-only because
+      //    internal audio capture is unsupported on many Android versions.
       let stream;
       try {
         stream = await mediaDevices.getDisplayMedia({ video: true, audio: true });
@@ -52,20 +69,15 @@ export default function App() {
       }
       streamRef.current = stream;
 
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-      });
+      const pc = new RTCPeerConnection({ iceServers });
       pcRef.current = pc;
 
-      // Only add video — audio creates an extra m= section that some MediaMTX
-      // builds reject when the codec list doesn't match expectations.
       stream.getVideoTracks().forEach((track) => pc.addTrack(track, stream));
 
-      // Register onicecandidate BEFORE setLocalDescription so we never miss
-      // a candidate fired synchronously on some react-native-webrtc builds.
-      // Also collect them manually: react-native-webrtc's localDescription.sdp
-      // is a snapshot from setLocalDescription time and does NOT update with
-      // gathered candidates, so we must inject them ourselves.
+      // 3. Register onicecandidate BEFORE setLocalDescription so we never miss
+      //    any candidate. react-native-webrtc's localDescription.sdp is a snapshot
+      //    from setLocalDescription time and does NOT update with gathered candidates,
+      //    so we collect them here and inject manually if needed.
       const gatheredCandidates = [];
       const iceGatheringDone = new Promise((resolve) => {
         pc.onicecandidate = (event) => {
@@ -75,27 +87,43 @@ export default function App() {
             resolve(); // null candidate = ICE gathering complete
           }
         };
-        setTimeout(resolve, 10000); // safety net: proceed after 10 s regardless
+        setTimeout(resolve, 10000); // safety: proceed after 10 s regardless
       });
 
+      // 4. Track ICE connection state. Show "broadcasting" only when ICE
+      //    actually connects; alert the user if it fails.
+      pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState;
+        if (s === 'connected' || s === 'completed') {
+          setIsBroadcasting(true);
+        } else if (s === 'failed') {
+          Alert.alert(
+            'Stream Connection Failed',
+            'Could not establish a media path to the server.\n\n' +
+            'Ask the server admin to open UDP port 8190 in the firewall, then retry.'
+          );
+          stopBroadcast();
+        } else if (s === 'disconnected') {
+          setIsBroadcasting(false);
+        }
+      };
+
       const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer); // starts ICE gathering
+      await pc.setLocalDescription(offer); // triggers ICE gathering
 
       if (pc.iceGatheringState !== 'complete') {
         await iceGatheringDone;
       }
 
-      // Build the SDP to send. If localDescription.sdp already embeds candidates
-      // (browser-like behaviour), use it as-is. Otherwise inject what we collected.
+      // 5. Build final SDP. Inject gathered candidates if localDescription.sdp
+      //    doesn't already contain them (react-native-webrtc behaviour).
       let sdpToSend = pc.localDescription.sdp;
       if (!sdpToSend.includes('a=candidate') && gatheredCandidates.length > 0) {
         const candidateLines = gatheredCandidates.map((c) => 'a=' + c).join('\r\n');
         sdpToSend = sdpToSend.trimEnd() + '\r\n' + candidateLines + '\r\n';
       }
 
-      const cleanUrl = serverUrl.trim().replace(/\/$/, '');
       const whipUrl = `${cleanUrl}/live/${sessionCode.toLowerCase().trim()}/whip`;
-
       const response = await fetch(whipUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/sdp' },
@@ -110,8 +138,8 @@ export default function App() {
       const answerSdp = await response.text();
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
 
-      setIsBroadcasting(true);
-
+      // setIsBroadcasting(true) is called by oniceconnectionstatechange once ICE
+      // actually connects — not here, to avoid false "broadcasting" status.
       stream.getTracks()[0].onended = () => stopBroadcast();
     } catch (err) {
       console.error(err);

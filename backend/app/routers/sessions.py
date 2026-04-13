@@ -14,6 +14,35 @@ from app.utils import now_iso, parse_bearer_token
 router = APIRouter()
 
 
+@router.get("/api/ice-config")
+def ice_config() -> dict:
+    """Return ICE server configuration including TURN credentials.
+
+    Called by the Android APK before opening a WHIP connection so it can use
+    the TURN relay when a direct UDP path to MediaMTX is unavailable.
+    No authentication required — credentials are for TURN relay only.
+    """
+    servers: list[dict] = [{"urls": "stun:stun.l.google.com:19302"}]
+
+    host = config.settings.turn_public_host
+    user = config.settings.turn_username
+    cred = config.settings.turn_password
+
+    if host and user and cred:
+        servers.append({
+            "urls": f"turn:{host}:3478?transport=udp",
+            "username": user,
+            "credential": cred,
+        })
+        servers.append({
+            "urls": f"turn:{host}:3478?transport=tcp",
+            "username": user,
+            "credential": cred,
+        })
+
+    return {"iceServers": servers}
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "time": now_iso()}
