@@ -57,21 +57,41 @@ export default function App() {
       });
       pcRef.current = pc;
 
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      // Only add video — audio creates an extra m= section that some MediaMTX
+      // builds reject when the codec list doesn't match expectations.
+      stream.getVideoTracks().forEach((track) => pc.addTrack(track, stream));
+
+      // Register onicecandidate BEFORE setLocalDescription so we never miss
+      // a candidate fired synchronously on some react-native-webrtc builds.
+      // Also collect them manually: react-native-webrtc's localDescription.sdp
+      // is a snapshot from setLocalDescription time and does NOT update with
+      // gathered candidates, so we must inject them ourselves.
+      const gatheredCandidates = [];
+      const iceGatheringDone = new Promise((resolve) => {
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            gatheredCandidates.push(event.candidate.candidate);
+          } else {
+            resolve(); // null candidate = ICE gathering complete
+          }
+        };
+        setTimeout(resolve, 10000); // safety net: proceed after 10 s regardless
+      });
 
       const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+      await pc.setLocalDescription(offer); // starts ICE gathering
 
-      // Wait for ICE gathering to complete so the SDP contains actual
-      // a=candidate lines. onicecandidate(null) is more reliable than
-      // onicegatheringstatechange in react-native-webrtc.
-      await new Promise((resolve) => {
-        if (pc.iceGatheringState === 'complete') { resolve(); return; }
-        pc.onicecandidate = (event) => {
-          if (event.candidate === null) resolve(); // null = end of candidates
-        };
-        setTimeout(resolve, 10000); // safety: send after 10 s regardless
-      });
+      if (pc.iceGatheringState !== 'complete') {
+        await iceGatheringDone;
+      }
+
+      // Build the SDP to send. If localDescription.sdp already embeds candidates
+      // (browser-like behaviour), use it as-is. Otherwise inject what we collected.
+      let sdpToSend = pc.localDescription.sdp;
+      if (!sdpToSend.includes('a=candidate') && gatheredCandidates.length > 0) {
+        const candidateLines = gatheredCandidates.map((c) => 'a=' + c).join('\r\n');
+        sdpToSend = sdpToSend.trimEnd() + '\r\n' + candidateLines + '\r\n';
+      }
 
       const cleanUrl = serverUrl.trim().replace(/\/$/, '');
       const whipUrl = `${cleanUrl}/live/${sessionCode.toLowerCase().trim()}/whip`;
@@ -79,12 +99,12 @@ export default function App() {
       const response = await fetch(whipUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/sdp' },
-        body: pc.localDescription.sdp,
+        body: sdpToSend,
       });
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        throw new Error(`Server rejected connection: ${response.status}${body ? ' — ' + body.slice(0, 120) : ''}`);
+        throw new Error(`Server rejected connection: ${response.status}${body ? '\n' + body.slice(0, 200) : ''}`);
       }
 
       const answerSdp = await response.text();
