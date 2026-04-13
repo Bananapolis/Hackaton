@@ -65,11 +65,32 @@ if [[ -z "${VITE_RTC_ICE_SERVERS:-}" ]]; then
   echo "[deploy-dev] WARNING: VITE_RTC_ICE_SERVERS is empty." >> /tmp/deploy_debug.log
 fi
 
+if [[ -z "${EXTERNAL_IP:-}" && -f "$REPO_ROOT/backend/.env" ]]; then
+  external_ip="$(read_env_value "EXTERNAL_IP" "$REPO_ROOT/backend/.env" || true)"
+  if [[ -n "$external_ip" ]]; then
+    export EXTERNAL_IP="$external_ip"
+  fi
+fi
+
+android_apk_url="https://github.com/Bananapolis/Hackaton/releases/download/android-latest/vialive-broadcaster.apk"
+android_apk_path="$REPO_ROOT/frontend/downloads/vialive-broadcaster.apk"
+android_apk_tmp="${android_apk_path}.tmp"
+mkdir -p "$REPO_ROOT/frontend/downloads"
+if curl --fail --location --retry 3 --retry-delay 2 --output "$android_apk_tmp" "$android_apk_url"; then
+  mv "$android_apk_tmp" "$android_apk_path"
+  echo "[deploy-dev] Synced Android APK into frontend/downloads." >> /tmp/deploy_debug.log
+else
+  rm -f "$android_apk_tmp"
+  echo "[deploy-dev] WARNING: Could not sync Android APK from GitHub; keeping any existing local copy." >> /tmp/deploy_debug.log
+fi
+
 if ! git diff --quiet -- . ":(exclude)backend/.env"; then
   git reset --hard HEAD
 fi
 
 git pull --ff-only
+
+export VITE_APP_VERSION="$(git rev-parse --short HEAD) · $(git log -1 --format=%cd --date=short)"
 
 docker compose -f docker-compose.dev.yml -p app-dev up -d --build > /tmp/docker_deploy_dev.log 2>&1
 

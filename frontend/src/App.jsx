@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useGoogleLogin } from '@react-oauth/google'
+import { navigate } from './navigate'
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  BarChart3,
+  Snowflake,
+  Bell,
+  BellOff,
   Camera,
   CheckCircle,
   Coffee,
@@ -33,11 +40,14 @@ import { CountdownBanner } from './components/CountdownBanner'
 import { QuizOverlay } from './components/QuizOverlay'
 import { SessionQRCode } from './components/SessionQRCode'
 import { StatCard } from './components/StatCard'
+import { TimelineChart } from './components/TimelineChart'
 
 const rtcConfig = config.rtcConfig
 const sessionPreferencesStorageKey = 'session-preferences-v1'
+const featureSettingsStorageKey = 'session-feature-settings-v1'
 const authTokenStorageKey = 'auth-token-v1'
 const authUserStorageKey = 'auth-user-v1'
+const REJOIN_STATUS_POLL_MS = 10_000
 const CONFUSION_NOTIFICATION_THRESHOLD_PERCENT = 65
 const CONFUSION_NOTIFICATION_RESET_PERCENT = 45
 const BREAK_NOTIFICATION_COOLDOWN_MS = 45_000
@@ -45,6 +55,19 @@ const STUDENT_REPLAY_WINDOW_MS = 60_000
 const STUDENT_REPLAY_CAPTURE_INTERVAL_MS = 2_000
 const STUDENT_REPLAY_MAX_WIDTH = 960
 const STUDENT_REPLAY_JPEG_QUALITY = 0.62
+const ANDROID_APK_PATH = '/vialive-broadcaster.apk'
+const DEFAULT_SESSION_SETTINGS = {
+  break_voting_enabled: true,
+  break_vote_threshold_percent: 40,
+  confusion_signals_enabled: true,
+  confusion_notification_threshold_percent: 65,
+  anonymous_questions_enabled: true,
+  quizzes_enabled: true,
+  screen_explain_enabled: true,
+  notifications_enabled: true,
+  student_rewind_enabled: true,
+  student_screenshot_enabled: true,
+}
 const quizPromptPresets = [
   {
     id: 'default',
@@ -263,6 +286,12 @@ export function Icon({ name, className = 'h-5 w-5' }) {
     camera: Camera,
     history: History,
     checkCircle: CheckCircle,
+    bell: Bell,
+    bellOff: BellOff,
+    'arrow-left': ArrowLeft,
+    'arrow-right': ArrowRight,
+    chart: BarChart3,
+    snowflake: Snowflake,
   }
   const IconComponent = icons[name]
   if (!IconComponent) return null
@@ -315,6 +344,8 @@ function App() {
   const [authPassword, setAuthPassword] = useState('')
   const [authDisplayName, setAuthDisplayName] = useState('')
   const [authPending, setAuthPending] = useState(false)
+  const [rejoinLookupPending, setRejoinLookupPending] = useState(false)
+  const [rejoinCandidate, setRejoinCandidate] = useState(null)
   const [showLibraryPanel, setShowLibraryPanel] = useState(false)
   const [libraryTab, setLibraryTab] = useState('sessions')
   const [librarySessionCode, setLibrarySessionCode] = useState('')
@@ -363,6 +394,8 @@ function App() {
   const [showSessionPanel, setShowSessionPanel] = useState(true)
   const [showNotesPanel, setShowNotesPanel] = useState(false)
   const [showAwardsPanel, setShowAwardsPanel] = useState(false)
+  const [analyticsView, setAnalyticsView] = useState('main')
+  const [expandedQuizId, setExpandedQuizId] = useState(null)
   const [screenExplanation, setScreenExplanation] = useState('')
   const [screenExplanationGeneratedAt, setScreenExplanationGeneratedAt] = useState('')
   const [explainLoading, setExplainLoading] = useState(false)
@@ -370,9 +403,25 @@ function App() {
   const [selectedQuizPreset, setSelectedQuizPreset] = useState('default')
   const [quizCustomPrompt, setQuizCustomPrompt] = useState('')
   const [quizGenerationPending, setQuizGenerationPending] = useState(false)
+  const [quizModelUsed, setQuizModelUsed] = useState('')
   const [isScreenMaximized, setIsScreenMaximized] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [isScreenFrozen, setIsScreenFrozen] = useState(false)
+  const frozenCanvasRef = useRef(null)
+  const frozenStreamRef = useRef(null)
+  const originalVideoTrackRef = useRef(null)
+  const [isStreamBridgeActive, setIsStreamBridgeActive] = useState(false)
+  const [showAndroidBridgeModal, setShowAndroidBridgeModal] = useState(false)
   const [confusionFlash, setConfusionFlash] = useState(false)
+  const [sessionPanelTab, setSessionPanelTab] = useState('session')
+  const [sessionSettings, setSessionSettings] = useState(() => {
+    try {
+      const raw = storageGetItem(featureSettingsStorageKey)
+      return raw ? { ...DEFAULT_SESSION_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SESSION_SETTINGS
+    } catch {
+      return DEFAULT_SESSION_SETTINGS
+    }
+  })
 
   const wsRef = useRef(null)
   const endingSessionRef = useRef(false)
@@ -440,6 +489,16 @@ function App() {
     if (persistedTheme === 'dark' || persistedTheme === 'light') {
       setTheme(persistedTheme)
     }
+  }, [])
+
+  useEffect(() => {
+    const handleThemeChange = (e) => {
+      if (e.detail?.theme) {
+        setTheme(e.detail.theme)
+      }
+    }
+    window.addEventListener('theme-change', handleThemeChange)
+    return () => window.removeEventListener('theme-change', handleThemeChange)
   }, [])
 
   useEffect(() => {
@@ -519,10 +578,16 @@ function App() {
 
     const params = new URLSearchParams(window.location.search)
     const codeFromUrl = (params.get('code') || '').trim().toUpperCase()
-    if (!codeFromUrl) return
+    const roleFromUrl = params.get('role')
 
-    setSessionCode(codeFromUrl)
-    setStatus(`Session code ${codeFromUrl} loaded from URL`)
+    if (codeFromUrl) {
+      setSessionCode(codeFromUrl)
+      setStatus(`Session code ${codeFromUrl} loaded from URL`)
+    }
+
+    if (roleFromUrl === 'teacher' || roleFromUrl === 'student') {
+      setRole(roleFromUrl)
+    }
   }, [])
 
   useEffect(() => {
@@ -568,6 +633,24 @@ function App() {
     }
   }, [authToken, authUser])
 
+  useEffect(() => {
+    if (!authToken || joined) {
+      setRejoinCandidate(null)
+      return
+    }
+    refreshRejoinCandidate()
+  }, [authToken, joined])
+
+  useEffect(() => {
+    if (!authToken || joined) return undefined
+
+    const timer = window.setInterval(() => {
+      refreshRejoinCandidate({ silent: true })
+    }, REJOIN_STATUS_POLL_MS)
+
+    return () => window.clearInterval(timer)
+  }, [authToken, joined])
+
   // Handle OAuth redirect callback (GitHub sends ?oauth_token=... back to frontend)
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -602,7 +685,7 @@ function App() {
 
     if (
       confusionNotificationArmedRef.current &&
-      confusionPercent >= CONFUSION_NOTIFICATION_THRESHOLD_PERCENT
+      confusionPercent >= (sessionSettings.confusion_notification_threshold_percent ?? CONFUSION_NOTIFICATION_THRESHOLD_PERCENT)
     ) {
       notifyTeacher(
         'High confusion level detected',
@@ -612,7 +695,7 @@ function App() {
       confusionNotificationArmedRef.current = false
     }
 
-    if (confusionPercent <= CONFUSION_NOTIFICATION_RESET_PERCENT) {
+    if (confusionPercent <= (sessionSettings.confusion_notification_threshold_percent ?? CONFUSION_NOTIFICATION_THRESHOLD_PERCENT) - 20) {
       confusionNotificationArmedRef.current = true
     }
   }, [isTeacher, joined, metrics.confusion_count, metrics.confusion_level_percent])
@@ -691,6 +774,7 @@ function App() {
 
   function notifyTeacher(title, body, tag) {
     if (typeof window === 'undefined') return
+    if (!sessionSettings.notifications_enabled) return
     if (!(window.Notification && Notification.permission === 'granted')) return
 
     try {
@@ -777,6 +861,7 @@ function App() {
     disconnect()
     setAuthToken('')
     setAuthUser(null)
+    setRejoinCandidate(null)
     setLibrarySessions([])
     setLibraryFiles([])
     setLibraryQuizzes([])
@@ -784,6 +869,7 @@ function App() {
     setAnonymousQuestions([])
     setPendingQuestionCount(0)
     setStatus('Signed out')
+    navigate('/')
   }
 
   async function refreshLibraryData(targetSessionCode = null) {
@@ -822,6 +908,42 @@ function App() {
       setError(err.message)
     } finally {
       setLibraryLoading(false)
+    }
+  }
+
+  async function refreshRejoinCandidate({ silent = false } = {}) {
+    if (!authToken || joined) {
+      setRejoinCandidate(null)
+      return
+    }
+
+    if (!silent) {
+      setRejoinLookupPending(true)
+    }
+    try {
+      const payload = await apiRequest('/api/sessions/rejoin-status', { token: authToken })
+      const candidate = payload?.rejoin_available ? payload?.candidate : null
+
+      if (!candidate?.session_code || !candidate?.role || !candidate?.name) {
+        setRejoinCandidate(null)
+        return
+      }
+
+      setRejoinCandidate({
+        session_code: String(candidate.session_code || '').trim().toUpperCase(),
+        role: String(candidate.role || '').trim().toLowerCase() === 'teacher' ? 'teacher' : 'student',
+        name: String(candidate.name || '').trim(),
+        seconds_since_last_activity: Number(candidate.seconds_since_last_activity ?? 0),
+        seconds_until_expiry: Number(candidate.seconds_until_expiry ?? 0),
+      })
+    } catch {
+      if (!silent) {
+        setRejoinCandidate(null)
+      }
+    } finally {
+      if (!silent) {
+        setRejoinLookupPending(false)
+      }
     }
   }
 
@@ -945,6 +1067,9 @@ function App() {
     }
 
     const params = new URLSearchParams({ role: nextRole, name: trimmedName })
+    if (authToken) {
+      params.set('token', authToken)
+    }
     const wsUrl = `${config.wsBase}/ws/${normalizedSessionCode}?${params.toString()}`
 
     const ws = new WebSocket(wsUrl)
@@ -999,6 +1124,20 @@ function App() {
         } else {
           setBreakEndTime(null)
         }
+        if (nextRole === 'teacher') {
+          // Sync stored feature settings to server immediately on join
+          const stored = (() => {
+            try {
+              const raw = storageGetItem(featureSettingsStorageKey)
+              return raw ? { ...DEFAULT_SESSION_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SESSION_SETTINGS
+            } catch {
+              return DEFAULT_SESSION_SETTINGS
+            }
+          })()
+          wsRef.current?.send(JSON.stringify({ type: 'update_settings', payload: stored }))
+        } else if (message.payload.settings) {
+          setSessionSettings({ ...DEFAULT_SESSION_SETTINGS, ...message.payload.settings })
+        }
       }
 
       if (message.type === 'session_state') {
@@ -1021,6 +1160,9 @@ function App() {
         }
         if (nextState.focus_period_ends_at !== undefined) {
           setFocusPeriodEndsAt(nextState.focus_period_ends_at || 0)
+        }
+        if (nextState.settings) {
+          setSessionSettings({ ...DEFAULT_SESSION_SETTINGS, ...nextState.settings })
         }
       }
 
@@ -1051,10 +1193,15 @@ function App() {
       }
 
       if (message.type === 'quiz') {
+        const modelUsed = message.payload?.model_used || ''
         setQuiz(message.payload)
+        setQuizModelUsed(modelUsed)
         setQuizState({ hidden: false, cover_mode: true, voting_closed: false, answer_revealed: false, correct_option_id: null, per_option: null })
         setSelectedQuizOptionId('')
         setQuizGenerationPending(false)
+        if (isTeacher) {
+          setStatus(modelUsed ? `Quiz ready · ${modelUsed}` : 'Quiz ready')
+        }
       }
 
       if (message.type === 'quiz_state') {
@@ -1119,6 +1266,26 @@ function App() {
         }
       }
 
+      if (message.type === 'stream_bridge_active') {
+        setIsStreamBridgeActive(message.payload?.active ?? false)
+        if (message.payload?.active) {
+          setIsScreenSharing(true)
+          setStatus('External screen bridge active')
+        } else {
+          setIsScreenSharing(false)
+          setStatus('External screen bridge stopped')
+        }
+      }
+
+      if (message.type === 'screen_share_stopped') {
+        setIsScreenSharing(false)
+        setIsStreamBridgeActive(false)
+        if (!isTeacher && remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = null
+        }
+        setStatus('Screen sharing stopped')
+      }
+
       if (message.type === 'student_joined' && isTeacher) {
         const studentId = message.payload.student_id
         await createOfferForStudent(studentId)
@@ -1153,16 +1320,37 @@ function App() {
     setStatus(`Quiz answer submitted: ${optionId}`)
   }
 
-  function generateQuizFromCurrentScreen() {
+  async function generateQuizFromCurrentScreen() {
     if (!joined || !isTeacher) return
     const customPrompt = quizCustomPrompt.trim()
     setQuizGenerationPending(true)
     setShowQuizPromptPanel(false)
-    setStatus('Generating quiz from notes…')
+    setStatus('Generating quiz from screen…')
+
+    let image_data = ''
+    const videoEl = localVideoRef.current
+    if (videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+      try {
+        const MAX_W = 1280
+        const scale = Math.min(1, MAX_W / videoEl.videoWidth)
+        const w = Math.round(videoEl.videoWidth * scale)
+        const h = Math.round(videoEl.videoHeight * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(videoEl, 0, 0, w, h)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.75)
+        image_data = dataUrl.split(',')[1] || ''
+      } catch (_) {
+        // If capture fails, fall back to text-only generation
+      }
+    }
+
     send('generate_quiz', {
       notes,
       quiz_preset: selectedQuizPreset,
       quiz_custom_prompt: customPrompt,
+      image_data,
     })
   }
 
@@ -1209,10 +1397,31 @@ function App() {
     wsRef.current.send(JSON.stringify({ type, payload }))
   }
 
+  function updateSessionSetting(key, value) {
+    const newSettings = { ...sessionSettings, [key]: value }
+    setSessionSettings(newSettings)
+    storageSetItem(featureSettingsStorageKey, JSON.stringify(newSettings))
+    if (joined && isTeacher) {
+      send('update_settings', newSettings)
+    }
+  }
+
   function notifyScreenShareStoppedOnce() {
     if (screenShareStopNotifiedRef.current) return
     send('screen_share_stopped')
     screenShareStopNotifiedRef.current = true
+  }
+
+  function releaseFreezeArtifacts() {
+    const frozenStream = frozenStreamRef.current
+    if (frozenStream) {
+      for (const track of frozenStream.getTracks()) {
+        if (track.readyState !== 'ended') track.stop()
+      }
+    }
+    frozenStreamRef.current = null
+    frozenCanvasRef.current = null
+    originalVideoTrackRef.current = null
   }
 
   function cleanupLocalScreenShare() {
@@ -1231,44 +1440,271 @@ function App() {
       localVideoRef.current.srcObject = null
     }
 
+    releaseFreezeArtifacts()
+    setIsScreenFrozen(false)
     setIsScreenSharing(false)
   }
+
+  async function freezeScreen() {
+    if (!isTeacher) return
+    const stream = localStreamRef.current
+    const videoEl = localVideoRef.current
+    if (!stream || !videoEl) {
+      setError('Cannot freeze, screen share is not active.')
+      return
+    }
+    const liveTrack = stream.getVideoTracks()[0]
+    if (!liveTrack) {
+      setError('Cannot freeze, no video track available.')
+      return
+    }
+
+    try {
+      const settings = liveTrack.getSettings() || {}
+      const width = Number(settings.width) || videoEl.videoWidth || 1280
+      const height = Number(settings.height) || videoEl.videoHeight || 720
+
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, width)
+      canvas.height = Math.max(1, height)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas 2D context unavailable')
+      ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height)
+
+      if (typeof canvas.captureStream !== 'function') {
+        throw new Error('captureStream is not supported in this browser')
+      }
+      const frozenStream = canvas.captureStream(0)
+      const frozenTrack = frozenStream.getVideoTracks()[0]
+      if (!frozenTrack) throw new Error('Failed to create frozen video track')
+
+      for (const pc of peerConnectionsRef.current.values()) {
+        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video')
+        if (sender) {
+          try {
+            await sender.replaceTrack(frozenTrack)
+          } catch (err) {
+            console.warn('[FreezeScreen] replaceTrack failed', err)
+          }
+        }
+      }
+
+      frozenCanvasRef.current = canvas
+      frozenStreamRef.current = frozenStream
+      originalVideoTrackRef.current = liveTrack
+      setIsScreenFrozen(true)
+      setStatus('Screen frozen, students see a static snapshot')
+    } catch (err) {
+      console.error('[FreezeScreen] failed', err)
+      setError('Failed to freeze screen, ' + (err?.message || 'unknown error'))
+    }
+  }
+
+  async function unfreezeScreen() {
+    if (!isTeacher) return
+    const originalTrack = originalVideoTrackRef.current
+    const stream = localStreamRef.current
+    const liveTrack = originalTrack && originalTrack.readyState !== 'ended'
+      ? originalTrack
+      : stream?.getVideoTracks()[0]
+
+    if (!liveTrack) {
+      releaseFreezeArtifacts()
+      setIsScreenFrozen(false)
+      setStatus('Live stream unavailable, stopped freeze')
+      return
+    }
+
+    try {
+      for (const pc of peerConnectionsRef.current.values()) {
+        const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video')
+        if (sender) {
+          try {
+            await sender.replaceTrack(liveTrack)
+          } catch (err) {
+            console.warn('[UnfreezeScreen] replaceTrack failed', err)
+          }
+        }
+      }
+    } finally {
+      releaseFreezeArtifacts()
+      setIsScreenFrozen(false)
+      setStatus('Live stream resumed')
+    }
+  }
+
+  function toggleFreezeScreen() {
+    if (isScreenFrozen) {
+      void unfreezeScreen()
+    } else {
+      void freezeScreen()
+    }
+  }
+
+  useEffect(() => {
+    if (!isScreenFrozen) return
+    if (!isTeacher || !joined || !isScreenSharing) {
+      releaseFreezeArtifacts()
+      setIsScreenFrozen(false)
+    }
+  }, [isScreenFrozen, isTeacher, joined, isScreenSharing])
 
   function stopShare() {
     if (!isTeacher) return
     notifyScreenShareStoppedOnce()
     cleanupLocalScreenShare()
+    if (isStreamBridgeActive) {
+      toggleStreamBridge(false)
+    }
     setStatus('Screen sharing stopped')
   }
+
+  useEffect(() => {
+    if (isTeacher || !joined || !isStreamBridgeActive) return undefined
+
+    let pc = null
+    let cancelled = false
+    const whepUrl = `${config.whepBase}/live/${activeLibrarySessionCode.toLowerCase()}/whep`
+
+    async function connectWhep() {
+      const MAX_ATTEMPTS = 5
+      const BASE_DELAY_MS = 2000
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        if (cancelled) return
+        pc?.close()
+        pc = new RTCPeerConnection(config.rtcConfig)
+
+        pc.ontrack = (event) => {
+          if (!cancelled && remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = event.streams[0]
+          }
+        }
+
+        pc.addTransceiver('video', { direction: 'recvonly' })
+        pc.addTransceiver('audio', { direction: 'recvonly' })
+
+        try {
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+
+          // Wait for ICE gathering so the SDP sent to MediaMTX contains real
+          // a=candidate lines; without this ICE fails and no media flows.
+          // Set the handler BEFORE checking state to avoid a race condition.
+          await new Promise((resolve) => {
+            pc.onicegatheringstatechange = () => {
+              if (pc.iceGatheringState === 'complete') resolve()
+            }
+            if (pc.iceGatheringState === 'complete') resolve()
+            setTimeout(resolve, 5000) // safety: proceed after 5 s regardless
+          })
+
+          if (cancelled) { pc?.close(); return }
+
+          const response = await fetch(whepUrl, {
+            method: 'POST',
+            body: pc.localDescription.sdp,
+            headers: { 'Content-Type': 'application/sdp' },
+          })
+
+          if (!response.ok) throw new Error(`WHEP offer failed (${response.status})`)
+
+          const answerSdp = await response.text()
+          if (cancelled) { pc?.close(); return }
+          await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }))
+          if (!cancelled) setStatus('External stream connected')
+          return // success — stop retrying
+        } catch (err) {
+          console.error(`WHEP attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err)
+          if (cancelled) return
+          if (attempt === MAX_ATTEMPTS) {
+            setError('External stream connection failed. Ensure host has started broadcasting.')
+          } else {
+            // Exponential backoff before next attempt
+            await new Promise((r) => setTimeout(r, BASE_DELAY_MS * attempt))
+          }
+        }
+      }
+    }
+
+    // Initial delay to allow MediaMTX to register the WHIP path
+    const timer = setTimeout(connectWhep, 1500)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      pc?.close()
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null
+    }
+  }, [isTeacher, joined, isStreamBridgeActive, activeLibrarySessionCode])
 
   async function startShare() {
     if (!isTeacher) return
 
-    // Screen sharing requires Secure Context (HTTPS or localhost) and a desktop browser
+    const ua = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : ''
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+
+    // On Android, we prefer the MediaMTX bridge for screen+audio support
+    if (isMobile && /Android/i.test(ua)) {
+      setShowAndroidBridgeModal(true)
+      return
+    }
+
+    // Screen sharing requires Secure Context (HTTPS or localhost) and a supporting browser
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent)
       const isSecure = window.isSecureContext
-      const msg = isMobile
-        ? 'Screen sharing is not supported on mobile devices.'
-        : isSecure
-          ? 'Screen sharing not supported by this browser.'
-          : 'Screen sharing blocked by browser security. Please reload using HTTPS or Localhost.'
+      let msg = isSecure
+        ? 'Screen sharing not supported by this browser.'
+        : 'Screen sharing blocked by browser security. Please reload using HTTPS or Localhost.'
+
+      if (isSecure && isMobile) {
+        setShowAndroidBridgeModal(true)
+        return
+      }
       setError(msg)
       return
     }
 
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
-      })
+      // On mobile, audio sharing is often not supported with getDisplayMedia
+      // and can cause the entire call to fail on some Android versions.
+      let stream
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { displaySurface: 'monitor' },
+          audio: !isMobile,
+          preferCurrentTab: false,
+        })
+      } catch (firstErr) {
+        // If the first request failed, only retry without audio if it wasn't a user cancellation
+        // and only if we were actually trying to get audio.
+        const wasPermissionError = firstErr.name === 'NotAllowedError'
+        if (!isMobile && !wasPermissionError) {
+          console.warn('[StartShare] First attempt failed, trying without audio:', firstErr)
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { displaySurface: 'monitor' },
+            audio: false,
+            preferCurrentTab: false,
+          })
+        } else {
+          throw firstErr
+        }
+      }
+
       localStreamRef.current = stream
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
       }
       screenShareStopNotifiedRef.current = false
       setIsScreenSharing(true)
-      setStatus('Screen sharing started')
+
+      const videoTrack = stream.getVideoTracks()[0]
+      const surface = videoTrack?.getSettings().displaySurface
+      if (surface === 'browser') {
+        setStatus('⚠️ Tab sharing active — presentations in that tab cannot go fullscreen. Share a Window or Entire Screen instead.')
+      } else {
+        setStatus('Screen sharing started')
+      }
 
       for (const track of stream.getTracks()) {
         track.onended = () => {
@@ -1288,7 +1724,24 @@ function App() {
       }
     } catch (err) {
       console.error('[StartShare] Error:', err)
-      setError('Screen share failed: ' + (err.message || 'Check permissions'))
+      let errorMsg = err.message || 'Check permissions'
+      if (isMobile && (err.name === 'NotAllowedError' || err.name === 'NotSupportedError')) {
+        setShowAndroidBridgeModal(true)
+        return
+      }
+      setError('Screen share failed: ' + errorMsg)
+    }
+  }
+
+  function toggleStreamBridge(active) {
+    setIsStreamBridgeActive(active)
+    setIsScreenSharing(active)
+    send('stream_bridge_active', { active })
+    if (active) {
+      setStatus('External stream bridge active')
+      setShowAndroidBridgeModal(false)
+    } else {
+      setStatus('External stream bridge stopped')
     }
   }
 
@@ -1381,6 +1834,26 @@ function App() {
     setAnonymousQuestionSubmitting(false)
   }
 
+  function rejoinLastSession() {
+    if (!rejoinCandidate) return
+
+    const nextRole = rejoinCandidate.role === 'teacher' ? 'teacher' : 'student'
+    const nextName = String(rejoinCandidate.name || '').trim()
+    const nextSessionCode = String(rejoinCandidate.session_code || '').trim().toUpperCase()
+
+    if (!nextName || !nextSessionCode) return
+
+    setRole(nextRole)
+    setName(nextName)
+    setSessionCode(nextSessionCode)
+    setStatus(`Rejoining session ${nextSessionCode}...`)
+    connectWebSocket({
+      nextRole,
+      nextName,
+      nextSessionCode,
+    })
+  }
+
   function requestAnalytics() {
     send('request_analytics')
   }
@@ -1389,6 +1862,8 @@ function App() {
     if (isTeacher && joined) {
       requestAnalytics()
     }
+    setAnalyticsView('main')
+    setExpandedQuizId(null)
     setShowAwardsPanel(true)
   }
 
@@ -1521,6 +1996,7 @@ function App() {
 
   async function captureLiveScreenAsPdf() {
     if (isTeacher || !joined) return
+    if (!sessionSettings.student_screenshot_enabled) return
 
     try {
       setError('')
@@ -1655,6 +2131,7 @@ function App() {
 
   function openStudentReplayPanel() {
     if (isTeacher || !joined) return
+    if (!sessionSettings.student_rewind_enabled) return
     const capturedNow = tryCaptureReplayFrame()
 
     setError('')
@@ -1778,122 +2255,100 @@ function App() {
   const roleLabel = isTeacher ? 'Host mode' : 'Join mode'
   const quizVisible = Boolean(quiz) && !quizState.hidden
   const quizReadonly = isTeacher || quizState.voting_closed
+  const hasRejoinCandidate = Boolean(rejoinCandidate?.session_code && rejoinCandidate?.name)
 
   if (!authToken || !authUser) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-sky-50 to-emerald-50 p-4 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900 dark:text-slate-100">
-        <div className="mx-auto mt-10 w-full max-w-lg rounded-3xl border border-slate-200/90 bg-white/90 p-6 shadow-2xl backdrop-blur dark:border-slate-700/80 dark:bg-slate-900/88">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Classroom platform</div>
-          <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-slate-100">Register or sign in</h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Use your account to access sessions, uploaded files, and saved quizzes.</p>
-
-          <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
-            <button
-              type="button"
-              onClick={() => setAuthMode('login')}
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition ${authMode === 'login' ? 'bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'}`}
-            >
-              Login
-            </button>
-            <button
-              type="button"
-              onClick={() => setAuthMode('register')}
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition ${authMode === 'register' ? 'bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'}`}
-            >
-              Register
-            </button>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {authMode === 'register' ? (
-              <>
-                <input
-                  value={authDisplayName}
-                  onChange={(event) => setAuthDisplayName(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:ring-sky-500/40"
-                  placeholder="Display name"
-                />
-              </>
-            ) : null}
-            <input
-              value={authEmail}
-              onChange={(event) => setAuthEmail(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:ring-sky-500/40"
-              placeholder="Email"
-              type="email"
-            />
-            <input
-              value={authPassword}
-              onChange={(event) => setAuthPassword(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:ring-sky-500/40"
-              placeholder="Password"
-              type="password"
-            />
-            <button
-              type="button"
-              onClick={submitAuth}
-              disabled={authPending}
-              className="w-full rounded-lg bg-sky-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {authPending ? 'Please wait...' : authMode === 'register' ? 'Create account' : 'Login'}
-            </button>
-          </div>
-
-          <div className="mt-4 flex items-center gap-3">
-            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-            <span className="text-xs text-slate-400 dark:text-slate-500">or continue with</span>
-            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {GOOGLE_CLIENT_ID ? (
-              <GoogleLoginButton
-                onSuccess={handleGoogleSuccess}
-                onError={() => setError('Google sign-in was cancelled or failed')}
-                disabled={authPending}
-                className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                </svg>
-                Google
-              </GoogleLoginButton>
-            ) : null}
-            <button
-              type="button"
-              onClick={signInWithGitHub}
-              disabled={authPending}
-              className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
-                <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
-              </svg>
-              GitHub
-            </button>
-          </div>
-
-          {error ? <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">{error}</div> : null}
-        </div>
-      </div>
-    )
+    navigate('/login?return=' + encodeURIComponent('/session' + window.location.search))
+    return null
   }
+
+  const whipUrl = `${config.whipBase}`
+  const androidApkUrl = typeof window === 'undefined' ? ANDROID_APK_PATH : `${window.location.origin}${ANDROID_APK_PATH}`
+
   const stageControlsVisibilityClass = isScreenMaximized
     ? 'sm:opacity-0 sm:pointer-events-none sm:transition-opacity sm:duration-200 sm:group-hover/stage:opacity-100 sm:group-hover/stage:pointer-events-auto sm:group-focus-within/stage:opacity-100 sm:group-focus-within/stage:pointer-events-auto'
     : ''
 
   return (
-    <div className="app-shell min-h-screen text-slate-900 transition-colors dark:text-slate-100">
+    <div className="app-shell min-h-screen bg-slate-50 text-slate-900 transition-colors dark:bg-[#020617] dark:text-slate-100">
+      {showAndroidBridgeModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Android Screen Sharing</h3>
+              <button
+                type="button"
+                onClick={() => setShowAndroidBridgeModal(false)}
+                className="rounded-full p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Android browsers cannot share your screen directly. Use the companion <strong>ViaLive Broadcaster</strong> app instead.
+              </p>
+
+              {/* Step 1: Get the app */}
+              <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Step 1 — Get the app</p>
+                <div className="flex flex-col gap-2">
+                  {/* Android intent:// URL — opens the app if installed, falls back to APK download if not */}
+                  <a
+                    href={`intent://broadcast?server=${encodeURIComponent(whipUrl)}&code=${encodeURIComponent(activeSessionCode)}#Intent;scheme=vialive;package=com.vialive.broadcaster;S.browser_fallback_url=${encodeURIComponent(androidApkUrl)};end`}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 active:scale-95"
+                  >
+                    <Icon name="screen" className="h-4 w-4" />
+                    Open in ViaLive Broadcaster
+                  </a>
+                  <a
+                    href={androidApkUrl}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    Download APK (Android)
+                  </a>
+                </div>
+              </div>
+
+              {/* Step 2: WHIP URL info */}
+              <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Step 2 — If opening manually</p>
+                <ol className="list-decimal space-y-1.5 pl-4 text-xs text-slate-700 dark:text-slate-300">
+                  <li>Open the app and enter the WHIP Server URL shown below.</li>
+                  <li>Enter session code: <strong>{activeSessionCode}</strong></li>
+                  <li>Tap <strong>Start Broadcast</strong>.</li>
+                </ol>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+                  <p className="mb-0.5 text-[10px] uppercase tracking-wider text-slate-400">WHIP Server URL</p>
+                  <code className="block break-all text-xs font-semibold text-slate-800 dark:text-slate-200">{whipUrl}</code>
+                </div>
+              </div>
+
+              {/* Step 3: Activate bridge */}
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleStreamBridge(true)}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white transition hover:bg-emerald-500"
+                >
+                  <Icon name="screen" className="h-4 w-4" />
+                  Step 3 — Activate Stream Bridge
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col px-3 py-3 lg:px-6 lg:py-5">
         <header className="app-header mb-4 flex flex-wrap items-center justify-between gap-3 ui-fade-up">
           <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-2.5 shadow-[0_18px_35px_-24px_rgba(15,23,42,0.65)] backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/75">
-            <div className="hero-subtext text-[11px] uppercase tracking-[0.08em]">VIA Live</div>
+            <div className="hero-subtext text-[11px] uppercase tracking-[0.08em]">Live Pulse</div>
             <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
               <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               {roleLabel}
             </div>
+            <div className="mt-0.5 font-mono text-[9px] text-slate-400 dark:text-slate-600">{__APP_VERSION__}</div>
           </div>
           <div className="mobile-topbar-scroll flex w-full items-center gap-1.5 overflow-x-auto rounded-2xl border border-slate-200/90 bg-white/90 p-1.5 shadow-[0_16px_32px_-24px_rgba(15,23,42,0.9)] backdrop-blur-xl sm:w-auto dark:border-slate-700 dark:bg-slate-900/75">
             <button
@@ -1914,7 +2369,7 @@ function App() {
             >
               <Icon name="notes" className="h-5 w-5" />
             </button>
-            {isTeacher ? (
+            {isTeacher && sessionSettings.anonymous_questions_enabled ? (
               <button
                 type="button"
                 onClick={() => setShowQuestionsPanel(true)}
@@ -1961,6 +2416,24 @@ function App() {
             </button>
             <button
               type="button"
+              onClick={() => {
+                if (joined) {
+                  if (window.confirm('Do you want to leave the active session and go to the dashboard?')) {
+                    disconnect()
+                    navigate('/dashboard')
+                  }
+                } else {
+                  navigate('/dashboard')
+                }
+              }}
+              className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
+              title="Back to dashboard"
+              aria-label="Back to dashboard"
+            >
+              <Icon name="library" className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
               onClick={signOut}
               className="grid h-9 w-9 place-items-center rounded-xl border border-transparent text-slate-700 transition hover:border-slate-200 hover:bg-white dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800"
               title="Sign out"
@@ -1995,26 +2468,50 @@ function App() {
         <main className="app-main grid min-h-0 flex-1 gap-4 ui-fade-up lg:grid-cols-[minmax(0,1fr)_340px]">
           <section
             ref={stageContainerRef}
-            className={`app-stage group/stage relative overflow-hidden border border-slate-300/65 bg-slate-950 shadow-[0_32px_70px_-40px_rgba(2,6,23,0.95)] ui-fade-up dark:border-slate-700/60 ${isScreenMaximized
+            className={`app-stage group/stage relative overflow-hidden border border-slate-300/65 bg-slate-200 shadow-[0_32px_70px_-40px_rgba(2,6,23,0.95)] ui-fade-up dark:border-slate-700/60 dark:bg-slate-950 ${isScreenMaximized
                 ? 'min-h-screen rounded-none border-0'
                 : 'min-h-[60vh] rounded-[28px]'
               }`}
           >
             <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-2">
-              <div className="rounded-full border border-white/20 bg-slate-950/75 px-3 py-1 text-xs font-medium text-slate-100 backdrop-blur" title={status}>
+              <div className="rounded-full border border-slate-300/60 bg-white/85 px-3 py-1 text-xs font-medium text-slate-700 backdrop-blur dark:border-white/20 dark:bg-slate-950/75 dark:text-slate-100" title={status}>
                 {shortStatus}
               </div>
-              <div className="rounded-full border border-sky-300/35 bg-sky-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-100" title="Session code">
+              <div className="rounded-full border border-sky-400/50 bg-sky-100/80 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-700 backdrop-blur dark:border-sky-300/35 dark:bg-sky-500/20 dark:text-sky-100" title="Session code">
                 {activeSessionCode || 'No active code'}
               </div>
-              <div className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs text-slate-200">{roleLabel}</div>
+              <div className="rounded-full border border-slate-300/60 bg-white/80 px-3 py-1 text-xs text-slate-600 backdrop-blur dark:border-white/20 dark:bg-white/10 dark:text-slate-200">{roleLabel}</div>
             </div>
 
-            <div className="absolute right-3 top-14 z-20 flex gap-1.5 sm:right-4 sm:top-4">
+            <div className="absolute right-3 top-14 z-20 flex items-center gap-1.5 sm:right-4 sm:top-4">
+              {isTeacher && isScreenSharing ? (
+                <button
+                  type="button"
+                  onClick={toggleFreezeScreen}
+                  aria-label={isScreenFrozen ? 'Resume live screen share' : 'Freeze screen share'}
+                  aria-pressed={isScreenFrozen}
+                  title={
+                    isScreenFrozen
+                      ? 'Resume live, students will see your screen again'
+                      : 'Freeze, students will see a static snapshot'
+                  }
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold shadow-lg backdrop-blur transition focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+                    isScreenFrozen
+                      ? 'border-rose-400 bg-rose-600/95 text-white ring-2 ring-rose-300/70 hover:bg-rose-500 focus:ring-rose-300 dark:ring-rose-400/60'
+                      : 'border-slate-300/70 bg-white/90 text-slate-800 hover:bg-white focus:ring-sky-400 dark:border-white/20 dark:bg-slate-900/80 dark:text-slate-100'
+                  }`}
+                >
+                  <Icon
+                    name={isScreenFrozen ? 'lock' : 'snowflake'}
+                    className="h-3.5 w-3.5"
+                  />
+                  <span>{isScreenFrozen ? 'Resume live' : 'Freeze'}</span>
+                </button>
+              ) : null}
               {compactMetrics.map((item) => (
                 <div
                   key={item.label}
-                  className="rounded-full border border-white/20 bg-slate-950/70 px-2.5 py-1 text-xs text-slate-100 backdrop-blur"
+                  className="rounded-full border border-slate-300/60 bg-white/85 px-2.5 py-1 text-xs text-slate-700 backdrop-blur dark:border-white/20 dark:bg-slate-950/70 dark:text-slate-100"
                   title={`${item.label}: ${item.value}`}
                 >
                   <span className="mr-1 inline-flex align-middle">
@@ -2025,16 +2522,27 @@ function App() {
               ))}
             </div>
 
-            <div className="relative h-full w-full bg-gradient-to-br from-slate-900 via-slate-950 to-slate-950">
+            <div className="relative h-full w-full bg-gradient-to-br from-slate-100 via-slate-200 to-slate-200 dark:from-slate-900 dark:via-slate-950 dark:to-slate-950">
               {isTeacher ? (
                 <video ref={localVideoRef} autoPlay muted playsInline className="h-full w-full object-contain" />
               ) : (
                 <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-contain" />
               )}
 
+              {isTeacher && isScreenFrozen ? (
+                <div className="pointer-events-none absolute inset-0 z-10 ring-2 ring-inset ring-rose-400/70">
+                  <div className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full border border-rose-300/70 bg-rose-600/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-lg backdrop-blur">
+                    <span className="mr-1 inline-flex align-middle">
+                      <Icon name="snowflake" className="h-3.5 w-3.5" />
+                    </span>
+                    Screen frozen
+                  </div>
+                </div>
+              ) : null}
+
               {!joined ? (
-                <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/40">
-                  <div className="rounded-2xl border border-white/20 bg-black/65 px-5 py-3 text-sm text-white backdrop-blur">
+                <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-200/60 dark:bg-black/40">
+                  <div className="rounded-2xl border border-slate-300/60 bg-white/80 px-5 py-3 text-sm text-slate-700 backdrop-blur dark:border-white/20 dark:bg-black/65 dark:text-white">
                     Open Session settings to create or join a class.
                   </div>
                 </div>
@@ -2116,25 +2624,27 @@ function App() {
                         type="button"
                         disabled={!joined}
                         onClick={() => (isScreenSharing ? stopShare() : startShare())}
-                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isScreenSharing ? 'bg-rose-600 hover:bg-rose-500' : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200'}`}
+                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${isScreenSharing ? 'bg-rose-600 hover:bg-rose-500' : 'bg-slate-600 hover:bg-slate-500 dark:bg-slate-700 dark:hover:bg-slate-600'}`}
                         title={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
                         aria-label={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
                       >
                         <Icon name="screen" className="h-5 w-5" />
                       </button>
-                      <button
-                        type="button"
-                        disabled={!joined || quizGenerationPending}
-                        onClick={() => {
-                          setError('')
-                          setShowQuizPromptPanel(true)
-                        }}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-sky-700 text-lg text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        title={quizGenerationPending ? 'Generating quiz...' : 'Generate quiz'}
-                        aria-label={quizGenerationPending ? 'Generating quiz' : 'Generate quiz'}
-                      >
-                        <Icon name="quiz" className="h-5 w-5" />
-                      </button>
+                      {sessionSettings.quizzes_enabled ? (
+                        <button
+                          type="button"
+                          disabled={!joined || quizGenerationPending}
+                          onClick={() => {
+                            setError('')
+                            setShowQuizPromptPanel(true)
+                          }}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-sky-700 text-lg text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          title={quizGenerationPending ? 'Generating quiz...' : 'Generate quiz'}
+                          aria-label={quizGenerationPending ? 'Generating quiz' : 'Generate quiz'}
+                        >
+                          <Icon name="quiz" className="h-5 w-5" />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         disabled={!joined}
@@ -2192,84 +2702,96 @@ function App() {
                     </>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={() => {
-                          send('confusion')
-                          setStatus('Confusion signal sent')
-                          setConfusionFlash(true)
-                          setTimeout(() => setConfusionFlash(false), 1500)
-                        }}
-                        className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${confusionFlash ? 'bg-amber-500 ring-2 ring-amber-300/70 ring-offset-1 ring-offset-slate-900' : 'bg-slate-800 hover:bg-slate-700'}`}
-                        title="Signal Confusion to Teacher"
-                        aria-label="Signal Confusion to Teacher"
-                      >
-                        <Icon name="confusion" className="h-5 w-5" />
-                      </button>
-                      <div className="flex flex-col items-center gap-0.5">
+                      {sessionSettings.confusion_signals_enabled ? (
                         <button
                           type="button"
-                          disabled={!breakVoteButtonActive}
+                          disabled={!joined}
                           onClick={() => {
-                            send('break_vote')
-                            setStatus('Break vote sent')
+                            send('confusion')
+                            setStatus('Confusion signal sent')
+                            setConfusionFlash(true)
+                            setTimeout(() => setConfusionFlash(false), 1500)
                           }}
-                          className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${breakVoteButtonActive ? 'bg-sky-700 hover:bg-sky-600' : 'bg-slate-600'}`}
-                          title={focusCountdownLabel ?? (breakIsActive ? 'Break in progress' : 'Request break')}
-                          aria-label="Request break"
+                          className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${confusionFlash ? 'bg-amber-500 ring-2 ring-amber-300/70 ring-offset-1 ring-offset-slate-900' : 'bg-slate-800 hover:bg-slate-700'}`}
+                          title="Signal Confusion to Teacher"
+                          aria-label="Signal Confusion to Teacher"
                         >
-                          <Icon name="break" className="h-5 w-5" />
+                          <Icon name="confusion" className="h-5 w-5" />
                         </button>
-                        {focusCountdownLabel && (
-                          <span className="text-[9px] font-medium tabular-nums text-slate-400 dark:text-slate-500">
-                            {Math.floor(focusSecondsLeft / 60)}:{String(focusSecondsLeft % 60).padStart(2, '0')}
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        disabled={!joined || explainLoading}
-                        onClick={explainCurrentScreen}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-sky-800 text-lg text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Explain the screen"
-                        aria-label="Explain the screen"
-                      >
-                        <Icon name="quiz" className="h-5 w-5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={() => {
-                          setError('')
-                          setShowAskQuestionPanel(true)
-                        }}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-amber-600 text-lg text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Ask anonymous question"
-                        aria-label="Ask anonymous question"
-                      >
-                        <Icon name="question" className="h-5 w-5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={captureLiveScreenAsPdf}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-lg text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Take screenshot (PDF)"
-                        aria-label="Take screenshot (PDF)"
-                      >
-                        <Icon name="camera" className="h-5 w-5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!joined}
-                        onClick={openStudentReplayPanel}
-                        className="grid h-11 w-11 place-items-center rounded-xl bg-violet-700 text-lg text-white transition hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="View last minute"
-                        aria-label="View last minute"
-                      >
-                        <Icon name="history" className="h-5 w-5" />
-                      </button>
+                      ) : null}
+                      {sessionSettings.break_voting_enabled ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <button
+                            type="button"
+                            disabled={!breakVoteButtonActive}
+                            onClick={() => {
+                              send('break_vote')
+                              setStatus('Break vote sent')
+                            }}
+                            className={`grid h-11 w-11 place-items-center rounded-xl text-lg text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${breakVoteButtonActive ? 'bg-sky-700 hover:bg-sky-600' : 'bg-slate-600'}`}
+                            title={focusCountdownLabel ?? (breakIsActive ? 'Break in progress' : 'Request break')}
+                            aria-label="Request break"
+                          >
+                            <Icon name="break" className="h-5 w-5" />
+                          </button>
+                          {focusCountdownLabel && (
+                            <span className="text-[9px] font-medium tabular-nums text-slate-400 dark:text-slate-500">
+                              {Math.floor(focusSecondsLeft / 60)}:{String(focusSecondsLeft % 60).padStart(2, '0')}
+                            </span>
+                          )}
+                        </div>
+                      ) : null}
+                      {sessionSettings.screen_explain_enabled ? (
+                        <button
+                          type="button"
+                          disabled={!joined || explainLoading}
+                          onClick={explainCurrentScreen}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-sky-800 text-lg text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Explain the screen"
+                          aria-label="Explain the screen"
+                        >
+                          <Icon name="quiz" className="h-5 w-5" />
+                        </button>
+                      ) : null}
+                      {sessionSettings.anonymous_questions_enabled ? (
+                        <button
+                          type="button"
+                          disabled={!joined}
+                          onClick={() => {
+                            setError('')
+                            setShowAskQuestionPanel(true)
+                          }}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-amber-600 text-lg text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Ask anonymous question"
+                          aria-label="Ask anonymous question"
+                        >
+                          <Icon name="question" className="h-5 w-5" />
+                        </button>
+                      ) : null}
+                      {sessionSettings.student_screenshot_enabled && (
+                        <button
+                          type="button"
+                          disabled={!joined}
+                          onClick={captureLiveScreenAsPdf}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-700 text-lg text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Take screenshot (PDF)"
+                          aria-label="Take screenshot (PDF)"
+                        >
+                          <Icon name="camera" className="h-5 w-5" />
+                        </button>
+                      )}
+                      {sessionSettings.student_rewind_enabled && (
+                        <button
+                          type="button"
+                          disabled={!joined}
+                          onClick={openStudentReplayPanel}
+                          className="grid h-11 w-11 place-items-center rounded-xl bg-violet-700 text-lg text-white transition hover:bg-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="View last minute"
+                          aria-label="View last minute"
+                        >
+                          <Icon name="history" className="h-5 w-5" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={!joined}
@@ -2427,141 +2949,299 @@ function App() {
                 </button>
               </div>
 
-              <label className="mb-1 block text-sm font-medium">Mode</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
-                disabled={joined}
-              >
-                <option value="student">Join existing session</option>
-                <option value="teacher">Host a new session</option>
-              </select>
-
-              <label className="mb-1 block text-sm font-medium">Name</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
-                placeholder={isTeacher ? 'Teacher name' : 'Student name'}
-                disabled={joined}
-              />
-
-              <label className="mb-1 block text-sm font-medium">Session code</label>
-              <div className="mb-3 flex gap-2">
-                <input
-                  value={sessionCode}
-                  onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
-                  placeholder={isTeacher ? 'Auto-generated for host' : 'ABC123'}
-                  disabled={joined || isTeacher}
-                />
-                <button
-                  type="button"
-                  onClick={copySessionCode}
-                  disabled={!normalizedCode}
-                  className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  title="Copy session code"
-                  aria-label="Copy session code"
-                >
-                  <Icon name="copy" className="h-5 w-5" />
-                </button>
-              </div>
-
-              <label className="mb-1 block text-sm font-medium">Student join URL</label>
-              <div className="mb-3 flex gap-2">
-                <input
-                  value={activeJoinUrl}
-                  readOnly
-                  className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700 shadow-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                  placeholder="Join URL appears when a session code is set"
-                />
-                <button
-                  type="button"
-                  onClick={copyJoinLink}
-                  disabled={!activeJoinUrl}
-                  className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  title="Copy student join URL"
-                  aria-label="Copy student join URL"
-                >
-                  <Icon name="copy" className="h-5 w-5" />
-                </button>
-              </div>
-
-              {isTeacher && activeJoinUrl ? (
-                <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
-                  <div className="mb-2 text-center text-sm font-semibold text-slate-700 dark:text-slate-100">Students: scan to join</div>
-                  <div className="flex justify-center">
-                    <SessionQRCode value={activeJoinUrl} size={420} className="h-[300px] w-[300px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
-                  </div>
-                  <div className="mt-3 text-center text-4xl font-black tracking-widest text-slate-900 dark:text-slate-100">{activeSessionCode}</div>
-                </div>
-              ) : null}
-
-              {!joined ? (
-                <div className="space-y-2">
-                  {isTeacher ? (
+              {isTeacher && (
+                <div className="mb-4 flex rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm dark:border-slate-700 dark:bg-slate-800/60">
+                  {['session', 'features'].map((tab) => (
                     <button
+                      key={tab}
                       type="button"
-                      onClick={createSession}
-                      className="w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200"
+                      onClick={() => setSessionPanelTab(tab)}
+                      className={`flex-1 rounded-lg py-1.5 font-medium capitalize transition ${sessionPanelTab === tab ? 'bg-white text-slate-900 shadow dark:bg-slate-700 dark:text-slate-100' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                     >
-                      Host session
+                      {tab}
                     </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={connectWebSocket}
-                      className="w-full rounded-lg bg-sky-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600"
-                    >
-                      Join session
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {isTeacher ? (
-                    <button
-                      type="button"
-                      onClick={endSessionAndDownloadReport}
-                      disabled={endingSession}
-                      className="w-full rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {endingSession ? 'Ending session...' : 'End session + download report'}
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={disconnect}
-                    className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
-                  >
-                    Leave session
-                  </button>
+                  ))}
                 </div>
               )}
 
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
-                <div className="font-medium text-slate-700 dark:text-slate-100">Status</div>
-                <div className="mt-1">{status}</div>
-                <div className="mt-1">Client: {clientId || '-'}</div>
-              </div>
+              {(!isTeacher || sessionPanelTab === 'session') && (
+                <>
+                  <label className="mb-1 block text-sm font-medium">Mode</label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
+                    disabled={joined}
+                  >
+                    <option value="student">Join existing session</option>
+                    <option value="teacher">Host a new session</option>
+                  </select>
 
-              {error ? (
-                <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">
-                  {error}
-                </div>
-              ) : null}
+                  <label className="mb-1 block text-sm font-medium">Name</label>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="mb-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
+                    placeholder={isTeacher ? 'Teacher name' : 'Student name'}
+                    disabled={joined}
+                  />
 
-              {endingSession ? (
-                <div
-                  role="status"
-                  aria-live="polite"
-                  className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/80 dark:bg-amber-900/30 dark:text-amber-100"
-                >
-                  <div className="font-semibold">Preparing analytics report...</div>
-                  <div className="mt-1">{endSessionProgressMessage || 'Please wait while we finalize your session report.'}</div>
+                  <label className="mb-1 block text-sm font-medium">Session code</label>
+                  <div className="mb-3 flex gap-2">
+                    <input
+                      value={sessionCode}
+                      onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-sky-200 focus:ring dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:ring-sky-500/40"
+                      placeholder={isTeacher ? 'Auto-generated for host' : 'ABC123'}
+                      disabled={joined || isTeacher}
+                    />
+                    <button
+                      type="button"
+                      onClick={copySessionCode}
+                      disabled={!normalizedCode}
+                      className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                      title="Copy session code"
+                      aria-label="Copy session code"
+                    >
+                      <Icon name="copy" className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <label className="mb-1 block text-sm font-medium">Student join URL</label>
+                  <div className="mb-3 flex gap-2">
+                    <input
+                      value={activeJoinUrl}
+                      readOnly
+                      className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700 shadow-sm outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                      placeholder="Join URL appears when a session code is set"
+                    />
+                    <button
+                      type="button"
+                      onClick={copyJoinLink}
+                      disabled={!activeJoinUrl}
+                      className="grid h-10 w-10 place-items-center rounded-lg border border-slate-300 text-lg text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                      title="Copy student join URL"
+                      aria-label="Copy student join URL"
+                    >
+                      <Icon name="copy" className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  {isTeacher && activeJoinUrl ? (
+                    <div className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
+                      <div className="mb-2 text-center text-sm font-semibold text-slate-700 dark:text-slate-100">Students: scan to join</div>
+                      <div className="flex justify-center">
+                        <SessionQRCode value={activeJoinUrl} size={420} className="h-[300px] w-[300px] rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700" />
+                      </div>
+                      <div className="mt-3 text-center text-4xl font-black tracking-widest text-slate-900 dark:text-slate-100">{activeSessionCode}</div>
+                    </div>
+                  ) : null}
+
+                  {!joined ? (
+                    <div className="space-y-2">
+                      {hasRejoinCandidate ? (
+                        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-700/80 dark:bg-emerald-900/25 dark:text-emerald-200">
+                          <div className="font-semibold">Recent session found</div>
+                          <div className="mt-1">
+                            {rejoinCandidate.role === 'teacher' ? 'Host' : 'Student'} in {rejoinCandidate.session_code} as {rejoinCandidate.name}
+                          </div>
+                          <div className="mt-1 text-[11px] opacity-80">
+                            Last active {Math.max(0, Math.round(rejoinCandidate.seconds_since_last_activity || 0))}s ago.
+                          </div>
+                          <button
+                            type="button"
+                            onClick={rejoinLastSession}
+                            className="mt-2 w-full rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
+                          >
+                            Rejoin recent session
+                          </button>
+                        </div>
+                      ) : null}
+                      {isTeacher ? (
+                        <button
+                          type="button"
+                          onClick={createSession}
+                          className="w-full rounded-lg bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200"
+                        >
+                          Host session
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={connectWebSocket}
+                          className="w-full rounded-lg bg-sky-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600"
+                        >
+                          Join session
+                        </button>
+                      )}
+                      {rejoinLookupPending ? (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
+                          Checking for rejoin options...
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {isTeacher ? (
+                        <button
+                          type="button"
+                          onClick={endSessionAndDownloadReport}
+                          disabled={endingSession}
+                          className="w-full rounded-lg bg-rose-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {endingSession ? 'Ending session...' : 'End session + download report'}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => { disconnect(); navigate('/dashboard') }}
+                        className="w-full rounded-lg bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-500"
+                      >
+                        Leave session
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
+                    <div className="font-medium text-slate-700 dark:text-slate-100">Status</div>
+                    <div className="mt-1">{status}</div>
+                    <div className="mt-1">Client: {clientId || '-'}</div>
+                  </div>
+
+                  {error ? (
+                    <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-700/80 dark:bg-rose-900/30 dark:text-rose-200">
+                      {error}
+                    </div>
+                  ) : null}
+
+                  {endingSession ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/80 dark:bg-amber-900/30 dark:text-amber-100"
+                    >
+                      <div className="font-semibold">Preparing analytics report...</div>
+                      <div className="mt-1">{endSessionProgressMessage || 'Please wait while we finalize your session report.'}</div>
+                    </div>
+                  ) : null}
+                </>
+              )}
+
+              {isTeacher && sessionPanelTab === 'features' && (
+                <div className="space-y-2">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Student tools</div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Confusion signals</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can signal when confused</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('confusion_signals_enabled', !sessionSettings.confusion_signals_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.confusion_signals_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle confusion signals">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.confusion_signals_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  {sessionSettings.confusion_signals_enabled && (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Alert at</span>
+                        <span className="text-sm font-semibold tabular-nums text-sky-600">{sessionSettings.confusion_notification_threshold_percent}%</span>
+                      </div>
+                      <input type="range" min="10" max="100" step="5" value={sessionSettings.confusion_notification_threshold_percent} onChange={(e) => updateSessionSetting('confusion_notification_threshold_percent', Number(e.target.value))} className="w-full accent-sky-600" />
+                      <div className="mt-1 flex justify-between text-[10px] text-slate-400"><span>10%</span><span>100%</span></div>
+                    </div>
+                  )}
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Break voting</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can vote for a break</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('break_voting_enabled', !sessionSettings.break_voting_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.break_voting_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle break voting">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.break_voting_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  {sessionSettings.break_voting_enabled && (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Alert at</span>
+                        <span className="text-sm font-semibold tabular-nums text-sky-600">{sessionSettings.break_vote_threshold_percent}%</span>
+                      </div>
+                      <input type="range" min="10" max="100" step="5" value={sessionSettings.break_vote_threshold_percent} onChange={(e) => updateSessionSetting('break_vote_threshold_percent', Number(e.target.value))} className="w-full accent-sky-600" />
+                      <div className="mt-1 flex justify-between text-[10px] text-slate-400"><span>10%</span><span>100%</span></div>
+                    </div>
+                  )}
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Anonymous questions</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can submit questions</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('anonymous_questions_enabled', !sessionSettings.anonymous_questions_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.anonymous_questions_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle anonymous questions">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.anonymous_questions_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Screen explain</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can request AI explanation</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('screen_explain_enabled', !sessionSettings.screen_explain_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.screen_explain_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle screen explain">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.screen_explain_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Student replay</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can rewind the last 60 s</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('student_rewind_enabled', !sessionSettings.student_rewind_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.student_rewind_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle student replay">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.student_rewind_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Student screenshots</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Students can capture screen as PDF</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('student_screenshot_enabled', !sessionSettings.student_screenshot_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.student_screenshot_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle student screenshots">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.student_screenshot_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="mb-2 mt-4 text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Teacher tools</div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">AI quizzes</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Generate and launch quiz questions</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('quizzes_enabled', !sessionSettings.quizzes_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.quizzes_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle AI quizzes">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.quizzes_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700/60 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Browser notifications</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">Alert when thresholds are reached</div>
+                    </div>
+                    <button type="button" onClick={() => updateSessionSetting('notifications_enabled', !sessionSettings.notifications_enabled)} className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${sessionSettings.notifications_enabled ? 'bg-sky-600' : 'bg-slate-300 dark:bg-slate-600'}`} aria-label="Toggle browser notifications">
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${sessionSettings.notifications_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  {!joined && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/25 dark:text-amber-200">
+                      Settings will be applied when you start the session.
+                    </div>
+                  )}
                 </div>
-              ) : null}
+              )}
             </aside>
           </div>
         ) : null}
@@ -2609,68 +3289,105 @@ function App() {
             onClick={(event) => handlePanelBackdropClick(event, () => setShowAwardsPanel(false))}
           >
             <section
-              className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
+              className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/95 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95"
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">Class awards</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowAwardsPanel(false)}
-                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                  title="Close"
-                  aria-label="Close"
-                >
-                  <Icon name="close" className="h-4 w-4" />
-                </button>
+              <div className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/95 px-5 pb-3 pt-4 backdrop-blur dark:border-slate-700/80 dark:bg-slate-900/95">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {analyticsView !== 'main' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAnalyticsView('main')
+                          setExpandedQuizId(null)
+                        }}
+                        className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        title="Back"
+                        aria-label="Back to analytics dashboard"
+                      >
+                        <Icon name="arrow-left" className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                    <h2 className="text-sm font-bold uppercase tracking-[-0.02em] text-[#1a1a1a] dark:text-slate-100">
+                      Analytics
+                      {analyticsView === 'quizzes' ? ' · Quizzes' : null}
+                      {analyticsView === 'graphs' ? ' · Visual' : null}
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAwardsPanel(false)}
+                    className="grid h-8 w-8 place-items-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                    title="Close"
+                    aria-label="Close"
+                  >
+                    <Icon name="close" className="h-4 w-4" />
+                  </button>
+                </div>
+                {analyticsView === 'main' && isTeacher ? (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAnalyticsView('quizzes')
+                        setExpandedQuizId(null)
+                      }}
+                      className="flex items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-sky-400 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon name="awards" className="h-4 w-4" />
+                        Quizzes
+                      </span>
+                      <Icon name="arrow-right" className="h-4 w-4 opacity-70" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnalyticsView('graphs')}
+                      className="flex items-center justify-between rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-sky-400 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon name="chart" className="h-4 w-4" />
+                        Visual analytics
+                      </span>
+                      <Icon name="arrow-right" className="h-4 w-4 opacity-70" />
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                <StatCard label="Students" value={metrics.student_count} />
-                <StatCard label="Confusion level" value={confusionMetricDisplay} />
-                <StatCard label="Break votes" value={breakVotesMetricDisplay} help="Threshold: 40%" />
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                {analyticsView === 'main' ? (
+                  <AnalyticsMainView
+                    metrics={metrics}
+                    confusionMetricDisplay={confusionMetricDisplay}
+                    breakVotesMetricDisplay={breakVotesMetricDisplay}
+                    analytics={analytics}
+                    quizProgress={quizProgress}
+                    accuracyValue={accuracyValue}
+                    isTeacher={isTeacher}
+                    onOpenQuizzes={() => {
+                      setAnalyticsView('quizzes')
+                      setExpandedQuizId(null)
+                    }}
+                    onOpenGraphs={() => setAnalyticsView('graphs')}
+                  />
+                ) : null}
+                {analyticsView === 'quizzes' ? (
+                  <AnalyticsQuizView
+                    analytics={analytics}
+                    quizProgress={quizProgress}
+                    accuracyValue={accuracyValue}
+                    expandedQuizId={expandedQuizId}
+                    onToggleQuiz={(quizId) =>
+                      setExpandedQuizId((current) => (current === quizId ? null : quizId))
+                    }
+                  />
+                ) : null}
+                {analyticsView === 'graphs' ? (
+                  <AnalyticsGraphsView analytics={analytics} />
+                ) : null}
               </div>
-
-              {isTeacher ? (
-                <>
-                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
-                    <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
-                    <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
-                    <div>Accuracy: {accuracyValue}%</div>
-                  </div>
-
-                  <div className="mt-3 space-y-2">
-                    {awards.length ? (
-                      awards.map((award) => (
-                        <div
-                          key={award.id}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800/70"
-                        >
-                          <div className="font-semibold text-slate-900 dark:text-slate-100">{award.title}</div>
-                          <div className="text-slate-600 dark:text-slate-300">{award.description}</div>
-                          <div className="mt-1 text-sky-700 dark:text-sky-300">
-                            {award.winner_name ? `${award.winner_name} · ${award.value} ${award.unit}` : 'No winner yet'}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-600 dark:border-slate-600 dark:text-slate-300">
-                        No award data yet. Ask students to interact with quiz, confusion, or break actions.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
-                    <div>Quiz answers: {quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0}</div>
-                    <div>Correct answers: {quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0}</div>
-                    <div>Accuracy: {accuracyValue}%</div>
-                    <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700">Engagement score: {analytics?.engagement?.score ?? 0}/100</div>
-                    <div>Quiz participation: {Math.round(100 * (analytics?.engagement?.quiz_participation_rate ?? 0))}%</div>
-                    <div>Break vote rate: {Math.round(100 * (analytics?.engagement?.break_vote_rate ?? 0))}%</div>
-                    <div>Confusion per student: {(analytics?.engagement?.confusion_per_student ?? 0).toFixed(2)}</div>
-                  </div>
-                </>
-              ) : null}
             </section>
           </div>
         ) : null}
@@ -3189,6 +3906,300 @@ function App() {
             </section>
           </div>
         ) : null}
+      </div>
+    </div>
+  )
+}
+
+function AnalyticsMainView({
+  metrics,
+  confusionMetricDisplay,
+  breakVotesMetricDisplay,
+  analytics,
+  quizProgress,
+  accuracyValue,
+  isTeacher,
+  onOpenQuizzes,
+  onOpenGraphs,
+}) {
+  const engagementScore = analytics?.engagement?.score ?? 0
+  const quizParticipation = Math.round(100 * (analytics?.engagement?.quiz_participation_rate ?? 0))
+  const breakVoteRate = Math.round(100 * (analytics?.engagement?.break_vote_rate ?? 0))
+  const confusionPerStudent = (analytics?.engagement?.confusion_per_student ?? 0).toFixed(2)
+  const totalAnswers = quizProgress?.total_answers ?? analytics?.quiz?.total_answers ?? 0
+  const correctAnswers = quizProgress?.correct_answers ?? analytics?.quiz?.correct_answers ?? 0
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatCard label="Students" value={metrics.student_count} />
+        <button
+          type="button"
+          onClick={onOpenGraphs}
+          className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50 p-3.5 text-left shadow-[0_18px_30px_-28px_rgba(15,23,42,0.95)] transition hover:border-sky-400 hover:shadow-md dark:border-slate-700 dark:from-slate-800 dark:to-slate-900/80"
+          title="Open confusion timeline"
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+            Confusion level
+          </div>
+          <div className="mt-1 text-3xl font-bold text-slate-900 dark:text-white">
+            {confusionMetricDisplay}
+          </div>
+          <div className="mt-1 text-xs text-sky-600 dark:text-sky-300">View timeline ,</div>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenGraphs}
+          className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-white to-slate-50 p-3.5 text-left shadow-[0_18px_30px_-28px_rgba(15,23,42,0.95)] transition hover:border-sky-400 hover:shadow-md dark:border-slate-700 dark:from-slate-800 dark:to-slate-900/80"
+          title="Open break votes timeline"
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+            Break votes
+          </div>
+          <div className="mt-1 text-3xl font-bold text-slate-900 dark:text-white">
+            {breakVotesMetricDisplay}
+          </div>
+          <div className="mt-1 text-xs text-sky-600 dark:text-sky-300">Threshold 40%, view trend</div>
+        </button>
+      </div>
+
+      {isTeacher ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={onOpenQuizzes}
+              className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-sky-400 hover:shadow-md dark:border-slate-700 dark:bg-slate-800/80"
+            >
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Quizzes</div>
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {totalAnswers} answers, {accuracyValue}% accuracy
+                </div>
+              </div>
+              <Icon name="arrow-right" className="h-5 w-5 text-sky-600 dark:text-sky-300" />
+            </button>
+            <button
+              type="button"
+              onClick={onOpenGraphs}
+              className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-sky-400 hover:shadow-md dark:border-slate-700 dark:bg-slate-800/80"
+            >
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Visual analytics</div>
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Confusion and break vote timelines
+                </div>
+              </div>
+              <Icon name="arrow-right" className="h-5 w-5 text-sky-600 dark:text-sky-300" />
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-200">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+              Session engagement
+            </div>
+            <div className="mt-1 grid gap-1 sm:grid-cols-2">
+              <div>Engagement score: {engagementScore}/100</div>
+              <div>Quiz participation: {quizParticipation}%</div>
+              <div>Break vote rate: {breakVoteRate}%</div>
+              <div>Confusion per student: {confusionPerStudent}</div>
+              <div>Quiz answers: {totalAnswers}</div>
+              <div>Correct answers: {correctAnswers}</div>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function AnalyticsQuizView({ analytics, quizProgress, accuracyValue, expandedQuizId, onToggleQuiz }) {
+  const students = Array.isArray(analytics?.students) ? analytics.students : []
+  const topStudents = [...students]
+    .sort((a, b) => Number(b.quiz_answers_submitted || 0) - Number(a.quiz_answers_submitted || 0))
+    .filter((student) => Number(student.quiz_answers_submitted || 0) > 0)
+    .slice(0, 3)
+
+  const currentQuiz = analytics?.current_quiz
+  const quizzes = currentQuiz
+    ? [
+        {
+          id: 'current',
+          question: currentQuiz.question || 'Current quiz',
+          total_answers: currentQuiz.total_answers ?? 0,
+          correct_option_id: currentQuiz.correct_option_id,
+          answer_revealed: currentQuiz.answer_revealed,
+          options: Array.isArray(currentQuiz.options) ? currentQuiz.options : [],
+        },
+      ]
+    : []
+
+  const hasAnyData = quizzes.length > 0 || topStudents.length > 0 || (quizProgress?.total_answers ?? 0) > 0
+
+  if (!hasAnyData) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+        No quiz data yet. Launch a quiz to start collecting responses.
+      </div>
+    )
+  }
+
+  const podiumOrder = [1, 0, 2]
+  const podiumHeights = ['h-14', 'h-20', 'h-10']
+
+  return (
+    <div className="space-y-4">
+      {topStudents.length > 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 dark:border-slate-700 dark:from-slate-800 dark:to-slate-900/80">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+            Top 3 participants
+          </div>
+          <div className="mt-3 flex items-end justify-center gap-3">
+            {podiumOrder.map((rankIndex, column) => {
+              const student = topStudents[rankIndex]
+              if (!student) {
+                return <div key={column} className="w-20" />
+              }
+              const medal = rankIndex === 0 ? 'gold' : rankIndex === 1 ? 'silver' : 'bronze'
+              const medalColor =
+                rankIndex === 0
+                  ? 'bg-amber-400 text-amber-900'
+                  : rankIndex === 1
+                    ? 'bg-slate-300 text-slate-800'
+                    : 'bg-orange-300 text-orange-900'
+              return (
+                <div key={column} className="flex w-24 flex-col items-center">
+                  <div
+                    className={`mb-1 grid h-8 w-8 place-items-center rounded-full text-xs font-bold ${medalColor}`}
+                  >
+                    {rankIndex + 1}
+                  </div>
+                  <div
+                    className="w-full truncate text-center text-xs font-semibold text-slate-900 dark:text-slate-100"
+                    title={student.name}
+                  >
+                    {student.name || 'Student'}
+                  </div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                    {student.quiz_answers_submitted} answers
+                  </div>
+                  <div
+                    className={`mt-1 w-full rounded-t-lg bg-gradient-to-t from-sky-500 to-sky-300 ${podiumHeights[column]} dark:from-sky-600 dark:to-sky-400`}
+                    aria-label={`${medal} place`}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="space-y-2">
+        {quizzes.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+            No active quiz. Per question breakdown will appear here.
+          </div>
+        ) : (
+          quizzes.map((quiz) => {
+            const isOpen = expandedQuizId === quiz.id
+            const totalAnswers = Number(quiz.total_answers || 0)
+            return (
+              <div
+                key={quiz.id}
+                className="rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/70"
+              >
+                <button
+                  type="button"
+                  onClick={() => onToggleQuiz(quiz.id)}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {quiz.question}
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                      {totalAnswers} answers, {accuracyValue}% accuracy
+                    </div>
+                  </div>
+                  <Icon
+                    name={isOpen ? 'arrow-left' : 'arrow-right'}
+                    className="h-4 w-4 text-slate-500 dark:text-slate-300"
+                  />
+                </button>
+                {isOpen ? (
+                  <div className="space-y-1.5 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+                    {quiz.options.length === 0 ? (
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        No per option data available.
+                      </div>
+                    ) : (
+                      quiz.options.map((option) => {
+                        const count = Number(option.count || 0)
+                        const pct = totalAnswers ? Math.round((count / totalAnswers) * 100) : 0
+                        const isCorrect = quiz.answer_revealed && option.is_correct
+                        return (
+                          <div key={option.id}>
+                            <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                              <span className="truncate">
+                                <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                  {option.id}.
+                                </span>{' '}
+                                {option.text || ''}
+                                {isCorrect ? ' ✓' : ''}
+                              </span>
+                              <span>
+                                {count} ({pct}%)
+                              </span>
+                            </div>
+                            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                              <div
+                                className={`h-full rounded-full ${isCorrect ? 'bg-emerald-500' : 'bg-sky-500'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+}
+
+function AnalyticsGraphsView({ analytics }) {
+  const timeline = Array.isArray(analytics?.timeline) ? analytics.timeline : []
+
+  if (timeline.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+        No timeline data captured yet. Interactions like confusion signals and break votes will populate these graphs live.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <TimelineChart
+        points={timeline}
+        valueKey="confusion_level_percent"
+        label="Confusion level over time"
+        color="#f97316"
+        unit="%"
+      />
+      <TimelineChart
+        points={timeline}
+        valueKey="break_votes"
+        label="Break votes over time"
+        color="#0284c7"
+      />
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+        Hover a line to inspect its value at that point in the session.
       </div>
     </div>
   )

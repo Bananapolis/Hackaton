@@ -1,8 +1,8 @@
-# Project Documentation: VIA Live (MVP)
+# Project Documentation: Live Pulse (MVP)
 
 ## 1. Executive Summary
 
-This project is a browser-based, live screen-sharing application designed to solve the lack of student engagement and accommodate shy students in educational settings. Tailored for the faculty at VIA University College, the platform overlays real-time, anonymous student feedback (confusion alerts, break requests) and AI-generated interactive elements (quizzes) directly onto a live presentation feed.
+This project is a browser-based, live screen-sharing application designed to solve the lack of student engagement and accommodate shy students in educational settings. The platform overlays real-time, anonymous student feedback (confusion alerts, break requests) and AI-generated interactive elements (quizzes) directly onto a live presentation feed.
 
 **Primary Objective:** Deliver a fully functional, deployed Minimum Viable Product (MVP) within a 24-hour hackathon timeframe.
 
@@ -70,7 +70,8 @@ SQLite stores:
 - Stream-first layout with minimal always-on UI and on-demand layered panels.
 - Icon-first controls for high-frequency actions with hover tooltips.
 - Theme toggle (dark/light) with persisted user preference (default: light).
-- Session settings persistence for role, name, and last session code across browser restarts.
+- Session settings persistence for role and name across browser restarts.
+- Authenticated rejoin hint: after a quick refresh/tab close, users see a timed "Rejoin recent session" option if their last active session is still within the grace window.
 - Account authentication (register/login) before entering the live classroom workspace.
 - Session join URL supports `?code=ABC123` prefill for student devices.
 - Teacher stage includes a large on-screen QR code that encodes the student join URL.
@@ -117,6 +118,7 @@ The backend sends notes to Gemini when configured.
 * **UC-T6: Anonymous Question Moderation:** Receive notifications when anonymous student questions arrive, review queued questions, and mark each one as resolved.
 * **UC-T7: Analytics & Awards Dashboard:** Access post-session statistics, including attendance, aggregate engagement levels, quiz accuracy, class awards (e.g. most active student / most correct answers), and exported notes.
 * **UC-T8: Session Closure & Report Export:** End the live session from settings and download a full analytics PDF report with engagement score, participation rates, quiz outcomes, AI-generated insight recommendations, a dual-series engagement/confusion trend graph over session duration, and quiz performance visualization.
+* **UC-T9: Rejoin After Refresh:** If the host refreshes/closes and returns shortly, they get a direct rejoin option for the same live session.
 
 ### Actor 2: Student (Client)
 
@@ -128,6 +130,7 @@ The backend sends notes to Gemini when configured.
 * **UC-S6: Break Interface:** View the synchronized countdown timer indicating when the session resumes.
 * **UC-S7: Screen Explanation Help:** Click an "Explain the screen" action to receive a concise AI explanation of the current shared screen and what to focus on next.
 * **UC-S8: One-Minute Visual Replay:** Open a local replay popup to inspect screenshots from the previous minute. Capture/pruning is paused while the popup is open and resumes on close.
+* **UC-S9: Rejoin After Refresh:** If a student refreshes/closes and returns shortly, they get a direct rejoin option for their previous live session.
 
 ## 4. Repository Layout
 

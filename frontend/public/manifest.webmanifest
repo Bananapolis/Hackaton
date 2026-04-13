@@ -1,0 +1,32 @@
+{
+  "name": "VIA Live",
+  "short_name": "VIA Live",
+  "description": "Live classroom engagement platform — real-time signals, quizzes, and Q&A",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Join Session",
+      "url": "/?role=student",
+      "description": "Join a live classroom session"
+    }
+  ]
+}

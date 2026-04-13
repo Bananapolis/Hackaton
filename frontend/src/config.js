@@ -27,6 +27,15 @@ function inferWsBase() {
   return `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
 }
 
+function inferWhipBase() {
+  if (typeof window === 'undefined') return 'http://localhost:8889'
+  // Use same origin — Caddy (prod) and Vite (dev) both proxy /live/* to MediaMTX:8889.
+  // This avoids the plain-HTTP-on-8889 vs HTTPS mismatch that breaks WHIP/WHEP.
+  return window.location.origin
+}
+
+const WHIP_BASE = inferWhipBase()
+
 function normalizeIceServer(server) {
   if (!server || typeof server !== 'object') return null
 
@@ -71,6 +80,8 @@ function inferRtcIceServers() {
 export const config = {
   apiBase: API_BASE,
   wsBase: inferWsBase(),
+  whipBase: WHIP_BASE,
+  whepBase: WHIP_BASE, // WHIP/WHEP usually same port in MediaMTX
   rtcConfig: {
     iceServers: inferRtcIceServers(),
   },

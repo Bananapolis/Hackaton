@@ -1,6 +1,30 @@
 # Continuity Log
 
+## 2026-04-09
+
+- Fixed the dev stack crash loop by restoring the missing [mediamtx](../docker-compose.dev.yml) service in the dev compose file. The frontend nginx config proxies `/live/*` to MediaMTX unconditionally, so `web-dev` was restarting because the upstream did not exist on the shared `vialive` network.
+- Updated [scripts/deploy-dev.sh](../scripts/deploy-dev.sh) to export `EXTERNAL_IP` from [backend/.env](../backend/.env) before `docker compose` runs, so MediaMTX keeps advertising the public address needed for Android WebRTC streaming instead of falling back to `127.0.0.1`.
+- Reflected the staging stack change in [docs/dev-environment.md](../docs/dev-environment.md).
+
+## 2026-03-24
+
+- Created [CLAUDE.md](../CLAUDE.md) — comprehensive AI agent onboarding document covering repo
+  layout, local dev commands, test commands, WebSocket message protocol, runtime vs. persistent
+  state, AI quiz generation pattern, answer-gating rules, rejoin flow, code conventions, common
+  pitfalls, and a checklist of files to update after material changes.
+- Rewrote [AGENTS.md](../AGENTS.md) to add project-specific architecture guardrails (event loop
+  safety, answer gating, state separation), link to CLAUDE.md, and expand the definition-of-done
+  with concrete coverage thresholds.
+
 ## 2026-03-22
+
+- Added authenticated "rejoin after refresh/close" support across backend and frontend:
+  - backend runtime state in [backend/app/state.py](backend/app/state.py) now tracks short-lived recent participant presence per session,
+  - websocket handshake in [backend/app/routers/websocket.py](backend/app/routers/websocket.py) now accepts optional auth token query param, binds each connected client to a stable participant key, and stores disconnect/activity timestamps for rejoin eligibility,
+  - added [backend/app/routers/sessions.py](backend/app/routers/sessions.py) endpoint `GET /api/sessions/rejoin-status` (auth required) that returns a timed rejoin candidate for the current user,
+  - frontend in [frontend/src/App.jsx](frontend/src/App.jsx) now polls rejoin status while logged in and disconnected, surfaces a "Rejoin recent session" action in Session settings, and reconnects with role/name/session prefilled,
+  - added backend tests in [backend/tests/test_sessions.py](backend/tests/test_sessions.py) for available/expired rejoin status behavior,
+  - documented behavior in [README.md](README.md).
 
 - Added self-hosted TURN relay infrastructure to remove dependency on external TURN providers:
   - added `turn` (`coturn`) service in [docker-compose.yml](docker-compose.yml) with published TURN listener ports (`3478` TCP/UDP) and UDP relay range (`49160-49200`),
