@@ -63,14 +63,13 @@ export default function App() {
       await pc.setLocalDescription(offer);
 
       // Wait for ICE gathering to complete so the SDP contains actual
-      // a=candidate lines. Without this MediaMTX never receives reachable
-      // candidates, ICE fails, and the path is torn down before WHEP connects.
-      // Set handler BEFORE checking state to avoid a race condition.
+      // a=candidate lines. onicecandidate(null) is more reliable than
+      // onicegatheringstatechange in react-native-webrtc.
       await new Promise((resolve) => {
-        pc.onicegatheringstatechange = () => {
-          if (pc.iceGatheringState === 'complete') resolve();
+        if (pc.iceGatheringState === 'complete') { resolve(); return; }
+        pc.onicecandidate = (event) => {
+          if (event.candidate === null) resolve(); // null = end of candidates
         };
-        if (pc.iceGatheringState === 'complete') resolve();
         setTimeout(resolve, 10000); // safety: send after 10 s regardless
       });
 
@@ -80,11 +79,12 @@ export default function App() {
       const response = await fetch(whipUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/sdp' },
-        body: pc.localDescription.sdp, // use SDP updated with gathered candidates
+        body: pc.localDescription.sdp,
       });
 
       if (!response.ok) {
-        throw new Error(`Server rejected connection: ${response.status}`);
+        const body = await response.text().catch(() => '');
+        throw new Error(`Server rejected connection: ${response.status}${body ? ' — ' + body.slice(0, 120) : ''}`);
       }
 
       const answerSdp = await response.text();
