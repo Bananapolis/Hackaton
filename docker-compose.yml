@@ -40,7 +40,9 @@ services:
       # IMPORTANT: set EXTERNAL_IP in backend/.env to the server's public IP.
       # Without it MediaMTX emits 127.0.0.1 ICE candidates and WebRTC streams
       # connect but show a black screen on external clients.
-      MTX_WEBRTCADDITIONALHOSTS: ${EXTERNAL_IP:-127.0.0.1}
+      MTX_WEBRTCADDITIONALHOSTS: ${EXTERNAL_IP:-vialive.libreuni.com}
+      MTX_WEBRTCICEUDPMUXADDRESS: ":8189"
+      MTX_WEBRTCLOCALUDPADDRESS: ":8189"
     ports:
       - "1935:1935"
       - "8888:8888"

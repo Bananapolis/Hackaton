@@ -1613,8 +1613,12 @@ function App() {
 
           if (!response.ok) throw new Error(`WHEP offer failed (${response.status})`)
 
-          const answerSdp = await response.text()
+          let answerSdp = await response.text()
           if (cancelled) { pc?.close(); return }
+          // Safety net: rewrite loopback candidates if EXTERNAL_IP was not configured on server
+          if (answerSdp.includes('127.0.0.1')) {
+            answerSdp = answerSdp.replace(/127\.0\.0\.1/g, window.location.hostname)
+          }
           await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }))
           if (!cancelled) setStatus('External stream connected')
           return // success — stop retrying

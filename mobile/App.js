@@ -135,7 +135,15 @@ export default function App() {
         throw new Error(`Server rejected connection: ${response.status}${body ? '\n' + body.slice(0, 200) : ''}`);
       }
 
-      const answerSdp = await response.text();
+      let answerSdp = await response.text();
+
+      // Safety net: if MediaMTX advertises 127.0.0.1 (EXTERNAL_IP not configured),
+      // rewrite candidates to use the actual server host so ICE can connect.
+      if (answerSdp.includes('127.0.0.1')) {
+        const serverHost = new URL(cleanUrl).hostname;
+        answerSdp = answerSdp.replace(/127\.0\.0\.1/g, serverHost);
+      }
+
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
 
       // setIsBroadcasting(true) is called by oniceconnectionstatechange once ICE
