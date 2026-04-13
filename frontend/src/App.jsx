@@ -1450,7 +1450,11 @@ function App() {
     const stream = localStreamRef.current
     const videoEl = localVideoRef.current
     if (!stream || !videoEl) {
-      setError('Cannot freeze, screen share is not active.')
+      if (isStreamBridgeActive) {
+        setError('Freeze is not available when using the Android bridge.')
+      } else {
+        setError('Cannot freeze, screen share is not active.')
+      }
       return
     }
     const liveTrack = stream.getVideoTracks()[0]
